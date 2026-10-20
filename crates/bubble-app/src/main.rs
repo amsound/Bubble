@@ -1,5 +1,8 @@
 //! Bubble — cart player.
 
+// No console window behind the app on Windows (crash reports go to a file).
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod app;
 mod dialogs;
 mod fonts;

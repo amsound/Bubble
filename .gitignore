@@ -7,3 +7,4 @@ TestFiles/
 crates/dta-import/tests/fixtures/
 examples/
 docs/implementation-plan.md
+dist/
