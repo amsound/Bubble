@@ -136,7 +136,7 @@ impl AssetCache {
             .states
             .values()
             .filter_map(AssetState::buffer)
-            .map(|b| b.samples().len() as u64 * 4)
+            .map(|b| b.bytes())
             .sum();
         self.used.store(bytes, Ordering::Relaxed);
     }

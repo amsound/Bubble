@@ -18,7 +18,6 @@ pub fn compute_peaks(buf: &SampleBuffer) -> Peaks {
     let buckets = frames.min(MAX_BUCKETS);
     let per = frames as f64 / buckets as f64; // frames per bucket
     let ch = buf.channels() as usize;
-    let data = buf.samples();
     let mut min = vec![0.0f32; buckets];
     let mut max = vec![0.0f32; buckets];
     for b in 0..buckets {
@@ -26,11 +25,11 @@ pub fn compute_peaks(buf: &SampleBuffer) -> Peaks {
         let end = (((b + 1) as f64 * per) as usize).min(frames).max(start + 1);
         let (mut lo, mut hi) = (f32::MAX, f32::MIN);
         for f in start..end {
-            let frame = &data[f * ch..f * ch + ch];
             // Show the channel with the largest excursion so stereo content is never hidden.
-            for s in frame {
-                lo = lo.min(*s);
-                hi = hi.max(*s);
+            for c in 0..ch {
+                let s = buf.sample(f * ch + c);
+                lo = lo.min(s);
+                hi = hi.max(s);
             }
         }
         min[b] = lo;
@@ -47,9 +46,9 @@ pub fn compute_peaks(buf: &SampleBuffer) -> Peaks {
 pub fn find_audio_bounds(buf: &SampleBuffer, threshold_db: f32) -> Option<(f64, f64)> {
     let thr = 10f32.powf(threshold_db / 20.0);
     let ch = buf.channels() as usize;
-    let data = buf.samples();
-    let first = data.iter().position(|s| s.abs() >= thr)? / ch;
-    let last = data.iter().rposition(|s| s.abs() >= thr)? / ch;
+    let loud = |i: &usize| buf.sample(*i).abs() >= thr;
+    let first = (0..buf.len()).find(loud)? / ch;
+    let last = (0..buf.len()).rev().find(loud)? / ch;
     let rate = buf.sample_rate() as f64;
     Some((first as f64 / rate, (last + 1) as f64 / rate))
 }

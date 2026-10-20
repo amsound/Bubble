@@ -167,3 +167,13 @@ Audio is always played from memory, decoded once when a session opens; playback 
 ## D-35 Appearance and window place are per-machine preferences — Accepted (app)
 
 View → Appearance offers Follow System (default), Light and Dark; it is a machine preference, not part of a session, so a session looks right on whichever machine opens it. The main window's position, size and maximised state are saved to preferences a second after they stop changing (and on exit) and restored at launch, in logical points so the interface zoom does not shrink or grow the window. A maximised window keeps the place it returns to when un-maximised. Empty cells are drawn a shade lighter in dark mode so they stay visible.
+
+## D-36 Low-end and Windows performance — Accepted (app, audio)
+
+- Renderer: OpenGL (glow) on Windows and Linux, wgpu (Metal) on macOS; `BUBBLE_RENDERER=wgpu|glow` overrides. GPUs without DirectX 12 or Vulkan (e.g. Intel HD 3000) and virtual machines made wgpu draw on the CPU.
+- Idle redraw every 5 s (was 250 ms); 30 fps only while something plays or a meter moves. On a machine drawing in software each frame costs real CPU.
+- 16-bit audio at the engine rate is held as 16-bit (exact; detected from the decoded samples, so lossy and 24-bit stay float). A 32-file session went from 1.40 GB to 0.98 GB.
+- The Windows audio thread is promoted to real-time ("Pro Audio" MMCSS, falling back to time-critical priority) via cpal's `realtime` feature; CoreAudio already runs the callback on a real-time thread.
+- Windows uses the in-window menu bar (follows light/dark; Win32 menu bars do not), with its own keyboard shortcuts.
+- Touch: in edit mode a tap selects and plays on release, press-and-hold opens quick edit.
+- A session or SpotOn file passed at launch (dropped on Bubble.exe, Open With) opens. Error messages are selectable and can be copied.

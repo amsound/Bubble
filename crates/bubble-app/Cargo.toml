@@ -29,6 +29,5 @@ serde_json.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
 
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 muda.workspace = true
-raw-window-handle = "0.6"

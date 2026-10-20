@@ -140,7 +140,7 @@ pub struct Menu {
 }
 
 impl Menu {
-    #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn signature(&self) -> u64 {
         let mut h = DefaultHasher::new();
         self.hash(&mut h);
@@ -148,7 +148,74 @@ impl Menu {
     }
 }
 
-/// Draws the model as an egui menu bar (Linux, or when native menus fail).
+/// Runs the model's keyboard shortcuts for the in-window menu bar (the native macOS
+/// menu handles its own). Nothing happens while a text field has the keyboard, so
+/// Ctrl+C / V / X / Z keep working there.
+pub fn egui_shortcuts(ctx: &eframe::egui::Context, menu: &Menu, out: &mut Vec<Cmd>) {
+    if ctx.egui_wants_keyboard_input() {
+        return;
+    }
+    fn walk<'a>(items: &'a [Item], found: &mut Vec<(&'a str, &'a Cmd)>) {
+        for it in items {
+            match it {
+                Item::Sub { items, .. } => walk(items, found),
+                Item::Action {
+                    cmd,
+                    accel: Some(a),
+                    enabled: true,
+                    ..
+                } => found.push((a, cmd)),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for top in &menu.tops {
+        walk(&top.items, &mut found);
+    }
+    let mut shortcuts: Vec<_> = found
+        .into_iter()
+        .filter_map(|(a, cmd)| parse_accel(a).map(|s| (s, cmd)))
+        .collect();
+    // More modifiers first, so Ctrl+Shift+Z is not taken by Ctrl+Z.
+    shortcuts.sort_by_key(|(s, _)| {
+        std::cmp::Reverse(
+            s.modifiers.shift as u8 + s.modifiers.alt as u8 + s.modifiers.command as u8,
+        )
+    });
+    for (s, cmd) in shortcuts {
+        if ctx.input_mut(|i| i.consume_shortcut(&s)) {
+            out.push(cmd.clone());
+        }
+    }
+}
+
+/// "CmdOrCtrl+Shift+S" → Ctrl (⌘ on a Mac) + Shift + S.
+fn parse_accel(a: &str) -> Option<eframe::egui::KeyboardShortcut> {
+    use eframe::egui::{Key, KeyboardShortcut, Modifiers};
+    let parts: Vec<&str> = a.split('+').collect();
+    let (key, mods) = parts.split_last()?;
+    let mut m = Modifiers::NONE;
+    for p in mods {
+        m |= match *p {
+            "CmdOrCtrl" => Modifiers::COMMAND,
+            "Shift" => Modifiers::SHIFT,
+            "Alt" | "Option" => Modifiers::ALT,
+            "Ctrl" => Modifiers::CTRL,
+            _ => return None,
+        };
+    }
+    let key = match *key {
+        "Comma" => Key::Comma,
+        "Period" => Key::Period,
+        k => Key::from_name(k)?,
+    };
+    Some(KeyboardShortcut::new(m, key))
+}
+
+/// Draws the model as an egui menu bar (Windows and Linux, or when the native macOS
+/// menu fails). It follows the light/dark appearance, which Windows' own menu bar
+/// does not.
 pub fn egui_menu_bar(ui: &mut eframe::egui::Ui, menu: &Menu, out: &mut Vec<Cmd>) {
     eframe::egui::MenuBar::new().ui(ui, |ui| {
         for top in &menu.tops {
@@ -190,10 +257,10 @@ fn egui_items(ui: &mut eframe::egui::Ui, items: &[Item], out: &mut Vec<Cmd>) {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "macos")]
 pub use native::NativeMenu;
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "macos")]
 mod native {
     use std::collections::HashMap;
     use std::str::FromStr;
@@ -213,8 +280,6 @@ mod native {
         ids: HashMap<String, Cmd>,
         counter: u64,
         pub error: Option<String>,
-        #[cfg(target_os = "windows")]
-        hwnd: Option<isize>,
     }
 
     impl NativeMenu {
@@ -225,8 +290,6 @@ mod native {
                 ids: HashMap::new(),
                 counter: 0,
                 error: None,
-                #[cfg(target_os = "windows")]
-                hwnd: None,
             }
         }
 
@@ -240,16 +303,6 @@ mod native {
             }));
         }
 
-        #[cfg(target_os = "windows")]
-        pub fn set_window(&mut self, frame: &eframe::Frame) {
-            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-            if let Ok(h) = frame.window_handle() {
-                if let RawWindowHandle::Win32(w) = h.as_raw() {
-                    self.hwnd = Some(w.hwnd.get());
-                }
-            }
-        }
-
         /// Rebuilds the OS menu if the model changed.
         pub fn update(&mut self, model: &Menu) {
             let sig = model.signature();
@@ -260,7 +313,6 @@ mod native {
             self.ids.clear();
             let root = MudaMenu::new();
 
-            #[cfg(target_os = "macos")]
             {
                 let app = Submenu::new("Bubble", true);
                 let _ = app.append_items(&[
@@ -287,7 +339,6 @@ mod native {
                 let _ = root.append(&sub);
             }
 
-            #[cfg(target_os = "macos")]
             {
                 let window = Submenu::new("Window", true);
                 let _ = window.append_items(&[
@@ -298,24 +349,6 @@ mod native {
                 let _ = root.append(&window);
                 window.set_as_windows_menu_for_nsapp();
                 root.init_for_nsapp();
-            }
-            #[cfg(target_os = "windows")]
-            {
-                if let Some(old) = &self.menu {
-                    if let Some(h) = self.hwnd {
-                        // SAFETY: hwnd comes from the live eframe window.
-                        let _ = unsafe { old.remove_for_hwnd(h) };
-                    }
-                }
-                match self.hwnd {
-                    // SAFETY: hwnd comes from the live eframe window.
-                    Some(h) => {
-                        if let Err(e) = unsafe { root.init_for_hwnd(h) } {
-                            self.error = Some(e.to_string());
-                        }
-                    }
-                    None => self.error = Some("no window handle yet".into()),
-                }
             }
             self.menu = Some(root);
         }
@@ -396,5 +429,27 @@ mod native {
             let (tx, rx) = mpsc::sync_channel(1024);
             (tx, Receiver(Mutex::new(rx)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_accel;
+    use eframe::egui::{Key, Modifiers};
+
+    #[test]
+    fn accelerators_parse() {
+        let s = parse_accel("CmdOrCtrl+Shift+S").unwrap();
+        assert_eq!(s.logical_key, Key::S);
+        assert_eq!(s.modifiers, Modifiers::COMMAND | Modifiers::SHIFT);
+        assert_eq!(
+            parse_accel("CmdOrCtrl+Comma").unwrap().logical_key,
+            Key::Comma
+        );
+        assert_eq!(
+            parse_accel("CmdOrCtrl+Period").unwrap().logical_key,
+            Key::Period
+        );
+        assert!(parse_accel("Hyper+S").is_none());
     }
 }

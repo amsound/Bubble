@@ -218,6 +218,8 @@ pub struct BubbleApp {
     started: Instant,
     /// The main window moved or resized; saved to preferences once it settles.
     window_moved: Option<Instant>,
+    /// A session or SpotOn file named on the command line, opened on the first frame.
+    open_at_start: Option<PathBuf>,
     /// Set when the user chose to quit without saving.
     discard_on_exit: bool,
     attr_choice: AttrSet,
@@ -265,7 +267,7 @@ pub struct BubbleApp {
     had_focus: bool,
     /// Set by secondary windows during the frame.
     child_focus: bool,
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     native_menu: crate::menu::NativeMenu,
 }
 
@@ -310,6 +312,7 @@ impl BubbleApp {
             opening: None,
             started: Instant::now(),
             window_moved: None,
+            open_at_start: None,
             session_id: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
@@ -342,11 +345,11 @@ impl BubbleApp {
             last_title: String::new(),
             had_focus: true,
             child_focus: false,
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(target_os = "macos")]
             native_menu: crate::menu::NativeMenu::new(),
             repaint,
         };
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         {
             let r = app.repaint.clone();
             crate::menu::NativeMenu::set_wakeup(move || r());
@@ -362,7 +365,15 @@ impl BubbleApp {
                 report.display()
             ));
         }
-        if let Some(p) = app.prefs.last_project.clone() {
+        // A file given at launch (dropped on Bubble.exe, Open With → Bubble) opens
+        // instead of the last session.
+        app.open_at_start = std::env::args_os()
+            .skip(1)
+            .map(PathBuf::from)
+            .find(|p| p.is_file());
+        if app.open_at_start.is_none()
+            && let Some(p) = app.prefs.last_project.clone()
+        {
             app.start_open(p, true);
         }
         app
@@ -972,7 +983,7 @@ fn reveal(path: &std::path::Path) {
     let _ = std::process::Command::new("explorer")
         .arg(format!("/select,{}", path.display()))
         .spawn();
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(target_os = "macos"))]
     if let Some(dir) = path.parent() {
         let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
     }
@@ -1419,7 +1430,7 @@ fn modifier_names(m: egui::Modifiers) -> Vec<String> {
 impl eframe::App for BubbleApp {
     /// Runs on every shutdown path, including a system quit (Dock, AppleScript,
     /// logout) that bypasses the unsaved-changes prompt.
-    fn on_exit(&mut self) {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if self.window_moved.is_some() {
             let _ = self.prefs.save();
         }
@@ -1443,6 +1454,9 @@ impl eframe::App for BubbleApp {
         self.poll_open();
         let snap = self.snapshot();
         let mut intents = Vec::new();
+        if let Some(p) = self.open_at_start.take() {
+            self.open_any(p, &snap, &mut intents);
+        }
         self.fonts
             .apply(&ctx, snap.project.settings.display.font.as_deref());
         let dt = self.last_frame.elapsed().as_secs_f32();
@@ -1464,19 +1478,23 @@ impl eframe::App for BubbleApp {
 
         let model = self.build_menu(&snap);
         let mut cmds: Vec<Cmd> = Vec::new();
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         {
-            #[cfg(target_os = "windows")]
-            self.native_menu.set_window(frame);
             self.native_menu.update(&model);
             cmds.extend(self.native_menu.poll());
             if self.native_menu.error.is_some() {
+                crate::menu::egui_shortcuts(&ctx, &model, &mut cmds);
                 egui::Panel::top("menu")
                     .show(ui, |ui| crate::menu::egui_menu_bar(ui, &model, &mut cmds));
             }
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-        egui::Panel::top("menu").show(ui, |ui| crate::menu::egui_menu_bar(ui, &model, &mut cmds));
+        // Windows and Linux: the in-window menu bar, which follows light/dark.
+        #[cfg(not(target_os = "macos"))]
+        {
+            crate::menu::egui_shortcuts(&ctx, &model, &mut cmds);
+            egui::Panel::top("menu")
+                .show(ui, |ui| crate::menu::egui_menu_bar(ui, &model, &mut cmds));
+        }
         let _ = frame;
         for cmd in cmds {
             self.handle_cmd(cmd, &ctx, &snap, &mut intents);
@@ -1513,10 +1531,18 @@ impl eframe::App for BubbleApp {
             .values()
             .any(|r| matches!(r.state, CartState::Playing | CartState::Stopping));
         let metering = self.meters.values().any(|m| !m.is_idle());
-        if playing || metering || snap.pending > 0 {
+        // Redraw only while something moves. Idle, a slow tick keeps autosave and
+        // the clock-based status going; on a machine drawing in software every frame
+        // costs real CPU, so an idle window must not redraw several times a second.
+        if playing || metering {
             ctx.request_repaint_after(Duration::from_millis(33));
+        } else if snap.pending > 0 {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        } else if self.midi.active_recently(150) {
+            // Clears the MIDI activity light.
+            ctx.request_repaint_after(Duration::from_millis(200));
         } else {
-            ctx.request_repaint_after(Duration::from_millis(250));
+            ctx.request_repaint_after(Duration::from_secs(5));
         }
     }
 }
@@ -1602,9 +1628,9 @@ impl BubbleApp {
                 }));
             }
         }
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         let (save, open, new) = (false, false, false);
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(target_os = "macos"))]
         let (save, open, new) = ctx.input_mut(|i| {
             (
                 i.consume_key(egui::Modifiers::COMMAND, Key::S),
@@ -2665,6 +2691,10 @@ impl BubbleApp {
         let hovered_files = ui.input(|i| !i.raw.hovered_files.is_empty());
         let shift = mods.shift;
         let popup_open = self.quick_edit.is_some();
+        // Touch screens have no right button: in edit mode a tap selects (and plays) on
+        // release, and press-and-hold opens quick edit instead of playing. Show mode
+        // keeps play-on-press for the lowest latency.
+        let touch_edit = self.edit_mode && ui.input(|i| i.any_touches());
 
         for row in 0..page.rows {
             for col in 0..page.cols {
@@ -2707,13 +2737,18 @@ impl BubbleApp {
                         let cart = c.cart.id;
                         // Trigger on press, not on release.
                         // A click that only dismisses the quick-edit popup does not play.
-                        if hovered && primary_down && !shift && !mods.alt && !popup_open {
+                        let tap = touch_edit && resp.clicked() && !resp.long_touched();
+                        if (hovered && primary_down && !touch_edit || tap)
+                            && !shift
+                            && !mods.alt
+                            && !popup_open
+                        {
                             intents.push(Intent::PointerDown(cart, MouseButton::Primary));
                             self.pressed = Some(cart);
                             self.selected = Some(cart);
                             self.cursor_empty = None;
                         }
-                        if hovered && secondary_down {
+                        if (hovered && secondary_down) || (self.edit_mode && resp.long_touched()) {
                             if self.edit_mode {
                                 self.selected = Some(cart);
                                 self.quick_edit = Some((cart, pointer.unwrap_or(rect.center())));
@@ -3386,10 +3421,19 @@ impl BubbleApp {
         if let Some(err) = self.dialogs.error.clone() {
             let mut ok = false;
             let resp = egui::Modal::new(egui::Id::unique("error")).show(ctx, |ui| {
+                ui.set_max_width(520.0);
                 ui.heading("Problem");
-                ui.label(err);
+                // Selectable and copyable, so the exact message can be passed on.
+                egui::ScrollArea::vertical()
+                    .max_height(320.0)
+                    .show(ui, |ui| {
+                        ui.add(egui::Label::new(&err).selectable(true).wrap());
+                    });
                 crate::native::dialog_bar(ui, |ui| {
                     ok = ui.add(crate::native::primary("OK")).clicked();
+                    if ui.add(crate::native::secondary("Copy")).clicked() {
+                        ui.ctx().copy_text(err.clone());
+                    }
                 });
             });
             if ok || resp.should_close() {

@@ -35,6 +35,7 @@ fn main() -> eframe::Result {
                 width: 256,
                 height: 256,
             }),
+        renderer: renderer(),
         ..Default::default()
     };
     eframe::run_native(
@@ -42,4 +43,17 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(app::BubbleApp::new(cc)))),
     )
+}
+
+/// Graphics renderer. macOS: wgpu (Metal). Windows and Linux: OpenGL (glow), which
+/// older GPUs (e.g. Intel HD 3000: no DirectX 12 or Vulkan) and virtual machines run in
+/// hardware, where wgpu falls back to drawing on the CPU. `BUBBLE_RENDERER=wgpu` or
+/// `=glow` overrides it.
+fn renderer() -> eframe::Renderer {
+    match std::env::var("BUBBLE_RENDERER").as_deref() {
+        Ok("wgpu") => eframe::Renderer::Wgpu,
+        Ok("glow") => eframe::Renderer::Glow,
+        _ if cfg!(target_os = "macos") => eframe::Renderer::Wgpu,
+        _ => eframe::Renderer::Glow,
+    }
 }

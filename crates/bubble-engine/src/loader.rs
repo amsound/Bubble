@@ -182,6 +182,15 @@ fn peak_bytes(frames: u64, channels: u16, source_rate: u32, engine_rate: u32) ->
     }
 }
 
+/// Whether every sample is exactly a 16-bit value (16-bit PCM, FLAC or ALAC). Lossy
+/// and 24-bit audio fails at its first sample or so, so this is cheap when false.
+fn is_16_bit(samples: &[f32]) -> bool {
+    samples.iter().all(|x| {
+        let v = x * 32768.0;
+        v == v.round() && (-32768.0..=32767.0).contains(&v)
+    })
+}
+
 /// Resamples interleaved audio to `target_rate` (high-quality sinc).
 pub fn resample(audio: DecodedAudio, target_rate: u32) -> Result<DecodedAudio, LoadError> {
     if audio.sample_rate == target_rate {
@@ -246,8 +255,20 @@ pub fn load_for_engine_limited(
         channels: decoded.channels,
         frames: decoded.frames() as u64,
     };
+    let resampled = decoded.sample_rate != engine_rate;
     let decoded = resample(decoded, engine_rate)?;
-    let buf = SampleBuffer::from_interleaved(engine_rate, decoded.channels, decoded.samples);
+    // 16-bit (or narrower) sources not resampled are held as 16-bit: exact, and half
+    // the memory. Resampled, 24-bit, float and lossy audio stays 32-bit float.
+    let buf = if !resampled && is_16_bit(&decoded.samples) {
+        let ints = decoded
+            .samples
+            .iter()
+            .map(|x| (x * 32768.0).round().clamp(-32768.0, 32767.0) as i16)
+            .collect();
+        SampleBuffer::from_interleaved_i16(engine_rate, decoded.channels, ints)
+    } else {
+        SampleBuffer::from_interleaved(engine_rate, decoded.channels, decoded.samples)
+    };
     Ok((buf.shared(), info))
 }
 

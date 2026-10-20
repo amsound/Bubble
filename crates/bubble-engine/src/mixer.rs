@@ -268,23 +268,24 @@ fn pan_gains(pan: f32, channels: u16) -> (f32, f32) {
 
 /// Reads one source frame as a stereo pair.
 #[inline]
-fn source_lr(frame: &[f32]) -> (f32, f32) {
+fn source_lr(frame: crate::buffer::Frame<'_>) -> (f32, f32) {
     const M3DB: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let s = |c| frame.get(c);
     match frame.len() {
-        1 => (frame[0], frame[0]),
-        2 => (frame[0], frame[1]),
+        1 => (s(0), s(0)),
+        2 => (s(0), s(1)),
         // Quad (L R Ls Rs): fold surrounds at −3 dB.
-        4 => (frame[0] + frame[2] * M3DB, frame[1] + frame[3] * M3DB),
+        4 => (s(0) + s(2) * M3DB, s(1) + s(3) * M3DB),
         // 3 ch (L R C) and 5.1/7.1 in WAV order (L R C LFE Ls Rs …): centre and the first
         // surround pair at −3 dB, LFE and further channels dropped.
         n => {
-            let c = frame[2] * M3DB;
+            let c = s(2) * M3DB;
             let (ls, rs) = if n >= 6 {
-                (frame[4] * M3DB, frame[5] * M3DB)
+                (s(4) * M3DB, s(5) * M3DB)
             } else {
                 (0.0, 0.0)
             };
-            (frame[0] + c + ls, frame[1] + c + rs)
+            (s(0) + c + ls, s(1) + c + rs)
         }
     }
 }
@@ -716,11 +717,12 @@ impl Mixer {
                         v.pan_r.next();
                         let o = &mut out[i * ch + v.out_off..i * ch + v.out_off + 6];
                         for (c, s) in o.iter_mut().enumerate() {
-                            let x = a[c] + (b[c] - a[c]) * f;
+                            let (xa, xb) = (a.get(c), b.get(c));
+                            let x = xa + (xb - xa) * f;
                             *s += x * g;
                         }
-                        v.peak_l = v.peak_l.max((a[0] * g).abs());
-                        v.peak_r = v.peak_r.max((a[1] * g).abs());
+                        v.peak_l = v.peak_l.max((a.get(0) * g).abs());
+                        v.peak_r = v.peak_r.max((a.get(1) * g).abs());
                         if done {
                             finished = Some(v.pending_reason);
                             break;
