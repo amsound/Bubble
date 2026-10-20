@@ -188,6 +188,7 @@ impl Envelope {
     }
 }
 
+#[derive(Clone)]
 struct Voice {
     active: bool,
     cart: CartKey,
@@ -453,6 +454,26 @@ impl Mixer {
                     v.looping = looping;
                 }
             }
+            EngineCommand::Seek { cart, frame } => self.seek(cart, frame),
+            EngineCommand::SetRegion { cart, start, end } => {
+                for v in self
+                    .voices
+                    .iter_mut()
+                    .filter(|v| v.active && v.cart == cart)
+                {
+                    let frames = v.buffer.as_ref().map_or(0, |b| b.frames());
+                    let end = end.min(frames);
+                    if start < end {
+                        v.start = start;
+                        v.end = end;
+                        // Before the new In, or (looping) past the new Out: go to In.
+                        if v.pos < start || (v.looping && v.pos >= end) {
+                            v.pos = start;
+                            v.frac = 0.0;
+                        }
+                    }
+                }
+            }
             EngineCommand::SetMaster { gain } => self.master.set(gain.max(0.0), self.param_ramp),
             EngineCommand::SetLimiter { enabled } => {
                 self.limiter_enabled = enabled;
@@ -591,6 +612,47 @@ impl Mixer {
         }
         v.out_off = off;
         v.out_w = w;
+        self.emit(EngineEvent::VoiceStarted { cart, voice: id });
+    }
+
+    /// See [`EngineCommand::Seek`].
+    fn seek(&mut self, cart: CartKey, frame: usize) {
+        let Some(old) = self
+            .voices
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.active && v.cart == cart && !v.stopping())
+            .max_by_key(|(_, v)| v.started_seq)
+            .map(|(i, _)| i)
+        else {
+            return;
+        };
+        let mut copy = self.voices[old].clone();
+        let target = frame.clamp(copy.start, copy.end.saturating_sub(1).max(copy.start));
+        let ramp = self.declick.max(self.kill_ramp);
+        let kill = self.kill_ramp;
+        let v = &mut self.voices[old];
+        v.pending_reason = EndReason::Restarted;
+        v.env.release(kill, FadeCurve::Linear);
+        let slot = match self.voices.iter().position(|v| !v.active) {
+            Some(s) => s,
+            None => self.steal(),
+        };
+        let id = VoiceId(self.next_voice_id);
+        self.next_voice_id += 1;
+        self.seq += 1;
+        copy.id = id;
+        copy.pos = target;
+        copy.frac = 0.0;
+        copy.peak_l = 0.0;
+        copy.peak_r = 0.0;
+        copy.started_seq = self.seq;
+        copy.pending_reason = EndReason::Stopped;
+        copy.env = Envelope::start(Fade {
+            frames: ramp,
+            curve: FadeCurve::Linear,
+        });
+        self.voices[slot] = copy;
         self.emit(EngineEvent::VoiceStarted { cart, voice: id });
     }
 

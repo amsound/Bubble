@@ -932,3 +932,100 @@ fn starting_on_a_loud_sample_ramps_in_and_a_fading_loop_ends() {
     });
     assert!(ended, "ended at the Out point while fading");
 }
+
+#[test]
+fn seek_jumps_with_a_crossfade_and_keeps_pause_and_loop() {
+    let (mut h, mut m) = engine(8);
+    no_limiter(&mut h);
+    let buf = ramp(20_000);
+    play(
+        &mut h,
+        1,
+        &buf,
+        PlayParams {
+            start_frame: 1_000,
+            end_frame: Some(15_000),
+            looping: true,
+            ..Default::default()
+        },
+    );
+    render(&mut m, 100);
+    h.send(EngineCommand::Seek {
+        cart: CartKey(1),
+        frame: 14_900,
+    })
+    .unwrap();
+    let out = render(&mut m, 400);
+    // Old position fades out over ~2 ms (96 frames) while the new one fades in.
+    let mid = out[50 * 2];
+    assert!(mid > 1_100.0 && mid < 14_900.0, "crossfading: {mid}");
+    // After the ramp only the new position sounds; it reached Out and looped to In.
+    let late = out[300 * 2];
+    assert!(
+        (late - (1_000.0 + 200.0)).abs() < 2.0,
+        "looped from Out to In: {late}"
+    );
+    let ev = events(&mut h);
+    assert!(ev.iter().any(|e| matches!(
+        e,
+        EngineEvent::VoiceEnded {
+            reason: EndReason::Restarted,
+            ..
+        }
+    )));
+
+    // A paused voice (speed 0) stays paused at the new position.
+    h.send(EngineCommand::SetSpeed {
+        cart: CartKey(1),
+        speed: 0.0,
+        ramp_frames: 1,
+    })
+    .unwrap();
+    render(&mut m, 10);
+    h.send(EngineCommand::Seek {
+        cart: CartKey(1),
+        frame: 5_000,
+    })
+    .unwrap();
+    render(&mut m, 400);
+    let mut positions = Vec::new();
+    h.status()
+        .for_each_voice(|v| positions.push(v.position_frames));
+    // Positions are reported from the In point.
+    assert!(
+        positions.contains(&4_000),
+        "paused at the new place: {positions:?}"
+    );
+    render(&mut m, 400);
+    let mut again = Vec::new();
+    h.status().for_each_voice(|v| again.push(v.position_frames));
+    assert!(again.contains(&4_000), "still paused: {again:?}");
+}
+
+#[test]
+fn live_region_change_applies_to_the_playing_voice() {
+    let (mut h, mut m) = engine(8);
+    no_limiter(&mut h);
+    let buf = ramp(20_000);
+    play(
+        &mut h,
+        1,
+        &buf,
+        PlayParams {
+            looping: true,
+            ..Default::default()
+        },
+    );
+    render(&mut m, 5_000);
+    // New Out before the playhead: a looping voice goes to the new In.
+    h.send(EngineCommand::SetRegion {
+        cart: CartKey(1),
+        start: 2_000,
+        end: 4_000,
+    })
+    .unwrap();
+    let out = render(&mut m, 2_100);
+    assert_eq!(out[0], 2_000.0, "jumped to the new In");
+    assert_eq!(out[1_999 * 2], 3_999.0, "plays to the new Out");
+    assert_eq!(out[2_000 * 2], 2_000.0, "and loops to the new In");
+}

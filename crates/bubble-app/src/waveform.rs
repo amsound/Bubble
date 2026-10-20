@@ -69,6 +69,11 @@ pub struct WaveView {
     drag: Option<Drag>,
     /// Time under the pointer (seconds from file start), if it is over the waveform.
     pub hover_s: Option<f64>,
+    /// Play from here (seconds from file start): set by ⌥/Alt-click or a middle
+    /// click, and while dragging with either; taken by the caller.
+    pub seek_to: Option<f64>,
+    /// Pointer x of the last seek while dragging (seeks at most once per 2 px).
+    seek_x: Option<f32>,
 }
 
 impl Default for WaveView {
@@ -78,6 +83,8 @@ impl Default for WaveView {
             start_s: 0.0,
             drag: None,
             hover_s: None,
+            seek_to: None,
+            seek_x: None,
         }
     }
 }
@@ -192,7 +199,31 @@ pub fn waveform_ui(
     let out_x = t_to_x(*edit.out_s);
     let mut changed = false;
     let min_len = 0.001;
-    if let Some(pos) = resp.interact_pointer_pos() {
+    // ⌥/Alt-click or middle-click plays from the pointer (drag to keep moving it);
+    // plain clicks and drags set In and Out as before.
+    let (alt, pressed) = ui.input(|i| {
+        (
+            i.modifiers.alt,
+            i.pointer.button_pressed(egui::PointerButton::Middle)
+                || (i.modifiers.alt && i.pointer.button_pressed(egui::PointerButton::Primary)),
+        )
+    });
+    if alt && resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let seeking = resp.dragged_by(egui::PointerButton::Middle)
+        || (alt && resp.dragged_by(egui::PointerButton::Primary));
+    if let Some(p) = resp.hover_pos().or(resp.interact_pointer_pos())
+        && ((pressed && resp.hovered())
+            || (seeking && view.seek_x.is_none_or(|x| (x - p.x).abs() >= 2.0)))
+    {
+        view.seek_to = Some(x_to_t(p.x).clamp(0.0, dur));
+        view.seek_x = Some(p.x);
+    }
+    if !seeking && !pressed {
+        view.seek_x = None;
+    }
+    if let Some(pos) = resp.interact_pointer_pos().filter(|_| !alt && !seeking) {
         if resp.drag_started() {
             view.drag = if (pos.x - in_x).abs() < 8.0 {
                 Some(Drag::In)

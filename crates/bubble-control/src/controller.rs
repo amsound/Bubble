@@ -466,6 +466,10 @@ impl Controller {
                     let Some(id) = self.by_key.get(&cart.0).copied() else {
                         continue;
                     };
+                    // A restart (retrigger or seek) is already logged as a start.
+                    if reason == EndReason::Restarted {
+                        continue;
+                    }
                     let label = self.label(id);
                     self.log_push(Some(id), label, LogKind::Ended(reason));
                     if reason == EndReason::Completed {
@@ -951,6 +955,42 @@ impl Controller {
             });
         }
         out
+    }
+
+    /// Moves a playing cart to `seconds` from the start of its file (kept within
+    /// its In and Out), e.g. to audition a loop point without waiting for it.
+    pub fn seek(&mut self, cart: Uuid, seconds: f64) {
+        let key = self.key(cart);
+        let frame = (seconds.max(0.0) * self.rate() as f64).round() as usize;
+        self.send(EngineCommand::Seek { cart: key, frame });
+    }
+
+    /// Plays the Cart Setup draft from `seconds` from the start of its file.
+    pub fn preview_at(&mut self, draft: &Cart, seconds: f64) -> bool {
+        let started = self.preview(draft);
+        if started {
+            self.seek(draft.id, seconds);
+        }
+        started
+    }
+
+    /// Sets a playing cart's In and Out now (seconds from the file start; not saved).
+    pub fn set_live_trim(&mut self, cart: Uuid, in_s: f64, out_s: f64) {
+        let key = self.key(cart);
+        let rate = self.rate() as f64;
+        let start = (in_s.max(0.0) * rate).round() as usize;
+        let end = (out_s.max(0.0) * rate).round() as usize;
+        self.send(EngineCommand::SetRegion {
+            cart: key,
+            start,
+            end,
+        });
+    }
+
+    /// Turns looping on or off for a playing cart now (not saved).
+    pub fn set_live_loop(&mut self, cart: Uuid, looping: bool) {
+        let key = self.key(cart);
+        self.send(EngineCommand::SetLoop { cart: key, looping });
     }
 
     /// Sets a playing cart's gain now (not saved), e.g. while auditioning in Cart Setup.

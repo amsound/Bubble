@@ -116,6 +116,14 @@ enum Intent {
     /// Play a cart with unsaved Cart Setup settings.
     LiveGain(Uuid, f32, bool),
     LiveSpeedRamp(Uuid, f32, u32),
+    /// Cart Setup: turn looping on or off on the playing preview.
+    LiveLoop(Uuid, bool),
+    /// Cart Setup: new In and Out (seconds) for the playing preview.
+    LiveTrim(Uuid, f64, f64),
+    /// Cart Setup: move the playing preview to seconds from the file start.
+    Seek(Uuid, f64),
+    /// Cart Setup: start the preview at seconds from the file start.
+    PreviewAt(Cart, f64),
     /// Stop a cart at once, ignoring its fade-out.
     KillCart(Uuid),
     Preview(Cart),
@@ -678,6 +686,22 @@ impl BubbleApp {
                 }
                 Intent::LiveSpeedRamp(id, v, ms) => {
                     c.set_live_speed(id, v, ms);
+                    Ok(())
+                }
+                Intent::LiveLoop(id, looping) => {
+                    c.set_live_loop(id, looping);
+                    Ok(())
+                }
+                Intent::LiveTrim(id, a, b) => {
+                    c.set_live_trim(id, a, b);
+                    Ok(())
+                }
+                Intent::Seek(id, s) => {
+                    c.seek(id, s);
+                    Ok(())
+                }
+                Intent::PreviewAt(cart, s) => {
+                    c.preview_at(&cart, s);
                     Ok(())
                 }
                 Intent::KillCart(id) => {
@@ -3981,20 +4005,22 @@ impl BubbleApp {
             |ui| {
                 // Space plays/stops the preview; I and O set In and Out (at the playhead,
                 // or under the mouse when stopped). Not while typing in a field.
-                let (space, key_i, key_o) = if ui.ctx().egui_wants_keyboard_input() {
-                    (false, false, false)
+                // P plays the last seconds before Out, to hear the loop point.
+                let (space, key_i, key_o, key_p) = if ui.ctx().egui_wants_keyboard_input() {
+                    (false, false, false, false)
                 } else {
                     ui.ctx().input_mut(|i| {
                         (
                             i.consume_key(egui::Modifiers::NONE, Key::Space),
                             i.consume_key(egui::Modifiers::NONE, Key::I),
                             i.consume_key(egui::Modifiers::NONE, Key::O),
+                            i.consume_key(egui::Modifiers::NONE, Key::P),
                         )
                     })
                 };
                 self.keyboard(ui.ctx(), snap, intents);
                 let mut play_pause = space;
-                let before = (c.gain_db, c.muted, c.speed);
+                let before = (c.gain_db, c.muted, c.speed, c.looping);
                 let changed = c != cart;
 
                 // OK / Cancel, always at the bottom.
@@ -4242,6 +4268,11 @@ impl BubbleApp {
                                                         bw,
                                                         egui::Button::selectable(c.looping, "Loop"),
                                                     )
+                                                    .on_hover_text(
+                                                        "Loop. P plays the last 3 s before Out, so \
+                                                         you hear the loop point; ⌥-click (Alt-click) \
+                                                         or middle-click the waveform to play from there.",
+                                                    )
                                                     .clicked()
                                                 {
                                                     c.looping = !c.looping;
@@ -4294,6 +4325,29 @@ impl BubbleApp {
                                         out_frames: out_f.max(in_f + 1),
                                     })
                                 };
+                                // Heard straight away while auditioning.
+                                if playing {
+                                    intents.push(Intent::LiveTrim(id, in_s, out_s));
+                                }
+                            }
+                            // ⌥/Alt- or middle-click in the waveform plays from there; P
+                            // plays the last 3 s before Out to hear the loop point.
+                            let mut from = self.wave_view.seek_to.take().map(|t| (t, false));
+                            if key_p {
+                                from = Some(((out_s - 3.0).max(in_s), true));
+                            }
+                            if let Some((t, resume)) = from {
+                                let t = t.clamp(in_s, (out_s - 0.001).max(in_s));
+                                if playing {
+                                    intents.push(Intent::Seek(id, t));
+                                    if resume && self.setup_paused {
+                                        intents.push(Intent::LiveSpeedRamp(id, c.speed, 5));
+                                        self.setup_paused = false;
+                                    }
+                                } else {
+                                    intents.push(Intent::PreviewAt(c.clone(), t));
+                                    self.setup_paused = false;
+                                }
                             }
                         }
                     }
@@ -4495,6 +4549,10 @@ impl BubbleApp {
                     if c.speed != before.2 {
                         intents.push(Intent::LiveSpeedRamp(id, c.speed, 40));
                     }
+                }
+                // Loop on/off applies to the preview straight away, paused or not.
+                if playing && c.looping != before.3 {
+                    intents.push(Intent::LiveLoop(id, c.looping));
                 }
             },
         );

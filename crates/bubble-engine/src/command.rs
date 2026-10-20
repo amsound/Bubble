@@ -163,6 +163,18 @@ pub enum EngineCommand {
     },
     /// Turn looping on/off for playing voices (REF "Loop+").
     SetLoop { cart: CartKey, looping: bool },
+    /// Move a cart's playing voice to `frame` (buffer frames, kept within its In and
+    /// Out). The old position fades out over ~2 ms while a copy of the voice fades in
+    /// at the new one, so the jump does not click; gain, speed (including paused),
+    /// pan and looping carry over.
+    Seek { cart: CartKey, frame: usize },
+    /// Change a cart's playing In and Out (buffer frames), e.g. while trimming. A
+    /// voice already past the new Out loops to In or ends, as it would at Out.
+    SetRegion {
+        cart: CartKey,
+        start: usize,
+        end: usize,
+    },
     /// Master output gain (linear).
     SetMaster { gain: f32 },
     /// Enable/disable the output safety limiter.
