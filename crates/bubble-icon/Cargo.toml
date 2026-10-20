@@ -1,0 +1,12 @@
+[package]
+name = "bubble-icon"
+description = "Dev tool: renders assets/logo.svg into app icon images (macOS iconset, PNG)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+resvg.workspace = true
+anyhow.workspace = true

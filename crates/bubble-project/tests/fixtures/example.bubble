@@ -1,0 +1,169 @@
+{
+  "format": "bubble-project",
+  "format_version": 1,
+  "id": "6f1d2c0e-3b7a-4c55-9d0e-8a6f0e2b9c11",
+  "name": "Morning Show",
+  "created_with": "Bubble 0.1.0",
+  "modified_with": "Bubble 0.1.0",
+  "asset_search_paths": [".", "../Shared Library"],
+  "settings": {
+    "default_fade_out_ms": 100,
+    "default_retrigger": "restart",
+    "mouse_mode": "toggle",
+    "duplicate_binding_policy": "ganged",
+    "binding_scope": "global",
+    "numbering": "per_page",
+    "ending_warning_s": 3.0,
+    "master_gain_db": 0.0,
+    "limiter": true
+  },
+  "assets": [
+    {
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "path": "audio/jingles/Station ID.wav",
+      "absolute_hint": { "platform": "windows", "path": "D:\\Shows\\Morning Show\\audio\\jingles\\Station ID.wav" },
+      "fingerprint": { "algo": "blake3-head-tail-v1", "size": 1323044, "head_tail": "9f2c6a0d4e1b7a3c5d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e", "full": null },
+      "meta": { "sample_rate": 48000, "channels": 2, "frames": 330750, "codec": "pcm_s16le", "title": "Station ID" }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "path": "audio/beds/News Bed.flac",
+      "fingerprint": { "algo": "blake3-head-tail-v1", "size": 8820311, "head_tail": "0b7e1c2d3f4a5b6c7d8e9fa0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0", "full": null },
+      "meta": { "sample_rate": 44100, "channels": 2, "frames": 7938000, "codec": "flac" }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "path": "audio/sfx/Applause.mp3",
+      "fingerprint": { "algo": "blake3-head-tail-v1", "size": 412096, "head_tail": "c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5", "full": null },
+      "meta": { "sample_rate": 44100, "channels": 2, "frames": 452200, "codec": "mp3" }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "path": "../Shared Library/Tones/1kHz -18dBFS.wav",
+      "fingerprint": { "algo": "blake3-head-tail-v1", "size": 960044, "head_tail": "5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b", "full": null },
+      "meta": { "sample_rate": 48000, "channels": 2, "frames": 240000, "codec": "pcm_s16le" }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "path": "audio/sfx/Doorbell.wav",
+      "fingerprint": { "algo": "blake3-head-tail-v1", "size": 288044, "head_tail": "e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70", "full": null },
+      "meta": { "sample_rate": 48000, "channels": 1, "frames": 144000, "codec": "pcm_s16le" }
+    }
+  ],
+  "groups": [
+    { "id": "e1000000-0000-4000-8000-000000000001", "name": "Beds", "color": "#2E7D32" }
+  ],
+  "pages": [
+    {
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "name": "Live",
+      "rows": 4,
+      "cols": 6,
+      "cells": [
+        {
+          "row": 0, "col": 0,
+          "cart": {
+            "id": "c1000000-0000-4000-8000-000000000001",
+            "label": "Station ID",
+            "color": "#1565C0",
+            "asset": "a1000000-0000-4000-8000-000000000001",
+            "output": "A",
+            "gain_db": -1.5,
+            "pan": 0.0,
+            "fade_in": { "ms": 0, "curve": "equal_power", "depth_db": -80 },
+            "fade_out": { "ms": 250, "curve": "equal_power", "depth_db": -80 },
+            "on_play": { "stop": "all", "stop_fade": true },
+            "retrigger": "restart"
+          }
+        },
+        {
+          "row": 0, "col": 1,
+          "cart": {
+            "id": "c1000000-0000-4000-8000-000000000002",
+            "label": "News Bed (loop)",
+            "color": "#2E7D32",
+            "asset": "a1000000-0000-4000-8000-000000000002",
+            "gain_db": -9.0,
+            "loop": true,
+            "trim": { "in_frames": 22050, "out_frames": 7915950 },
+            "fade_in": { "ms": 1000, "curve": "equal_power", "depth_db": -80 },
+            "fade_out": { "ms": 3000, "curve": "equal_power", "depth_db": -80 },
+            "group": "e1000000-0000-4000-8000-000000000001",
+            "retrigger": "toggle_stop"
+          }
+        },
+        {
+          "row": 0, "col": 2,
+          "cart": {
+            "id": "c1000000-0000-4000-8000-000000000003",
+            "label": "Applause",
+            "color": "#F9A825",
+            "asset": "a1000000-0000-4000-8000-000000000003",
+            "gain_db": -3.0,
+            "pan": -0.25,
+            "retrigger": "overlap",
+            "fade_out": { "ms": 500, "curve": "exponential", "depth_db": -80 }
+          }
+        },
+        {
+          "row": 1, "col": 0,
+          "cart": {
+            "id": "c1000000-0000-4000-8000-000000000004",
+            "label": "Doorbell",
+            "color": "#6A1B9A",
+            "asset": "a1000000-0000-4000-8000-000000000005",
+            "retrigger": "overlap",
+            "play_delay_ms": 0,
+            "hold_to_play": false,
+            "play_next": "c1000000-0000-4000-8000-000000000003"
+          }
+        }
+      ]
+    },
+    {
+      "id": "f1000000-0000-4000-8000-000000000002",
+      "name": "Tech",
+      "rows": 2,
+      "cols": 4,
+      "cells": [
+        {
+          "row": 0, "col": 0,
+          "cart": {
+            "id": "c1000000-0000-4000-8000-000000000005",
+            "label": "Line-up tone",
+            "color": "#9E9E9E",
+            "asset": "a1000000-0000-4000-8000-000000000004",
+            "output": "B",
+            "loop": true,
+            "retrigger": "toggle_stop",
+            "notes": "Plays to the studio monitor bus only."
+          }
+        },
+        {
+          "row": 0, "col": 1,
+          "cart": {
+            "id": "c1000000-0000-4000-8000-000000000006",
+            "label": "(empty — reserved for promo)",
+            "color": "#424242",
+            "asset": null
+          }
+        }
+      ]
+    }
+  ],
+  "bindings": [
+    { "id": "b1000000-0000-4000-8000-000000000001", "source": { "kind": "key", "key": "F1", "modifiers": [] },
+      "action": "play", "targets": ["c1000000-0000-4000-8000-000000000001"] },
+    { "id": "b1000000-0000-4000-8000-000000000002", "source": { "kind": "key", "key": "F2", "modifiers": [] },
+      "action": "toggle", "targets": ["c1000000-0000-4000-8000-000000000002"] },
+    { "id": "b1000000-0000-4000-8000-000000000003", "source": { "kind": "midi", "device": "*", "channel": 1, "message": "note_on", "number": 60 },
+      "action": "play", "targets": ["c1000000-0000-4000-8000-000000000003"], "velocity_to_gain": false },
+    { "id": "b1000000-0000-4000-8000-000000000004", "source": { "kind": "midi", "device": "*", "channel": 1, "message": "note_on", "number": 61 },
+      "action": "play", "targets": ["c1000000-0000-4000-8000-000000000004"] },
+    { "id": "b1000000-0000-4000-8000-000000000005", "source": { "kind": "key", "key": "Escape", "modifiers": [] },
+      "action": "stop_all", "targets": [] },
+    { "id": "b1000000-0000-4000-8000-000000000006", "source": { "kind": "midi", "device": "*", "channel": 1, "message": "cc", "number": 123, "threshold": 1 },
+      "action": "stop_all", "targets": [] }
+  ],
+  "notes": "Example project for the Bubble replacement specification."
+}

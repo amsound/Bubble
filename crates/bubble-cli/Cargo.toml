@@ -1,0 +1,17 @@
+[package]
+name = "bubble-cli"
+description = "Headless test harness for the Bubble audio engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "bubble-cli"
+path = "src/main.rs"
+
+[dependencies]
+bubble-engine = { path = "../bubble-engine" }
+clap.workspace = true
+anyhow.workspace = true
+hound.workspace = true

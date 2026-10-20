@@ -1,0 +1,18 @@
+[package]
+name = "bubble-project"
+description = "Bubble project model (format v1), validation, asset resolution and safe persistence."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+blake3.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,9 @@
+target/
+.DS_Store
+
+# Not distributed: third-party test signals, SpotOn sample files and the
+# internal implementation plan (kept locally).
+TestFiles/
+crates/dta-import/tests/fixtures/
+examples/
+docs/implementation-plan.md

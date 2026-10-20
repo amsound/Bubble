@@ -1,0 +1,23 @@
+[package]
+name = "bubble-control"
+description = "Bubble control layer: input bindings, cart behaviours, asset arming, playout log."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bubble-engine = { path = "../bubble-engine" }
+bubble-project = { path = "../bubble-project" }
+crossbeam-channel.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "bubble-engine"
+description = "Real-time audio engine for Bubble: voices, mixer, device output, asset decoding."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cpal.workspace = true
+symphonia = { workspace = true, features = ["wav", "pcm", "aiff", "flac", "mp3", "aac", "isomp4", "alac", "ogg", "vorbis"] }
+rubato.workspace = true
+rtrb.workspace = true
+hound.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+hound.workspace = true
+assert_no_alloc.workspace = true

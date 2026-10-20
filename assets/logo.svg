@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Bubble app icon. The mark (bubble + play + trailing bubble) is also drawn in the
+       app with vector shapes (crates/bubble-app/src/logo.rs); keep the two in step. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F2B3D"/>
+      <stop offset="1" stop-color="#121A26"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="0.2" y1="0.1" x2="0.8" y2="0.95">
+      <stop offset="0" stop-color="#4FD1FF"/>
+      <stop offset="1" stop-color="#2F6BFF"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS icon grid: 824 × 824 rounded square centred on 1024 -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <!-- trailing bubbles -->
+  <circle cx="300" cy="736" r="62" fill="url(#bubble)"/>
+  <circle cx="226" cy="822" r="30" fill="url(#bubble)"/>
+  <!-- main bubble -->
+  <circle cx="548" cy="468" r="276" fill="url(#bubble)"/>
+  <!-- gloss -->
+  <path d="M 380 372 A 196 196 0 0 1 500 268" fill="none" stroke="#FFFFFF" stroke-opacity="0.55"
+        stroke-width="34" stroke-linecap="round"/>
+  <!-- play -->
+  <path d="M 492 352 L 492 584 Q 492 612 517 598 L 690 488 Q 712 474 690 460 L 517 352 Q 492 338 492 352 Z"
+        fill="#FFFFFF"/>
+</svg>
