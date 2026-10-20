@@ -163,3 +163,7 @@ Audio is always played from memory, decoded once when a session opens; playback 
 ## D-34 Cart Setup: play from here, loop-point audition, live loop and trims — Accepted (audio, app)
 
 ⌥/Alt-click or middle-click in the waveform plays from that point (the reference uses the middle button; trackpads have none), and dragging with either keeps moving it; plain clicks still set In (left) and Out (right). P plays from 3 s before Out, so with Loop on the Out→In join is heard at once. The engine moves a voice with a 2 ms crossfade to a copy of itself at the new position (`Seek`), keeping gain, speed (a paused voice stays paused), pan and looping. While previewing, Loop on/off and In/Out changes apply to the playing voice (`SetLoop`, `SetRegion`); a looping voice left past a new Out goes to In. Restarts and seeks are not logged as endings.
+
+## D-35 Appearance and window place are per-machine preferences — Accepted (app)
+
+View → Appearance offers Follow System (default), Light and Dark; it is a machine preference, not part of a session, so a session looks right on whichever machine opens it. The main window's position, size and maximised state are saved to preferences a second after they stop changing (and on exit) and restored at launch, in logical points so the interface zoom does not shrink or grow the window. A maximised window keeps the place it returns to when un-maximised. Empty cells are drawn a shade lighter in dark mode so they stay visible.

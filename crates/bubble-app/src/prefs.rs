@@ -40,6 +40,47 @@ impl OutputPref {
     }
 }
 
+/// Light or dark interface, or whatever the system uses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl From<Appearance> for eframe::egui::ThemePreference {
+    fn from(a: Appearance) -> Self {
+        match a {
+            Appearance::System => Self::System,
+            Appearance::Light => Self::Light,
+            Appearance::Dark => Self::Dark,
+        }
+    }
+}
+
+/// The main window's last place: outer position and inner size in logical points
+/// (zoom-independent), and whether it was maximised. When maximised, the position and
+/// size are those it returns to when un-maximised.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowPlace {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+impl WindowPlace {
+    /// Plausible enough to restore (not a size or place from a broken save).
+    pub fn usable(&self) -> bool {
+        let ok = |v: f32| v.is_finite() && v.abs() < 20_000.0;
+        ok(self.x) && ok(self.y) && ok(self.w) && ok(self.h) && self.w >= 640.0 && self.h >= 420.0
+    }
+}
+
 /// Default engine rate: 48 kHz (broadcast standard).
 pub const DEFAULT_SAMPLE_RATE: u32 = 48_000;
 
@@ -67,6 +108,10 @@ pub struct Prefs {
     pub outputs_custom_order: bool,
     /// Folder new sessions are created in (default ~/Documents/Bubble).
     pub session_root: Option<PathBuf>,
+    /// Light, dark, or follow the system.
+    pub appearance: Appearance,
+    /// Where the main window was, restored at launch.
+    pub window: Option<WindowPlace>,
 }
 
 fn dir() -> Option<PathBuf> {

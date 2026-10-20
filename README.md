@@ -37,6 +37,7 @@ Shortcuts are shown for macOS; on Windows use Ctrl for ⌘ and Alt for ⌥.
 | Pages | Tabs along the bottom: click to show, double-click to rename, drag to reorder, right-click for Copy / Paste Page and more. View → Page Bar Size for touch screens. |
 | Session settings | Session → Session Settings… (⌘,): name, output level, fades, ending warning, audio files (keep as imported or convert to WAV), tile font/sizes/alignment, exclusive groups. |
 | Outputs | Audio → Outputs…: tick stereo pairs, mono channels or 5.1 blocks per device (channels are shared out as a pool), alias and order them; Apply. Outputs are lettered A, B, … in device/channel order unless reordered. Audio → Reassign Cart Outputs… moves carts from one output to another for all pages, this page, a group or a range of buttons. |
+| Appearance | View → Appearance: Follow System (default), Light or Dark. The main window reopens where it was last left (position, size, maximised). |
 | Show mode | EDIT / SHOW button at the bottom left, or ⌘E: Show mode locks editing. |
 
 Sessions are folders: `Name.bubble` (JSON, paths relative to it) and `Audio/`. Move, copy or back up the folder and it opens on another machine or OS.

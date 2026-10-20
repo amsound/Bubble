@@ -66,6 +66,8 @@ pub enum Cmd {
     SpeedBar,
     /// Height of the bottom page/stop bar (0 small, 1 medium, 2 large).
     BarSize(u8),
+    /// Interface appearance: follow the system, light or dark.
+    Appearance(crate::prefs::Appearance),
     Quit,
 }
 

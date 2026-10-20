@@ -216,6 +216,8 @@ pub struct BubbleApp {
     /// Identifies this run's untitled recovery file.
     session_id: u64,
     started: Instant,
+    /// The main window moved or resized; saved to preferences once it settles.
+    window_moved: Option<Instant>,
     /// Set when the user chose to quit without saving.
     discard_on_exit: bool,
     attr_choice: AttrSet,
@@ -273,6 +275,7 @@ impl BubbleApp {
         if let Some(scale) = prefs.ui_scale {
             cc.egui_ctx.set_zoom_factor(scale);
         }
+        cc.egui_ctx.set_theme(prefs.appearance);
         // The last project is opened in the background (see `start_open`): reading a
         // file in a protected folder can block on a macOS privacy prompt, and the
         // window must appear regardless.
@@ -306,6 +309,7 @@ impl BubbleApp {
             clipboard: None,
             opening: None,
             started: Instant::now(),
+            window_moved: None,
             session_id: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
@@ -362,6 +366,58 @@ impl BubbleApp {
             app.start_open(p, true);
         }
         app
+    }
+
+    /// Keeps the main window's place in preferences (saved a second after it stops
+    /// changing, and on exit), so the next launch opens it in the same place.
+    fn track_window(&mut self, ctx: &egui::Context) {
+        let (outer, inner, maximized, fullscreen, minimized) = ctx.input(|i| {
+            let v = i.viewport();
+            (
+                v.outer_rect,
+                v.inner_rect,
+                v.maximized,
+                v.fullscreen,
+                v.minimized,
+            )
+        });
+        if minimized == Some(true) || fullscreen == Some(true) {
+            return;
+        }
+        let (Some(outer), Some(inner)) = (outer, inner) else {
+            return;
+        };
+        // Viewport rects are in UI points, which include the interface zoom; the
+        // window is placed in logical points.
+        let z = ctx.zoom_factor();
+        let maximized = maximized == Some(true);
+        let place = match (maximized, self.prefs.window) {
+            // Keep the un-maximised place to return to.
+            (true, Some(w)) => crate::prefs::WindowPlace {
+                maximized: true,
+                ..w
+            },
+            _ => crate::prefs::WindowPlace {
+                x: outer.min.x * z,
+                y: outer.min.y * z,
+                w: inner.width() * z,
+                h: inner.height() * z,
+                maximized,
+            },
+        };
+        if self.prefs.window != Some(place) {
+            self.prefs.window = Some(place);
+            self.window_moved = Some(Instant::now());
+        }
+        if self
+            .window_moved
+            .is_some_and(|t| t.elapsed() >= Duration::from_secs(1))
+        {
+            self.window_moved = None;
+            let _ = self.prefs.save();
+        } else if self.window_moved.is_some() {
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Controller> {
@@ -1364,6 +1420,9 @@ impl eframe::App for BubbleApp {
     /// Runs on every shutdown path, including a system quit (Dock, AppleScript,
     /// logout) that bypasses the unsaved-changes prompt.
     fn on_exit(&mut self) {
+        if self.window_moved.is_some() {
+            let _ = self.prefs.save();
+        }
         if self.discard_on_exit {
             self.remove_autosave();
         } else {
@@ -1373,6 +1432,7 @@ impl eframe::App for BubbleApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.track_window(&ctx);
         // For testing crash handling: BUBBLE_CRASH_TEST=1 panics a few seconds in.
         if std::env::var_os("BUBBLE_CRASH_TEST").is_some()
             && self.started.elapsed() > Duration::from_secs(3)
@@ -1999,6 +2059,17 @@ impl BubbleApp {
                     .map(|z| Item::action(format!("{z}%"), Cmd::Zoom(z)).check(z == zoom))
                     .collect(),
             ),
+            Item::sub("Appearance", {
+                use crate::prefs::Appearance as A;
+                [
+                    ("Follow System", A::System),
+                    ("Light", A::Light),
+                    ("Dark", A::Dark),
+                ]
+                .into_iter()
+                .map(|(n, a)| Item::action(n, Cmd::Appearance(a)).check(self.prefs.appearance == a))
+                .collect()
+            }),
             Item::Separator,
             Item::action("Playout Log", Cmd::ShowLog).accel("CmdOrCtrl+L"),
             Item::action("Audio Diagnostics", Cmd::ShowDiagnostics),
@@ -2203,6 +2274,11 @@ impl BubbleApp {
             }
             Cmd::BarSize(b) => {
                 self.prefs.bar_size = b.min(2);
+                let _ = self.prefs.save();
+            }
+            Cmd::Appearance(a) => {
+                self.prefs.appearance = a;
+                ctx.set_theme(a);
                 let _ = self.prefs.save();
             }
             Cmd::Zoom(z) => {

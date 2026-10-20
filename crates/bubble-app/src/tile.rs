@@ -118,7 +118,13 @@ pub fn group_label(cart: &Cart, project: &Project) -> Option<String> {
 pub fn paint_empty(ui: &egui::Ui, rect: Rect, st: &TileState) {
     let painter = ui.painter_at(rect.expand(3.0));
     let radius = CornerRadius::same(6);
-    painter.rect_filled(rect, radius, EMPTY_COLOR);
+    // A touch lighter on a dark background, so empty cells stay visible.
+    let empty = if ui.visuals().dark_mode {
+        Color32::from_rgb(0x36, 0x3A, 0x40)
+    } else {
+        EMPTY_COLOR
+    };
+    painter.rect_filled(rect, radius, empty);
     if st.edit_mode {
         painter.text(
             rect.center(),

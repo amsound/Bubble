@@ -16,10 +16,18 @@ mod tile;
 mod waveform;
 
 fn main() -> eframe::Result {
+    // The main window opens where it was last closed.
+    let place = prefs::Prefs::load().window.filter(|w| w.usable());
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_title("Bubble")
+        .with_inner_size(place.map_or([1200.0, 760.0], |w| [w.w, w.h]));
+    if let Some(w) = place {
+        viewport = viewport
+            .with_position([w.x, w.y])
+            .with_maximized(w.maximized);
+    }
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("Bubble")
-            .with_inner_size([1200.0, 760.0])
+        viewport: viewport
             .with_min_inner_size([640.0, 420.0])
             .with_drag_and_drop(true)
             .with_icon(eframe::egui::IconData {
