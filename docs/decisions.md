@@ -20,9 +20,9 @@ egui was chosen for v1 because:
 
 Accepted cost: weaker accessibility and less native look. The UI is a separate crate, so it can be replaced.
 
-## D-04 v1 asset residency: fully decoded and resampled to the engine rate at load — Accepted (v1), revisit
+## D-04 v1 asset residency: fully decoded and resampled to the engine rate at load — Accepted (v1), revised by D-37
 
-This is the simplest model that guarantees no I/O or decoding at trigger time. Streaming from disk is deferred until real projects show memory pressure. 48 kHz stereo f32 is about 23 MB per minute.
+This is the simplest model that guarantees no I/O or decoding at trigger time. Streaming from disk is deferred until real projects show memory pressure. 48 kHz stereo f32 is about 23 MB per minute. Since D-37 this holds for short files and compressed formats; long WAV/AIFF files are streamed.
 
 ## D-05 Retrigger, exclusive groups, stop-others-on-play are executed inside the engine — Accepted
 
@@ -177,3 +177,19 @@ View → Appearance offers Follow System (default), Light and Dark; it is a mach
 - Windows uses the in-window menu bar (follows light/dark; Win32 menu bars do not), with its own keyboard shortcuts.
 - Touch: in edit mode a tap selects and plays on release, press-and-hold opens quick edit.
 - A session or SpotOn file passed at launch (dropped on Bubble.exe, Open With) opens. Error messages are selectable and can be copied.
+
+## D-37 Long files stream from disk; a pre-roll head stays in memory — Accepted (audio)
+
+Holding every file decoded cost about 1 GB for a 32-file session, too much for old 4 GB machines. Like SpotOn (one ~1.3 s buffer per cart, refilled from an open file while playing), Bubble now keeps only the start of long files in memory and streams the rest.
+
+- **What streams.** WAV and AIFF files of 30 s or more (`PrepareOptions::stream_min_secs`). Shorter files (stings, effects) and compressed formats (MP3, AAC, FLAC, Ogg) are still decoded whole at load, as before: simplest and safest, and their seeks are not sample-exact. "Convert to WAV" (D-33) makes any file streamable.
+- **Heads.** Each streamed asset keeps a 2 s pre-roll at the engine rate (`Head`, 16-bit when the source is 16-bit at the engine rate) from the file start and from every cart's In point, plus the In point being edited in Cart Setup. A trigger plays from the head at once, never waiting for the disk. After a trim edit the asset is prepared again in the background with the new heads (it stays playable meanwhile). `Playable` is the shared, immutable thing a voice plays: resident buffer or heads + file.
+- **Reader.** One disk-reader thread (`Streamer`) serves every voice of every output. A trigger opens a `VoiceStream` on the control thread (allocating its `rtrb` ring, 4 s at the engine rate) and the reader starts filling at once from where the head ends — before the engine even sees the Play. The reader keeps its own decoder and streaming resampler per voice (rubato `Async` sinc, chunked), fills the emptiest ring first, and polls every 4 ms when idle. Several voices of one cart (Overlap, Restart's fade-out) each have their own stream.
+- **Jumps.** A loop wrap, `SetRegion` or `Seek` sends the reader a request: an epoch-tagged position in an atomic. The reader seeks, then acknowledges with the number of samples it had written before switching, so the voice drops exactly the stale samples still in the ring. The In head covers each loop wrap while the reader repositions. A seek's copy voice plays from a head if the target is in one, and takes the stream over when the old position has faded (2 ms); a target outside every head waits a few ms for the disk (counted as `stream_wait_frames`, not an underrun).
+- **Exact positions.** Resampled streams line up with a whole-file resample: decoding restarts at a source frame whose engine position is a whole number (a multiple of the rate ratio's denominator), 512 frames early so the filter settles. Heads are made by the same decoder, so head and stream join seamlessly; tests check streamed output against in-memory playback through loops, seeks, speed changes (0–400 %, pause) and resampling.
+- **Underruns.** The audio thread never blocks, allocates or frees for streaming. A voice whose data is not there plays silence and holds its place (and its fade-in) until the data comes; a voice that is stopping still fades and ends. Underruns are counted in `Diagnostics` (`stream_underruns`, `stream_underrun_frames`) and shown in Audio Diagnostics. A file that turns out shorter than stated (replaced on disk) ends the voice as at its Out point.
+- **Waveform.** Cart Setup's overview (and Top and tail's bounds at −40 dBFS) is read from the file once on a background thread when first needed and kept for the session; a flat placeholder shows meanwhile. Not cached on disk: one read per file per session is cheap (a 5-minute WAV in well under a second), and writing cache files beside a user's session would need managing.
+- **Memory.** "Audio memory" now counts resident files plus heads. On a replica of the 31-file "pkg am" session (926 MB of WAV, same formats, lengths and trims), the app's `footprint` after loading fell from 748 MB (926 MB of audio held, release build of `main`) to 102 MB (22 MB of heads). Each playing streamed voice adds its ring: 1.5 MB for 4 s of 48 kHz stereo.
+
+Not done: streaming for FLAC/MP3 (needs exact seeks verified per format); thread priority for the reader (normal priority keeps 4 s ahead easily).
+

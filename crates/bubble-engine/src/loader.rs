@@ -1,9 +1,10 @@
 //! Decoding and preparation of audio files (never called on the audio thread).
 //!
 //! Files are decoded with symphonia to interleaved `f32` and, if needed, resampled
-//! with rubato's sinc resampler to the engine rate (decision D-04).
+//! with rubato's sinc resampler to the engine rate (decision D-04). Long PCM files
+//! are not decoded whole: [`prepare`] keeps a pre-roll head in memory and the rest is
+//! streamed while playing (decision D-37).
 
-use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,14 +13,12 @@ use rubato::{
     Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
     WindowFunction,
 };
-use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::probe::Hint;
-use symphonia::core::formats::{FormatOptions, TrackType};
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
 
 use crate::buffer::SampleBuffer;
+use crate::decode::StreamDecoder;
+use crate::overview::{Overview, OverviewBuilder};
+use crate::playable::{Head, MAX_CHANNELS, Playable};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -82,40 +81,16 @@ pub fn decode_file_limited(
     engine_rate: u32,
     max_bytes: u64,
 ) -> Result<DecodedAudio, LoadError> {
-    let file = File::open(path).map_err(|e| LoadError::Open {
-        path: path.display().to_string(),
-        source: e,
-    })?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-    let mut format = symphonia::default::get_probe()
-        .probe(
-            &hint,
-            mss,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )
-        .map_err(|e| LoadError::Unsupported(e.to_string()))?;
-    let track = format
-        .default_track(TrackType::Audio)
-        .ok_or_else(|| LoadError::Unsupported("no audio track".into()))?;
-    let track_id = track.id;
-    let params = track
-        .codec_params
-        .as_ref()
-        .and_then(|p| p.audio())
-        .ok_or_else(|| LoadError::Unsupported("track has no audio parameters".into()))?
-        .clone();
-    let mut decoder = symphonia::default::get_codecs()
-        .make_audio_decoder(&params, &AudioDecoderOptions::default())
-        .map_err(|e| LoadError::Unsupported(e.to_string()))?;
-
-    let mut sample_rate = params.sample_rate.unwrap_or(0);
-    let mut channels = params.channels.as_ref().map_or(0, |c| c.count()) as u16;
-    if let Some(frames) = track.num_frames
+    let crate::decode::Opened {
+        mut format,
+        mut decoder,
+        track_id,
+        sample_rate,
+        channels,
+        frames,
+    } = crate::decode::open(path)?;
+    let (mut sample_rate, mut channels) = (sample_rate, channels);
+    if let Some(frames) = frames
         && sample_rate > 0
     {
         let needed = peak_bytes(frames, channels, sample_rate, engine_rate);
@@ -334,4 +309,168 @@ pub fn convert_to_wav(src: &Path, dst: &Path, engine_rate: u32) -> Result<Source
         let _ = std::fs::remove_file(&tmp);
     }
     result.map(|()| info)
+}
+
+/// How [`prepare`] holds audio.
+#[derive(Clone, Copy, Debug)]
+pub struct PrepareOptions {
+    /// Files at least this long (seconds) are streamed; shorter ones are held whole.
+    pub stream_min_secs: f64,
+    /// Length of each pre-roll head (seconds).
+    pub head_secs: f64,
+}
+
+impl Default for PrepareOptions {
+    fn default() -> Self {
+        PrepareOptions {
+            stream_min_secs: 30.0,
+            head_secs: 2.0,
+        }
+    }
+}
+
+/// Whether files like `path` can be streamed: uncompressed formats, where a seek is
+/// exact and cheap. Others (MP3, AAC, FLAC, Ogg…) are held whole in memory.
+pub fn is_streamable_format(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["wav", "wave", "aif", "aiff", "aifc"]
+            .iter()
+            .any(|x| e.eq_ignore_ascii_case(x))
+    })
+}
+
+/// Engine frame of source frame `frame` (rounded as the control layer rounds trims).
+pub fn engine_frame(frame: u64, source_rate: u32, engine_rate: u32) -> usize {
+    if source_rate == engine_rate || source_rate == 0 {
+        frame as usize
+    } else {
+        (frame as f64 * engine_rate as f64 / source_rate as f64).round() as usize
+    }
+}
+
+/// Prepares a file for the mixer at `engine_rate`. Short files (and formats that
+/// are not streamed) are decoded whole, refused beyond `max_bytes`; long ones keep a
+/// head in memory at each of `starts` (source frames; the file start is always
+/// included) and stream the rest.
+pub fn prepare(
+    path: &Path,
+    engine_rate: u32,
+    starts: &[u64],
+    opts: PrepareOptions,
+    max_bytes: u64,
+) -> Result<(Arc<Playable>, SourceInfo), LoadError> {
+    let probe = crate::decode::open(path)?;
+    let (rate, channels, frames) = (probe.sample_rate, probe.channels, probe.frames);
+    drop(probe);
+    let long = frames.is_some_and(|f| rate > 0 && f as f64 / rate as f64 >= opts.stream_min_secs);
+    if !(long && is_streamable_format(path) && (1..=MAX_CHANNELS as u16).contains(&channels)) {
+        let (buf, info) = load_for_engine_limited(path, engine_rate, max_bytes)?;
+        let buf = Arc::try_unwrap(buf).expect("fresh buffer");
+        return Ok((Playable::resident(buf), info));
+    }
+    let src_frames = frames.unwrap_or(0);
+    let info = SourceInfo {
+        sample_rate: rate,
+        channels,
+        frames: src_frames,
+    };
+    let total = if rate == engine_rate {
+        src_frames as usize
+    } else {
+        (src_frames as f64 * engine_rate as f64 / rate as f64).ceil() as usize
+    };
+    let head_len = ((opts.head_secs * engine_rate as f64) as usize).max(1);
+    let mut at: Vec<usize> = std::iter::once(0)
+        .chain(starts.iter().map(|s| engine_frame(*s, rate, engine_rate)))
+        .filter(|s| *s < total)
+        .collect();
+    at.sort_unstable();
+    at.dedup();
+    let mut heads = Vec::with_capacity(at.len());
+    let mut bytes = 0u64;
+    for start in at {
+        let head = read_head(path, engine_rate, start, head_len)?;
+        bytes += head.buffer.bytes();
+        if bytes > max_bytes {
+            return Err(LoadError::TooLarge {
+                needed: bytes,
+                free: max_bytes,
+            });
+        }
+        heads.push(head);
+    }
+    Ok((
+        Playable::streamed(path, engine_rate, channels, total, heads),
+        info,
+    ))
+}
+
+/// A head of `len` engine frames from `start`, decoded the way the disk reader does.
+pub fn read_head(
+    path: &Path,
+    engine_rate: u32,
+    start: usize,
+    len: usize,
+) -> Result<Head, LoadError> {
+    let mut d = StreamDecoder::open(path, engine_rate)?;
+    d.seek(start as u64)?;
+    let mut samples = Vec::with_capacity(len * d.channels() as usize);
+    d.read(&mut samples, len)?;
+    let buffer = if !d.resampled() && is_16_bit(&samples) {
+        let ints = samples
+            .iter()
+            .map(|x| (x * 32768.0).round().clamp(-32768.0, 32767.0) as i16)
+            .collect();
+        SampleBuffer::from_interleaved_i16(engine_rate, d.channels(), ints)
+    } else {
+        SampleBuffer::from_interleaved(engine_rate, d.channels(), samples)
+    };
+    Ok(Head {
+        start,
+        buffer: buffer.shared(),
+    })
+}
+
+/// Reads a whole file once (at its own rate, without holding it) for its waveform
+/// overview.
+pub fn scan_overview(path: &Path) -> Result<Overview, LoadError> {
+    let crate::decode::Opened {
+        mut format,
+        mut decoder,
+        track_id,
+        sample_rate,
+        channels,
+        frames,
+    } = crate::decode::open(path)?;
+    let frames = match frames {
+        Some(f) => f,
+        // Unknown length: count it first.
+        None => decode_file(path)?.frames() as u64,
+    };
+    let mut b = OverviewBuilder::new(frames, sample_rate, channels);
+    let mut scratch: Vec<f32> = Vec::new();
+    loop {
+        let packet = match format.next_packet() {
+            Ok(Some(p)) => p,
+            Ok(None) => break,
+            Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(LoadError::Decode(e.to_string())),
+        };
+        if packet.track_id != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(buf) => {
+                if buf.spec().channels().count() != channels as usize {
+                    continue;
+                }
+                scratch.resize(buf.samples_interleaved(), 0.0);
+                buf.copy_to_slice_interleaved(&mut scratch);
+                b.push(&scratch);
+            }
+            Err(SymError::DecodeError(_)) => continue,
+            Err(e) => return Err(LoadError::Decode(e.to_string())),
+        }
+    }
+    Ok(b.finish())
 }

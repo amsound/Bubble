@@ -88,6 +88,13 @@ pub struct EngineStatus {
     /// Longest callback processing time observed (ns), measured by the device layer.
     pub(crate) max_process_ns: AtomicU64,
     pub(crate) xruns: AtomicU64,
+    /// Times a streamed voice ran out of data mid-play (the disk reader fell behind).
+    pub(crate) stream_underruns: AtomicU64,
+    /// Frames output silent because of those underruns.
+    pub(crate) stream_underrun_frames: AtomicU64,
+    /// Frames a voice waited for the disk after a jump outside the pre-roll heads
+    /// (a seek or trim change), not counted as underruns.
+    pub(crate) stream_wait_frames: AtomicU64,
 }
 
 impl EngineStatus {
@@ -119,6 +126,9 @@ impl EngineStatus {
             output_latency_us: AtomicU64::new(0),
             max_process_ns: AtomicU64::new(0),
             xruns: AtomicU64::new(0),
+            stream_underruns: AtomicU64::new(0),
+            stream_underrun_frames: AtomicU64::new(0),
+            stream_wait_frames: AtomicU64::new(0),
         }
     }
 
@@ -227,6 +237,9 @@ impl EngineStatus {
             output_latency_us: self.output_latency_us.load(Relaxed),
             max_process_ns: self.max_process_ns.load(Relaxed),
             xruns: self.xruns.load(Relaxed),
+            stream_underruns: self.stream_underruns.load(Relaxed),
+            stream_underrun_frames: self.stream_underrun_frames.load(Relaxed),
+            stream_wait_frames: self.stream_wait_frames.load(Relaxed),
         }
     }
 }
@@ -249,4 +262,7 @@ pub struct Diagnostics {
     pub output_latency_us: u64,
     pub max_process_ns: u64,
     pub xruns: u64,
+    pub stream_underruns: u64,
+    pub stream_underrun_frames: u64,
+    pub stream_wait_frames: u64,
 }

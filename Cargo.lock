@@ -720,6 +720,7 @@ dependencies = [
  "bubble-engine",
  "bubble-project",
  "crossbeam-channel",
+ "hound",
  "libc",
  "tempfile",
  "thiserror 2.0.21",
@@ -737,6 +738,7 @@ dependencies = [
  "rtrb",
  "rubato",
  "symphonia",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

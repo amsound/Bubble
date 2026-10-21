@@ -17,7 +17,7 @@ use bubble_engine::device::{AudioOutput, OutputRequest, list_output_devices};
 use bubble_engine::loader::load_for_engine;
 use bubble_engine::{
     CartKey, Engine, EngineCommand, EngineConfig, EngineEvent, EngineHandle, Fade, FadeCurve,
-    PlayParams, Retrigger, SampleBuffer, StopTarget, db_to_gain, gain_to_db,
+    PlayParams, Playable, Retrigger, StopTarget, db_to_gain, gain_to_db,
 };
 use clap::{Parser, Subcommand};
 
@@ -134,7 +134,8 @@ fn open(dev: &DeviceOpts) -> Result<(AudioOutput, EngineHandle)> {
     Ok((out, handle))
 }
 
-fn load_all(files: &[PathBuf], rate: u32) -> Result<Vec<Arc<SampleBuffer>>> {
+/// Loads files whole into memory (the CLI does not stream).
+fn load_all(files: &[PathBuf], rate: u32) -> Result<Vec<Arc<Playable>>> {
     if files.is_empty() {
         bail!("no files given");
     }
@@ -151,7 +152,9 @@ fn load_all(files: &[PathBuf], rate: u32) -> Result<Vec<Arc<SampleBuffer>>> {
                 gain_to_db(b.peak()),
                 t.elapsed().as_millis()
             );
-            Ok(b)
+            Ok(Playable::resident(
+                Arc::try_unwrap(b).expect("freshly loaded buffer"),
+            ))
         })
         .collect()
 }
@@ -194,7 +197,8 @@ fn play(
     for (i, b) in bufs.iter().enumerate() {
         h.send(EngineCommand::Play {
             cart: CartKey(i as u32 + 1),
-            buffer: b.clone(),
+            audio: b.clone(),
+            stream: None,
             params: PlayParams {
                 gain: db_to_gain(gain_db),
                 looping,
@@ -278,7 +282,8 @@ fn console(files: &[PathBuf], dev: &DeviceOpts) -> Result<()> {
                 if let Some(n) = idx(1) {
                     h.send(EngineCommand::Play {
                         cart: CartKey(n as u32 + 1),
-                        buffer: bufs[n].clone(),
+                        audio: bufs[n].clone(),
+                        stream: None,
                         params: PlayParams {
                             gain: gains[n],
                             looping: loops[n],
@@ -339,7 +344,8 @@ fn render(files: &[PathBuf], out: &PathBuf, rate: u32, gain_db: f32, block: usiz
     for (i, b) in bufs.iter().enumerate() {
         h.send(EngineCommand::Play {
             cart: CartKey(i as u32 + 1),
-            buffer: b.clone(),
+            audio: b.clone(),
+            stream: None,
             params: PlayParams {
                 gain: db_to_gain(gain_db),
                 retrigger: Retrigger::Overlap,

@@ -15,6 +15,7 @@ use bubble_control::{
     AssetState, AttrSet, CartClip, CartRuntime, CartState, Controller, InputEvent, LogKind,
     MouseButton, TriggerSource, describe, display_label,
 };
+use bubble_engine::Overview;
 use bubble_engine::device::{AudioOutput, OutputDeviceInfo, list_output_devices};
 use bubble_project::{
     Action, Cart, Curve, ExclusiveGroup, FadeSpec, HAlign, Project, ProjectSettings, Retrigger,
@@ -38,7 +39,7 @@ use crate::midi::{MidiInputs, available_ports};
 use crate::native::{WindowSpec, native_window};
 use crate::prefs::Prefs;
 use crate::tile::{DEFAULT_CART_COLOR, TileState, fmt_precise, parse_color};
-use crate::waveform::{Peaks, TrimEdit, WaveView, compute_peaks, find_audio_bounds, waveform_ui};
+use crate::waveform::{TrimEdit, WaveView, waveform_ui};
 use session_ui::{AfterCreate, Job, NewSession};
 
 /// Output level presets offered in the Audio menu (dB).
@@ -227,8 +228,6 @@ pub struct BubbleApp {
     discard_on_exit: bool,
     attr_choice: AttrSet,
     wave_view: WaveView,
-    /// Waveform overviews keyed by asset id (and buffer identity).
-    peaks: HashMap<Uuid, (usize, Arc<Peaks>)>,
     devices: Vec<OutputDeviceInfo>,
     midi_ports: Vec<String>,
     fonts: FontState,
@@ -324,7 +323,6 @@ impl BubbleApp {
             discard_on_exit: false,
             attr_choice: AttrSet::ALL,
             wave_view: WaveView::default(),
-            peaks: HashMap::new(),
             devices: list_output_devices().unwrap_or_default(),
             midi_ports: available_ports(),
             fonts: FontState::default(),
@@ -500,7 +498,7 @@ impl BubbleApp {
             let s = match c.asset_state(a.id) {
                 Some(AssetState::Ready {
                     path,
-                    buffer,
+                    audio,
                     source,
                     changed,
                 }) => format!(
@@ -508,7 +506,7 @@ impl BubbleApp {
                     path.display(),
                     source.sample_rate,
                     source.channels,
-                    buffer.duration_secs(),
+                    audio.duration_secs(),
                     if *changed {
                         "\n⚠ file changed since it was assigned"
                     } else {
@@ -3553,7 +3551,8 @@ impl BubbleApp {
                      callback frames min/last/max {}/{}/{}\n\
                      reported output latency {:.2} ms\n\
                      max callback processing {:.3} ms\n\
-                     active voices {} · xruns {} · voices stolen {} · events dropped {}",
+                     active voices {} · xruns {} · voices stolen {} · events dropped {}\n\
+                     disk underruns {} ({} frames silent) · waits after a jump {} frames",
                     a.device_name,
                     a.sample_rate,
                     a.channels,
@@ -3567,7 +3566,10 @@ impl BubbleApp {
                     d.active_voices,
                     d.xruns,
                     d.voices_stolen,
-                    d.events_dropped
+                    d.events_dropped,
+                    d.stream_underruns,
+                    d.stream_underrun_frames,
+                    d.stream_wait_frames
                 ));
             }
             None => {
@@ -4162,10 +4164,18 @@ impl BubbleApp {
             Some(d) if d.id == id => d,
             _ => cart.clone(),
         };
-        let ready = cart.asset.and_then(|a| match self.lock().asset_state(a) {
-            Some(AssetState::Ready { buffer, source, .. }) => Some((a, buffer.clone(), *source)),
-            _ => None,
+        // The overview is read from the file in the background the first time.
+        let ready = cart.asset.and_then(|a| {
+            let mut ctl = self.lock();
+            let source = match ctl.asset_state(a) {
+                Some(AssetState::Ready { source, .. }) => *source,
+                _ => return None,
+            };
+            Some((a, ctl.asset_overview(a), source))
         });
+        if let Some((_, None, _)) = &ready {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         let title = format!("Cart Setup — {}", display_label(&cart, &snap.project));
         let out_labels = self.output_labels(&cart.output);
         let meter = self.meters.get(&id).copied().unwrap_or_default();
@@ -4293,7 +4303,10 @@ impl BubbleApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             tools.1 = ui.button("Zoom to fit").clicked();
                             tools.0 = ui
-                                .add_enabled(ready.is_some(), egui::Button::new("Top and tail"))
+                                .add_enabled(
+                                    matches!(ready, Some((_, Some(_), _))),
+                                    egui::Button::new("Top and tail"),
+                                )
                                 .on_hover_text("Trim silence below −40 dBFS")
                                 .clicked();
                         });
@@ -4310,18 +4323,12 @@ impl BubbleApp {
                                 .unwrap_or_else(|| "No audio file assigned.".into());
                             ui.label(info);
                         }
-                        Some((asset, buffer, source)) => {
-                            let key = Arc::as_ptr(buffer) as usize;
-                            let peaks = match self.peaks.get(asset) {
-                                Some((k, p)) if *k == key => p.clone(),
-                                _ => {
-                                    let p = Arc::new(compute_peaks(buffer));
-                                    self.peaks.insert(*asset, (key, p.clone()));
-                                    p
-                                }
-                            };
+                        Some((_, overview, source)) => {
                             let src_rate = source.sample_rate.max(1) as f64;
                             let full = source.frames as f64 / src_rate;
+                            let peaks = overview
+                                .clone()
+                                .unwrap_or_else(|| Arc::new(Overview::placeholder(full)));
                             let (mut in_s, mut out_s) = match c.trim {
                                 Some(t) => (
                                     t.in_frames as f64 / src_rate,
@@ -4366,7 +4373,7 @@ impl BubbleApp {
                             });
                             let mut num_changed = changed_w;
                             if tools.0
-                                && let Some((a, b)) = find_audio_bounds(buffer, -40.0)
+                                && let Some((a, b)) = peaks.audio_bounds()
                             {
                                 in_s = a;
                                 out_s = b;
