@@ -1749,6 +1749,39 @@ impl Controller {
         n
     }
 
+    /// Changes carts' output letters all at once (`B → A` and `C → B` together, never
+    /// one after the other), e.g. when outputs are removed or reordered on this
+    /// machine. Control buttons are left alone. One undo step; returns how many changed.
+    pub fn remap_outputs(&mut self, map: &HashMap<String, String>) -> usize {
+        let affected = self
+            .project
+            .carts()
+            .filter(|(_, c)| c.cart.control.is_none() && map.contains_key(&c.cart.output))
+            .count();
+        if affected == 0 {
+            return 0;
+        }
+        self.checkpoint("remap-outputs");
+        for cell in self
+            .project
+            .pages
+            .iter_mut()
+            .flat_map(|p| p.cells.iter_mut())
+        {
+            let c = &mut cell.cart;
+            if c.control.is_none()
+                && let Some(to) = map.get(&c.output)
+            {
+                c.output = to.clone();
+            }
+        }
+        self.mark_dirty();
+        self.info(format!(
+            "{affected} cart(s) followed their outputs to new letters"
+        ));
+        affected
+    }
+
     /// Copies a page's layout and carts.
     pub fn copy_page(&self, page: usize) -> Option<PageClip> {
         let p = self.project.pages.get(page)?;

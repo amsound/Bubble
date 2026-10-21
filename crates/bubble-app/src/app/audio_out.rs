@@ -244,14 +244,28 @@ impl BubbleApp {
     }
 
     /// Whether carts on `output` ("A", "B", …) are playing on the fallback.
+    /// Also true for a letter not set up on this machine (it plays on Output A).
     pub(super) fn is_rerouted(&self, output: &str) -> bool {
-        bubble_project::output_index(output).is_some_and(|i| self.watch.rerouted.contains(&i))
+        bubble_project::output_index(output)
+            .is_some_and(|i| !self.output_set_up(i) || self.watch.rerouted.contains(&i))
+    }
+
+    /// Whether output `index` (0 = A) is set up on this machine.
+    fn output_set_up(&self, index: usize) -> bool {
+        index < self.prefs.outputs.len().max(1)
     }
 
     /// Where a rerouted output is playing, for the tile's tooltip.
     pub(super) fn reroute_text(&self, output: &str) -> Option<String> {
         if !self.is_rerouted(output) {
             return None;
+        }
+        if !self.output_set_up(bubble_project::output_index(output)?) {
+            return Some(format!(
+                "Output {output} is not set up on this computer, so this cart plays on \
+                 Output A. Add it in Audio → Outputs, or move carts with Audio → Reassign \
+                 Cart Outputs."
+            ));
         }
         let device = self
             .prefs

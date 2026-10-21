@@ -54,6 +54,8 @@ pub enum Cmd {
     Limiter,
     ShowLog,
     ShowDiagnostics,
+    /// Shows Bubble's log file (start-up and audio events) in the file manager.
+    ShowLogs,
     Zoom(u32),
     /// Global output attenuation preset in dB.
     OutputLevel(i32),

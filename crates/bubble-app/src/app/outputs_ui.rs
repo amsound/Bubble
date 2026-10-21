@@ -278,6 +278,14 @@ impl BubbleApp {
             self.devices = bubble_engine::device::list_output_devices().unwrap_or_default();
         }
         if apply {
+            // Letters are positions in this list, so removing or reordering outputs
+            // changes them: carts follow their output to its new letter, and carts on a
+            // removed output go to Output A (one undo step).
+            let map = letter_changes(&self.prefs.effective_outputs(), &draft.list);
+            if !map.is_empty() {
+                let n = self.lock().remap_outputs(&map);
+                crate::log::info(&format!("outputs changed: {map:?}; {n} cart(s) updated"));
+            }
             self.prefs.outputs = draft.list.clone();
             self.prefs.outputs_custom_order = draft.custom_order;
             let _ = self.prefs.save();
@@ -591,5 +599,54 @@ mod tests {
             .map(|o| (o.device.as_str(), o.first_channel))
             .collect();
         assert_eq!(k, [("", 0), ("D", 0), ("D", 2), ("D", 4)]);
+    }
+}
+
+/// Old letter → new letter for every output whose letter changes between `old` and
+/// `new` (matched by device and channels); removed outputs map to "A".
+fn letter_changes(
+    old: &[crate::prefs::OutputPref],
+    new: &[crate::prefs::OutputPref],
+) -> std::collections::HashMap<String, String> {
+    let same = |a: &crate::prefs::OutputPref, b: &crate::prefs::OutputPref| {
+        a.device == b.device && a.first_channel == b.first_channel && a.channels == b.channels
+    };
+    old.iter()
+        .enumerate()
+        .filter_map(|(i, o)| {
+            let from = bubble_project::output_letter(i);
+            let to = new.iter().position(|n| same(o, n)).map_or_else(
+                || bubble_project::output_letter(0),
+                bubble_project::output_letter,
+            );
+            (from != to).then(|| (from.to_string(), to.to_string()))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod letter_tests {
+    use super::letter_changes;
+    use crate::prefs::OutputPref;
+
+    fn out(device: &str, first: u16) -> OutputPref {
+        OutputPref {
+            device: device.into(),
+            first_channel: first,
+            channels: 2,
+            alias: String::new(),
+        }
+    }
+
+    #[test]
+    fn carts_follow_outputs_and_removed_ones_go_to_a() {
+        let old = [out("", 0), out("Dante", 0), out("Dante", 2), out("USB", 0)];
+        // Dante 1–2 removed: Dante 3–4 and USB move up a letter.
+        let new = [out("", 0), out("Dante", 2), out("USB", 0)];
+        let m = letter_changes(&old, &new);
+        assert_eq!(m.get("B").map(String::as_str), Some("A"), "removed → A");
+        assert_eq!(m.get("C").map(String::as_str), Some("B"));
+        assert_eq!(m.get("D").map(String::as_str), Some("C"));
+        assert!(!m.contains_key("A"), "unchanged letters are left out");
     }
 }

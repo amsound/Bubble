@@ -40,6 +40,12 @@ pub fn secondary(text: &str) -> egui::Button<'static> {
     egui::Button::new(text.to_string()).min_size(egui::Vec2::new(90.0, 30.0))
 }
 
+/// Brings the window `key` (see [`WindowSpec`]) to the front: choosing a window
+/// that is already open, but behind the main window, shows it again.
+pub fn raise(ctx: &egui::Context, key: &str) {
+    ctx.send_viewport_cmd_to(ViewportId::from_hash_of(key), egui::ViewportCommand::Focus);
+}
+
 /// Shows a native window for this frame. Returns `(still_open, focused)`.
 /// The window stays open as long as the caller keeps calling this each frame.
 pub fn native_window(

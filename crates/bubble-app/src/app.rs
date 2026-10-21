@@ -220,6 +220,9 @@ pub struct BubbleApp {
     window_moved: Option<Instant>,
     /// A session or SpotOn file named on the command line, opened on the first frame.
     open_at_start: Option<PathBuf>,
+    /// When the open session started loading its audio (logged once it is ready).
+    loading_since: Option<Instant>,
+    first_frame_logged: bool,
     /// Set when the user chose to quit without saving.
     discard_on_exit: bool,
     attr_choice: AttrSet,
@@ -313,6 +316,8 @@ impl BubbleApp {
             started: Instant::now(),
             window_moved: None,
             open_at_start: None,
+            loading_since: None,
+            first_frame_logged: false,
             session_id: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
@@ -356,6 +361,15 @@ impl BubbleApp {
         }
         crash::install(app.ctrl.clone(), app.session_id);
         app.open_audio();
+        for a in &app.audio {
+            crate::log::info(&format!(
+                "audio output: {} at {} Hz, {} ch, {}",
+                a.device_name, a.sample_rate, a.channels, a.sample_format
+            ));
+        }
+        for e in app.output_errors.iter().chain(app.audio_error.iter()) {
+            crate::log::info(&format!("audio problem: {e}"));
+        }
         app.open_midi();
         app.find_recoverable();
         if let Some(report) = crash::take_unreported() {
@@ -823,6 +837,7 @@ impl BubbleApp {
 
     /// Reads a project on a helper thread; `poll_open` applies it.
     fn start_open(&mut self, path: PathBuf, startup: bool) {
+        crate::log::info(&format!("opening {}", path.display()));
         let (tx, rx) = std::sync::mpsc::channel();
         let repaint = self.repaint.clone();
         let p = path.clone();
@@ -846,6 +861,12 @@ impl BubbleApp {
         self.opening = None;
         match result {
             Ok(project) => {
+                crate::log::info(&format!(
+                    "opened: {} page(s), {} audio file(s)",
+                    project.pages.len(),
+                    project.assets.len()
+                ));
+                self.loading_since = Some(Instant::now());
                 self.lock().replace_project(project, Some(path.clone()));
                 self.selected = None;
                 self.saved_at = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
@@ -857,7 +878,10 @@ impl BubbleApp {
             }
             // A last project that no longer exists is not worth an error at start-up.
             Err(_) if startup && !path.exists() => {}
-            Err(e) => self.dialogs.error = Some(format!("Could not open {}:\n{e}", path.display())),
+            Err(e) => {
+                crate::log::info(&format!("could not open {}: {e}", path.display()));
+                self.dialogs.error = Some(format!("Could not open {}:\n{e}", path.display()));
+            }
         }
     }
 
@@ -1450,9 +1474,24 @@ impl eframe::App for BubbleApp {
         {
             panic!("crash test requested by BUBBLE_CRASH_TEST");
         }
+        if !self.first_frame_logged {
+            self.first_frame_logged = true;
+            crate::log::info("first frame drawn");
+        }
         self.watch_audio(&ctx);
         self.poll_open();
         let snap = self.snapshot();
+        if snap.pending == 0
+            && let Some(t) = self.loading_since.take()
+        {
+            let (used, _) = self.lock().audio_memory();
+            crate::log::info(&format!(
+                "audio ready in {:.1} s ({:.0} MB in memory, {} missing)",
+                t.elapsed().as_secs_f32(),
+                used as f64 / 1e6,
+                snap.missing.len()
+            ));
+        }
         let mut intents = Vec::new();
         if let Some(p) = self.open_at_start.take() {
             self.open_any(p, &snap, &mut intents);
@@ -2099,6 +2138,7 @@ impl BubbleApp {
             Item::Separator,
             Item::action("Playout Log", Cmd::ShowLog).accel("CmdOrCtrl+L"),
             Item::action("Audio Diagnostics", Cmd::ShowDiagnostics),
+            Item::action("Show Log File", Cmd::ShowLogs),
         ];
         Menu {
             tops: vec![
@@ -2214,7 +2254,10 @@ impl BubbleApp {
             Cmd::StopAll => intents.push(Intent::StopAll(true)),
             Cmd::StopPage => intents.push(Intent::StopPage(snap.page)),
             Cmd::StopAllNow => intents.push(Intent::StopAll(false)),
-            Cmd::Outputs => self.open_outputs_window(),
+            Cmd::Outputs => {
+                self.open_outputs_window();
+                crate::native::raise(ctx, "outputs");
+            }
             Cmd::ReassignOutputs => {
                 if self.dialogs.reassign.is_none() {
                     let cells = snap
@@ -2230,6 +2273,12 @@ impl BubbleApp {
                         first: 1,
                         last: cells,
                     });
+                }
+                crate::native::raise(ctx, "reassign");
+            }
+            Cmd::ShowLogs => {
+                if let Some(d) = crate::log::dir() {
+                    reveal(&d.join("bubble.log"));
                 }
             }
             Cmd::RevealSession => {
@@ -2288,11 +2337,23 @@ impl BubbleApp {
             Cmd::ScopeGlobal => settings.binding_scope = S::Global,
             Cmd::ScopePage => settings.binding_scope = S::CurrentPage,
             Cmd::Limiter => settings.limiter = !settings.limiter,
-            Cmd::ShowLog => self.dialogs.log = true,
-            Cmd::ShowDiagnostics => self.dialogs.diagnostics = true,
+            Cmd::ShowLog => {
+                self.dialogs.log = true;
+                crate::native::raise(ctx, "log");
+            }
+            Cmd::ShowDiagnostics => {
+                self.dialogs.diagnostics = true;
+                crate::native::raise(ctx, "diagnostics");
+            }
             Cmd::OutputLevel(db) => settings.master_gain_db = db as f32,
-            Cmd::ProjectSettings => self.dialogs.project_settings = true,
-            Cmd::PageSettings => self.dialogs.page_settings = Some(snap.page),
+            Cmd::ProjectSettings => {
+                self.dialogs.project_settings = true;
+                crate::native::raise(ctx, "project-settings");
+            }
+            Cmd::PageSettings => {
+                self.dialogs.page_settings = Some(snap.page);
+                crate::native::raise(ctx, "page-settings");
+            }
             Cmd::SpeedBar => {
                 if let Some(id) = sel {
                     self.open_speed_bar(id);
@@ -2556,6 +2617,7 @@ impl BubbleApp {
                 }
                 if ui.button("Page Settings…").clicked() {
                     self.dialogs.page_settings = Some(i);
+                    crate::native::raise(ui.ctx(), "page-settings");
                     ui.close();
                 }
                 ui.separator();
