@@ -1,0 +1,368 @@
+// Bubble main screen, Slint prototype: cart wall + bottom bar.
+// Throwaway: see ../README.md.
+
+import { Palette } from "std-widgets.slint";
+
+export enum CartState { empty, loading, missing, error, ready, playing, stopping }
+
+export struct Tile {
+    has-cart: bool,
+    number: int,
+    label: string,
+    bg: color,
+    fg: color,
+    output: string,
+    time: string,
+    progress: float,
+    ending: bool,
+    state: CartState,
+}
+
+export struct PageTab {
+    name: string,
+}
+
+export global Theme {
+    in-out property <bool> dark: Palette.color-scheme != ColorScheme.light;
+    out property <color> window-bg: dark ? #17191c : #e9ecf0;
+    out property <color> bar-bg: dark ? #202327 : #d9dde3;
+    out property <color> empty-tile: dark ? #2a2d31 : #cfd4da;
+    out property <color> empty-text: dark ? #5a6068 : #8a929c;
+    out property <color> button: dark ? #3a3f46 : #c3c9d1;
+    out property <color> button-text: dark ? #e8e8e8 : #1c1f23;
+    out property <color> accent: #f0a030;
+    out property <color> popup-bg: dark ? #2b2f35 : #fbfbfc;
+    out property <color> popup-text: dark ? #eeeeee : #1c1f23;
+    out property <color> popup-hover: dark ? #3d434b : #e3e7ec;
+}
+
+component BarButton inherits Rectangle {
+    in property <string> text;
+    in property <color> fill: Theme.button;
+    in property <color> text-color: Theme.button-text;
+    in property <length> font-size: 14px;
+    in property <bool> bold: true;
+    callback clicked;
+    border-radius: 5px;
+    preferred-width: label.preferred-width + 24px;
+    background: ta.pressed ? fill.darker(25%) : ta.has-hover ? fill.brighter(10%) : fill;
+    label := Text {
+        text: root.text;
+        color: root.text-color;
+        font-size: root.font-size;
+        font-weight: root.bold ? 700 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        width: parent.width - 8px;
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component TileView inherits Rectangle {
+    in property <Tile> tile;
+    callback press();
+    callback release();
+    callback tap();
+    callback menu();
+
+    // A touch press waits for release (tap plays) or 500 ms (opens the menu).
+    property <bool> holding;
+    property <bool> held;
+
+    property <bool> playing: tile.state == CartState.playing;
+    property <bool> stopping: tile.state == CartState.stopping;
+    property <length> small: max(10px, min(self.height * 0.13, 16px));
+
+    border-radius: 6px;
+    clip: true;
+    background: !tile.has-cart ? Theme.empty-tile
+        : (tile.state == CartState.missing || tile.state == CartState.error) ? tile.bg.darker(45%)
+        : stopping ? tile.bg.darker(25%)
+        : ta.pressed ? tile.bg.brighter(15%)
+        : tile.bg;
+    border-width: playing ? 3px : 0px;
+    border-color: #ffffff;
+
+    // Top row: number left, output badge right.
+    Text {
+        x: 7px;
+        y: 5px;
+        text: tile.number;
+        font-size: root.small;
+        color: tile.has-cart ? tile.fg.transparentize(35%) : Theme.empty-text;
+    }
+
+    if tile.has-cart && tile.output != "": Rectangle {
+        x: root.width - self.width - 6px;
+        y: 5px;
+        height: root.small + 6px;
+        width: badge.preferred-width + 10px;
+        border-radius: 3px;
+        background: #00000040;
+        badge := Text {
+            text: tile.output;
+            font-size: root.small * 0.9;
+            color: #ffffff;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    // Label.
+    Text {
+        x: 8px;
+        y: root.small + 10px;
+        width: root.width - 16px;
+        height: root.height - 2 * (root.small + 12px);
+        text: tile.label;
+        color: tile.has-cart ? tile.fg : Theme.empty-text;
+        font-size: max(12px, min(root.height * 0.17, root.width * 0.09, 30px));
+        font-weight: 600;
+        wrap: word-wrap;
+        overflow: elide;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    // Bottom right: remaining time (playing), duration (ready) or state.
+    Text {
+        x: root.width - self.width - 7px;
+        y: root.height - self.height - (playing ? 16px : 6px);
+        text: tile.time;
+        font-size: root.small * 1.15;
+        font-weight: playing ? 700 : 400;
+        color: (tile.state == CartState.missing || tile.state == CartState.error) ? #ff6b6b : tile.fg;
+    }
+
+    // Progress.
+    if playing: Rectangle {
+        x: 5px;
+        y: root.height - 13px;
+        height: 8px;
+        width: root.width - 10px;
+        border-radius: 2px;
+        background: #0000006e;
+        Rectangle {
+            x: 0;
+            border-radius: 2px;
+            width: parent.width * clamp(tile.progress, 0, 1);
+            background: tile.ending ? #ff5030 : #40ff80;
+        }
+    }
+
+    hold-timer := Timer {
+        interval: 500ms;
+        running: root.holding;
+        triggered => {
+            root.holding = false;
+            root.held = true;
+            root.menu();
+        }
+    }
+
+    ta := TouchArea {
+        enabled: tile.has-cart;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                if e.button == PointerEventButton.right {
+                    root.menu();
+                } else if e.button == PointerEventButton.left {
+                    if e.touch-finger-id != 0 {
+                        root.held = false;
+                        root.holding = true;
+                    } else {
+                        root.press();
+                    }
+                }
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                if root.holding {
+                    root.holding = false;
+                    if e.kind == PointerEventKind.up {
+                        root.tap();
+                    }
+                } else if !root.held && e.button != PointerEventButton.right {
+                    root.release();
+                }
+                root.held = false;
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    in property <string> title-text: "Bubble (Slint prototype)";
+    title: title-text;
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.window-bg;
+
+    in property <[Tile]> tiles;
+    in property <int> rows: 4;
+    in property <int> cols: 5;
+    in property <[PageTab]> pages;
+    in property <int> current-page;
+    in property <string> status;
+
+    callback press(int);
+    callback release(int);
+    callback tap(int);
+    callback select-page(int);
+    callback stop-page();
+    callback stop-all();
+    callback menu-action(int, string);
+
+    property <length> gap: 6px;
+    property <length> pad: 8px;
+    property <length> bar-h: max(48px, min(self.height * 0.085, 72px));
+    property <length> wall-w: self.width - 2 * pad;
+    property <length> wall-h: self.height - bar-h - 2 * pad;
+    property <length> tile-w: (wall-w - (cols - 1) * gap) / max(cols, 1);
+    property <length> tile-h: (wall-h - (rows - 1) * gap) / max(rows, 1);
+
+    property <int> menu-index: -1;
+    property <length> menu-x;
+    property <length> menu-y;
+
+    for t[i] in tiles: TileView {
+        x: pad + mod(i, cols) * (tile-w + gap);
+        y: pad + floor(i / cols) * (tile-h + gap);
+        width: tile-w;
+        height: tile-h;
+        tile: t;
+        press => { root.press(i); }
+        release => { root.release(i); }
+        tap => { root.tap(i); }
+        menu => {
+            root.menu-index = i;
+            root.menu-x = min(self.x + self.width / 2, root.width - 200px);
+            root.menu-y = min(self.y + self.height / 2, root.height - 170px);
+            menu.show();
+        }
+    }
+
+    // Bottom bar.
+    Rectangle {
+        x: 0;
+        y: root.height - bar-h;
+        width: root.width;
+        height: bar-h;
+        background: Theme.bar-bg;
+
+        property <length> m: 6px;
+        property <length> btn-h: self.height - 2 * m;
+        property <length> font: max(12px, btn-h * 0.32);
+        property <length> stop-w: max(130px, btn-h * 3);
+        property <length> stop-page-w: max(110px, btn-h * 2.4);
+        property <length> theme-w: max(64px, btn-h * 1.4);
+        property <length> tabs-w: self.width - stop-w - stop-page-w - theme-w - 5 * m - 12px;
+
+        BarButton {
+            x: m;
+            y: m;
+            width: theme-w;
+            height: btn-h;
+            // Words, not ☀/☾: the software renderer has no fallback font for symbols.
+            text: Theme.dark ? "Light" : "Dark";
+            font-size: font * 0.8;
+            clicked => { Theme.dark = !Theme.dark; }
+        }
+
+        Flickable {
+            x: theme-w + 2 * m + 6px;
+            y: m;
+            width: max(0px, tabs-w);
+            height: btn-h;
+            content-width: max(self.width, tabs.preferred-width);
+            tabs := HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                for p[i] in pages: BarButton {
+                    min-width: max(btn-h * 1.6, 80px);
+                    text: p.name;
+                    font-size: font * 0.85;
+                    bold: i == current-page;
+                    fill: i == current-page ? Theme.accent : Theme.button;
+                    text-color: i == current-page ? #1c1f23 : Theme.button-text;
+                    clicked => { root.select-page(i); }
+                }
+            }
+        }
+
+        BarButton {
+            x: parent.width - stop-w - stop-page-w - 2 * m;
+            y: m;
+            width: stop-page-w;
+            height: btn-h;
+            text: "■ STOP PAGE";
+            font-size: font * 0.95;
+            clicked => { root.stop-page(); }
+        }
+        BarButton {
+            x: parent.width - stop-w - m;
+            y: m;
+            width: stop-w;
+            height: btn-h;
+            text: "■ STOP ALL";
+            fill: #b02020;
+            text-color: #ffffff;
+            font-size: font * 1.1;
+            clicked => { root.stop-all(); }
+        }
+    }
+
+    if status != "": Rectangle {
+        x: (root.width - self.width) / 2;
+        y: root.height - bar-h - self.height - 8px;
+        width: st.preferred-width + 24px;
+        height: st.preferred-height + 12px;
+        border-radius: 6px;
+        background: #000000c0;
+        st := Text {
+            text: status;
+            color: #ffffff;
+            font-size: 13px;
+        }
+    }
+
+    menu := PopupWindow {
+        x: menu-x;
+        y: menu-y;
+        width: 190px;
+        Rectangle {
+            background: Theme.popup-bg;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.popup-text.transparentize(80%);
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 4px;
+                for item in [
+                    { id: "play", text: "Play" },
+                    { id: "stop", text: "Stop (fade)" },
+                    { id: "edit", text: "Quick edit…" },
+                    { id: "setup", text: "Cart Setup…" },
+                ]: Rectangle {
+                    height: 40px;
+                    border-radius: 4px;
+                    background: mta.has-hover || mta.pressed ? Theme.popup-hover : transparent;
+                    Text {
+                        x: 12px;
+                        text: item.text;
+                        color: Theme.popup-text;
+                        font-size: 15px;
+                        vertical-alignment: center;
+                    }
+                    mta := TouchArea {
+                        clicked => { root.menu-action(root.menu-index, item.id); }
+                    }
+                }
+            }
+        }
+    }
+}

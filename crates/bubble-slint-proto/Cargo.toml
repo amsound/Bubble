@@ -1,0 +1,22 @@
+[package]
+name = "bubble-slint-proto"
+description = "Throwaway Slint prototype of Bubble's main screen, for comparison with the egui UI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "bubble-slint-proto"
+path = "src/main.rs"
+
+[dependencies]
+bubble-engine = { path = "../bubble-engine" }
+bubble-project = { path = "../bubble-project" }
+bubble-control = { path = "../bubble-control" }
+slint = "1.18.1"
+uuid.workspace = true
+
+[build-dependencies]
+slint-build = "1.18.1"
