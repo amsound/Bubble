@@ -222,6 +222,8 @@ pub struct BubbleApp {
     open_at_start: Option<PathBuf>,
     /// When the open session started loading its audio (logged once it is ready).
     loading_since: Option<Instant>,
+    /// Most audio files seen waiting at once, for the "n of total" progress.
+    loading_total: usize,
     first_frame_logged: bool,
     /// Set when the user chose to quit without saving.
     discard_on_exit: bool,
@@ -317,6 +319,7 @@ impl BubbleApp {
             window_moved: None,
             open_at_start: None,
             loading_since: None,
+            loading_total: 0,
             first_frame_logged: false,
             session_id: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -391,6 +394,58 @@ impl BubbleApp {
             app.start_open(p, true);
         }
         app
+    }
+
+    /// A strip across the top while Bubble is busy (opening, importing, copying,
+    /// converting, preparing audio), so long operations are never mistaken for a hang.
+    fn progress_banner(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
+        // Audio preparation: the largest pending count seen is the total.
+        if snap.pending == 0 {
+            self.loading_total = 0;
+        } else {
+            self.loading_total = self.loading_total.max(snap.pending);
+        }
+        let opening = self.opening.as_ref().map(|(p, _, _)| {
+            format!(
+                "Opening {}…",
+                p.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            )
+        });
+        let task = self.job.as_ref().map(|j| j.label.clone()).or(opening);
+        let loading = (snap.pending > 0).then(|| {
+            let total = self.loading_total.max(1);
+            let done = total - snap.pending.min(total);
+            (done, total)
+        });
+        if task.is_none() && loading.is_none() {
+            return;
+        }
+        let accent = Color32::from_rgb(0x2F, 0x6B, 0xFF);
+        egui::Panel::top("progress")
+            .frame(egui::Frame::new().fill(accent).inner_margin(egui::Margin::symmetric(12, 6)))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new().color(Color32::WHITE));
+                    let text = match (&task, loading) {
+                        (Some(t), _) => t.clone(),
+                        (None, Some((done, total))) => {
+                            format!("Preparing audio: {done} of {total} files ready")
+                        }
+                        (None, None) => String::new(),
+                    };
+                    ui.label(egui::RichText::new(text).strong().color(Color32::WHITE));
+                    if let Some((done, total)) = loading {
+                        ui.add(
+                            egui::ProgressBar::new(done as f32 / total as f32)
+                                .desired_width(ui.available_width().min(320.0))
+                                .fill(Color32::WHITE),
+                        );
+                    }
+                });
+            });
+        ui.ctx().request_repaint_after(Duration::from_millis(100));
     }
 
     /// Keeps the main window's place in preferences (saved a second after it stops
@@ -1538,6 +1593,7 @@ impl eframe::App for BubbleApp {
         for cmd in cmds {
             self.handle_cmd(cmd, &ctx, &snap, &mut intents);
         }
+        self.progress_banner(ui, &snap);
         let bar_h = match self.prefs.bar_size {
             0 => 44.0,
             1 => 64.0,
@@ -2496,20 +2552,6 @@ impl BubbleApp {
         // tabs know how much room they have.
         let mut status: Vec<(String, Color32)> = Vec::new();
         let warn = Color32::from_rgb(0xF0, 0x9A, 0x2A);
-        if let Some(j) = &self.job {
-            status.push((j.label.clone(), ui.visuals().text_color()));
-        }
-        if let Some((p, _, _)) = &self.opening {
-            status.push((
-                format!(
-                    "Opening {}…",
-                    p.file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default()
-                ),
-                ui.visuals().text_color(),
-            ));
-        }
         if let Some(e) = &self.audio_error {
             status.push((
                 format!("No audio: {e}"),
@@ -2525,12 +2567,6 @@ impl BubbleApp {
         }
         if !snap.missing.is_empty() {
             status.push((format!("{} missing file(s)", snap.missing.len()), warn));
-        }
-        if snap.pending > 0 {
-            status.push((
-                format!("Loading {}…", snap.pending),
-                ui.visuals().weak_text_color(),
-            ));
         }
         if self.midi.active_recently(150) {
             status.push(("● MIDI".into(), Color32::from_rgb(0xE5, 0x39, 0x35)));

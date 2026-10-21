@@ -177,3 +177,11 @@ View → Appearance offers Follow System (default), Light and Dark; it is a mach
 - Windows uses the in-window menu bar (follows light/dark; Win32 menu bars do not), with its own keyboard shortcuts.
 - Touch: in edit mode a tap selects and plays on release, press-and-hold opens quick edit.
 - A session or SpotOn file passed at launch (dropped on Bubble.exe, Open With) opens. Error messages are selectable and can be copied.
+
+## D-37 Licence: GPLv3 or later — Accepted (project)
+
+Bubble is open source under the GNU General Public License, version 3 or (at your option) any later version (`LICENSE`, `license = "GPL-3.0-or-later"` in the workspace). This also lets Bubble use Slint under its GPLv3 licence, with no attribution widget required.
+
+## D-38 Interface toolkit: move from egui to Slint, after disk streaming — Accepted (app)
+
+A Slint prototype of the main screen (`claude/great-nobel-4b1434`, `crates/bubble-slint-proto`) was tried on a Windows Surface with touch: taps and press-and-hold registered reliably in every mode, the interface looked finished and responded well, and the OpenGL (femtovg) renderer performed best; the software renderer is kept as a fallback for machines without usable OpenGL (its partial-redraw glitch after minimising must be fixed by forcing a full redraw on restore). egui stays acceptable on macOS but handles hybrid mouse/touch Windows devices poorly. CPU and memory were similar on macOS; audio dominates memory either way, which disk streaming addresses. The port starts after disk streaming is tested: main window first (cart wall, pages, touch, menus, OS file drop via the winit accessor, window place), then Cart Setup and the settings windows, then egui is retired. Engine, control and project crates are unchanged.

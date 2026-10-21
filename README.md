@@ -46,3 +46,7 @@ Sessions are folders: `Name.bubble` (JSON, paths relative to it) and `Audio/`. M
 
 - [Decisions](docs/decisions.md): what was decided and why.
 - [Platform status](docs/platform-status.md): what has been tested where.
+
+## Licence
+
+Bubble is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
