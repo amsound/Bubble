@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, TryLockError};
 
 use bubble_control::Controller;
 
-use super::{autosave_path, recovery_dir};
+use crate::autosave::{autosave_path, recovery_dir};
 
 /// Name of the file pointing at a report the user has not been told about.
 const PENDING: &str = "pending";
@@ -20,7 +20,7 @@ fn crash_dir() -> Option<PathBuf> {
 
 /// Installs the panic hook. Runs on whichever thread panics, including the audio
 /// thread, so it takes no lock it might wait on.
-pub(super) fn install(ctrl: Arc<Mutex<Controller>>, session_id: u64) {
+pub fn install(ctrl: Arc<Mutex<Controller>>, session_id: u64) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let saved = autosave_now(&ctrl, session_id);
@@ -83,7 +83,7 @@ fn autosave_now(ctrl: &Mutex<Controller>, session_id: u64) -> String {
 }
 
 /// The report of a crash the user has not been told about yet (told once).
-pub(super) fn take_unreported() -> Option<PathBuf> {
+pub fn take_unreported() -> Option<PathBuf> {
     let pending = crash_dir()?.join(PENDING);
     let path = std::fs::read_to_string(&pending).ok()?;
     let _ = std::fs::remove_file(&pending);

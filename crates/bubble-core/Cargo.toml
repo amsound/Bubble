@@ -1,0 +1,21 @@
+[package]
+name = "bubble-core"
+description = "Bubble's application logic shared by every interface: preferences, sessions, audio outputs, MIDI, file dialogs, autosave, crash reports and logging."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bubble-engine = { path = "../bubble-engine" }
+bubble-project = { path = "../bubble-project" }
+bubble-control = { path = "../bubble-control" }
+dta-import = { path = "../dta-import" }
+jiff = "0.2"
+rfd.workspace = true
+midir.workspace = true
+directories.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+raw-window-handle = "0.6"

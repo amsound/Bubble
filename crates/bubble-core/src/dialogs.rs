@@ -71,7 +71,10 @@ impl FileDialogs {
     /// Shows the next queued dialog (one at a time). Call from the UI thread.
     /// `parent` owns the dialog, so Windows shows it in front of Bubble rather than
     /// behind a (maximised) main window.
-    pub fn launch(&mut self, parent: &eframe::Frame) {
+    pub fn launch<W>(&mut self, parent: &W)
+    where
+        W: raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle + ?Sized,
+    {
         if self.queue.is_empty() || self.is_open() {
             self.queue.clear();
             return;

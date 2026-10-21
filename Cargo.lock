@@ -685,21 +685,18 @@ dependencies = [
 name = "bubble-app"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "bubble-control",
+ "bubble-core",
  "bubble-engine",
  "bubble-project",
  "directories",
  "dta-import",
  "eframe",
  "jiff",
- "midir",
  "mouse_position",
  "muda",
  "resvg",
  "rfd",
- "serde",
- "serde_json",
  "uuid",
  "windows-sys 0.59.0",
 ]
@@ -727,6 +724,24 @@ dependencies = [
  "thiserror 2.0.21",
  "uuid",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "bubble-core"
+version = "0.1.0"
+dependencies = [
+ "bubble-control",
+ "bubble-engine",
+ "bubble-project",
+ "directories",
+ "dta-import",
+ "jiff",
+ "midir",
+ "raw-window-handle",
+ "rfd",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

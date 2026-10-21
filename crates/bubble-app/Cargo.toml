@@ -17,17 +17,14 @@ resvg.workspace = true
 bubble-engine = { path = "../bubble-engine" }
 bubble-project = { path = "../bubble-project" }
 bubble-control = { path = "../bubble-control" }
+bubble-core = { path = "../bubble-core" }
 dta-import = { path = "../dta-import" }
 jiff = "0.2"
 mouse_position = "0.1.4"
 eframe.workspace = true
 rfd.workspace = true
-midir.workspace = true
 directories.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 uuid.workspace = true
-anyhow.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda.workspace = true

@@ -25,9 +25,9 @@ use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Sense, Vec2};
 use uuid::Uuid;
 
 mod audio_out;
-mod cloud;
+use bubble_core::autosave::{autosave_path, recovery_dir};
+use bubble_core::{cloud, crash};
 mod convert;
-mod crash;
 mod outputs_ui;
 mod session_ui;
 mod setup_ui;
@@ -295,7 +295,7 @@ impl BubbleApp {
         if let Some(scale) = prefs.ui_scale {
             cc.egui_ctx.set_zoom_factor(scale);
         }
-        cc.egui_ctx.set_theme(prefs.appearance);
+        cc.egui_ctx.set_theme(theme(prefs.appearance));
         // The last project is opened in the background (see `start_open`): reading a
         // file in a protected folder can block on a macOS privacy prompt, and the
         // window must appear regardless.
@@ -1137,15 +1137,14 @@ impl BubbleApp {
     }
 }
 
-fn autosave_path(project: &std::path::Path) -> PathBuf {
-    let mut s = project.as_os_str().to_owned();
-    s.push(".autosave");
-    PathBuf::from(s)
-}
-
-fn recovery_dir() -> Option<PathBuf> {
-    directories::ProjectDirs::from("app", "Bubble", "Bubble")
-        .map(|d| d.data_dir().join("Recovered"))
+/// The egui theme for an appearance preference.
+fn theme(a: crate::prefs::Appearance) -> egui::ThemePreference {
+    use crate::prefs::Appearance as A;
+    match a {
+        A::System => egui::ThemePreference::System,
+        A::Light => egui::ThemePreference::Light,
+        A::Dark => egui::ThemePreference::Dark,
+    }
 }
 
 fn hex(c: [u8; 3]) -> String {
@@ -2540,7 +2539,7 @@ impl BubbleApp {
             }
             Cmd::Appearance(a) => {
                 self.prefs.appearance = a;
-                ctx.set_theme(a);
+                ctx.set_theme(theme(a));
                 self.save_prefs();
             }
             Cmd::Zoom(z) => {

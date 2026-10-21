@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 /// The sync service whose folder holds `path`, if any.
-pub(super) fn sync_service(path: &Path) -> Option<&'static str> {
+pub fn sync_service(path: &Path) -> Option<&'static str> {
     let s = path.to_string_lossy().replace('\\', "/");
     let lower = s.to_lowercase();
     if lower.contains("/library/mobile documents/") {
@@ -58,7 +58,7 @@ pub(super) fn sync_service(path: &Path) -> Option<&'static str> {
 }
 
 /// Whether `path` is an online-only placeholder (its data is not on this computer).
-pub(super) fn online_only(path: &Path) -> bool {
+pub fn online_only(path: &Path) -> bool {
     let Ok(m) = std::fs::symlink_metadata(path) else {
         return false;
     };
@@ -84,7 +84,7 @@ pub(super) fn online_only(path: &Path) -> bool {
 }
 
 /// How the warning should be shown.
-pub(super) struct CloudCheck {
+pub struct CloudCheck {
     /// One line for the status bar.
     pub status: String,
     /// A fuller explanation when files are already online-only.
@@ -92,7 +92,7 @@ pub(super) struct CloudCheck {
 }
 
 /// Checks a session file and its audio.
-pub(super) fn check(session: &Path, audio: &[PathBuf]) -> Option<CloudCheck> {
+pub fn check(session: &Path, audio: &[PathBuf]) -> Option<CloudCheck> {
     let offline: Vec<&PathBuf> = audio.iter().filter(|p| online_only(p)).collect();
     let service = sync_service(session).or_else(|| audio.iter().find_map(|p| sync_service(p)));
     if offline.is_empty() && service.is_none() {

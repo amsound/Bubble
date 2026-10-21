@@ -3,17 +3,15 @@
 // No console window behind the app on Windows (crash reports go to a file).
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+// Shared application logic (also used by the Slint interface).
+pub use bubble_core::{dialogs, instance, log, midi, prefs};
+
 mod app;
-mod dialogs;
 mod fonts;
-mod instance;
-mod log;
 mod logo;
 mod menu;
 mod meter;
-mod midi;
 mod native;
-mod prefs;
 mod tile;
 mod waveform;
 

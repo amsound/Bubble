@@ -50,16 +50,6 @@ pub enum Appearance {
     Dark,
 }
 
-impl From<Appearance> for eframe::egui::ThemePreference {
-    fn from(a: Appearance) -> Self {
-        match a {
-            Appearance::System => Self::System,
-            Appearance::Light => Self::Light,
-            Appearance::Dark => Self::Dark,
-        }
-    }
-}
-
 /// The main window's last place: outer position and inner size in logical points
 /// (zoom-independent), and whether it was maximised. When maximised, the position and
 /// size are those it returns to when un-maximised.
