@@ -51,6 +51,8 @@ pub enum JobResult {
 
 pub struct Job {
     pub label: String,
+    /// The cell (page, row, col) the job fills, if any: copying files to assign there.
+    pub cell: Option<(usize, u16, u16)>,
     pub rx: Receiver<JobResult>,
 }
 
@@ -133,11 +135,12 @@ impl Core {
             return;
         };
         let n = files.len();
-        self.start_job(
+        self.start_job_at(
             format!(
                 "Copying {n} file{} into the session…",
                 if n == 1 { "" } else { "s" }
             ),
+            Some((page, row, col)),
             move || {
                 let mut out = Vec::new();
                 let mut errors = Vec::new();
@@ -183,6 +186,16 @@ impl Core {
     }
 
     pub fn start_job(&mut self, label: String, f: impl FnOnce() -> JobResult + Send + 'static) {
+        self.start_job_at(label, None, f);
+    }
+
+    /// As [`Core::start_job`], for a job that fills `cell` (shown on that tile).
+    pub fn start_job_at(
+        &mut self,
+        label: String,
+        cell: Option<(usize, u16, u16)>,
+        f: impl FnOnce() -> JobResult + Send + 'static,
+    ) {
         let (tx, rx) = channel();
         let repaint = self.repaint.clone();
         std::thread::Builder::new()
@@ -192,7 +205,7 @@ impl Core {
                 repaint();
             })
             .expect("spawn job thread");
-        self.job = Some(Job { label, rx });
+        self.job = Some(Job { label, cell, rx });
     }
 
     /// Applies a finished job.
@@ -280,7 +293,8 @@ impl Core {
                 intents.push(Intent::CreateSession(file.clone(), name));
                 // Copy into the new session once it exists (next frame).
                 let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
-                self.start_job("Copying files into the session…".into(), move || {
+                let label = "Copying files into the session…".to_string();
+                self.start_job_at(label, Some((p, r, c)), move || {
                     let mut out = Vec::new();
                     let mut errors = Vec::new();
                     for f in files {

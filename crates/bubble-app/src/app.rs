@@ -204,7 +204,11 @@ impl BubbleApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new().color(Color32::WHITE));
-                    ui.label(egui::RichText::new(&busy.text).strong().color(Color32::WHITE));
+                    ui.label(
+                        egui::RichText::new(&busy.text)
+                            .strong()
+                            .color(Color32::WHITE),
+                    );
                     if let Some(progress) = busy.progress {
                         ui.add(
                             egui::ProgressBar::new(progress)

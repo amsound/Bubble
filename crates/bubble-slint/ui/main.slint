@@ -127,10 +127,11 @@ export component MainWindow inherits Window {
     // ---- layout ----
     property <length> gap: 6px;
     property <length> pad: 6px;
+    // The busy strip floats over the top of the wall: carts never move.
     property <length> busy-h: busy-text == "" ? 0px : 34px;
-    property <length> wall-top: busy-h + pad;
+    property <length> wall-top: pad;
     property <length> wall-w: self.width - 2 * pad;
-    property <length> wall-h: self.height - bar-height - busy-h - 2 * pad;
+    property <length> wall-h: self.height - bar-height - 2 * pad;
     property <length> tile-w: max(40px, (wall-w - (cols - 1) * gap) / max(cols, 1));
     property <length> tile-h: max(30px, (wall-h - (rows - 1) * gap) / max(rows, 1));
 
@@ -319,49 +320,6 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ---- busy strip ----
-    if busy-text != "": Rectangle {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: busy-h;
-        background: Theme.accent;
-        HorizontalLayout {
-            padding-left: 12px;
-            padding-right: 12px;
-            spacing: 10px;
-            Spinner {
-                indeterminate: true;
-                width: 20px;
-                height: 20px;
-                y: (parent.height - self.height) / 2;
-            }
-            Text {
-                text: root.busy-text;
-                color: #ffffff;
-                font-weight: 700;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            if root.busy-progress >= 0: Rectangle {
-                width: min(320px, root.width / 3);
-                height: 8px;
-                y: (parent.height - self.height) / 2;
-                border-radius: 4px;
-                background: #ffffff50;
-                Rectangle {
-                    x: 0;
-                    width: parent.width * clamp(root.busy-progress, 0, 1);
-                    border-radius: 4px;
-                    background: #ffffff;
-                }
-            }
-            Rectangle {
-                horizontal-stretch: 1;
-            }
-        }
-    }
-
     // ---- cart wall ----
     for t[i] in tiles: TileView {
         x: pad + mod(i, max(cols, 1)) * (tile-w + gap);
@@ -475,6 +433,51 @@ export component MainWindow inherits Window {
                     color: Theme.weak-text;
                     horizontal-alignment: center;
                 }
+            }
+        }
+    }
+
+    // ---- busy strip ----
+    if busy-text != "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: busy-h;
+        background: Theme.accent.transparentize(8%);
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000060;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 10px;
+            Spinner {
+                indeterminate: true;
+                width: 20px;
+                height: 20px;
+                y: (parent.height - self.height) / 2;
+            }
+            Text {
+                text: root.busy-text;
+                color: #ffffff;
+                font-weight: 700;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.busy-progress >= 0: Rectangle {
+                width: min(320px, root.width / 3);
+                height: 8px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 4px;
+                background: #ffffff50;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * clamp(root.busy-progress, 0, 1);
+                    border-radius: 4px;
+                    background: #ffffff;
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
             }
         }
     }

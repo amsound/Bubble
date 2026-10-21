@@ -281,4 +281,3 @@ pub fn paint_cart(
         );
     }
 }
-

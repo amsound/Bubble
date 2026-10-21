@@ -203,8 +203,7 @@ pub fn free_cell_after(project: &Project, id: uuid::Uuid) -> Option<(usize, u16,
 /// One step of the keyboard cursor from (row, col), wrapping across rows.
 pub fn step_cell(rows: u16, cols: u16, at: (u16, u16), dr: i32, dc: i32) -> (u16, u16) {
     let (rows, cols) = (rows.max(1) as i32, cols.max(1) as i32);
-    let idx =
-        (at.0 as i32 * cols + at.1 as i32 + dr * cols + dc).rem_euclid(rows * cols);
+    let idx = (at.0 as i32 * cols + at.1 as i32 + dr * cols + dc).rem_euclid(rows * cols);
     ((idx / cols) as u16, (idx % cols) as u16)
 }
 

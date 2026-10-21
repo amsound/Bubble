@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bubble_control::{AttrSet, CartState as Cs, InputEvent, MouseButton, display_label};
 use bubble_core::app::{AfterCreate, Core};
@@ -29,8 +29,8 @@ use uuid::Uuid;
 
 use crate::model::{self, Selection};
 use crate::{
-    DialogInfo, DialogRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand,
-    Theme, Tile, keys, menu, window,
+    DialogInfo, DialogRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile,
+    keys, menu, window,
 };
 
 /// How often the window refreshes while carts play (the clock and progress bars).
@@ -119,8 +119,13 @@ pub struct App {
     last_title: String,
     exited: bool,
     first_tick: bool,
-    /// The next refresh, chosen after each tick.
+    /// The next refresh, chosen after each tick (input ticks too, so a cart that just
+    /// started gets the playing rate at once, not after the idle interval).
     interval: Duration,
+    timer: std::rc::Weak<slint::Timer>,
+    /// The last input: the engine reports a cart as playing a moment after the press,
+    /// so the window refreshes at the playing rate for a while after any input.
+    last_input: Instant,
 }
 
 impl std::ops::Deref for App {
@@ -179,17 +184,12 @@ pub fn run(renderer: &str) -> Result<(), slint::PlatformError> {
     log_info(&format!("window ready ({renderer})"));
 
     let timer = Rc::new(slint::Timer::default());
+    app.borrow_mut().timer = Rc::downgrade(&timer);
     {
-        let (a, t) = (app.clone(), Rc::downgrade(&timer));
+        let a = app.clone();
         let tick = move || {
             pending.store(false, Ordering::Release);
-            let next = with(&a, |app| {
-                app.tick();
-                app.interval
-            });
-            if let (Some(t), Some(next)) = (t.upgrade(), next) {
-                t.restart_with(next);
-            }
+            with(&a, |app| app.tick());
         };
         let tick: Rc<dyn Fn()> = Rc::new(tick);
         let t2 = tick.clone();
@@ -264,6 +264,7 @@ fn with<R: 'static>(app: &Rc<RefCell<App>>, f: impl FnOnce(&mut App) -> R + 'sta
 /// Input: act, then show the result at once.
 fn act(app: &Rc<RefCell<App>>, f: impl FnOnce(&mut App, &mut Vec<Intent>) + 'static) {
     with(app, move |a| {
+        a.last_input = Instant::now();
         let mut intents = Vec::new();
         f(a, &mut intents);
         a.apply_intents(intents);
@@ -282,15 +283,23 @@ macro_rules! on {
 
 fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_menu_activated, |a, i, id| {
-        if let Some(cmd) = usize::try_from(id).ok().and_then(|id| a.menu_cmds.get(id).cloned()) {
+        if let Some(cmd) = usize::try_from(id)
+            .ok()
+            .and_then(|id| a.menu_cmds.get(id).cloned())
+        {
             a.command(cmd, i);
         }
         // A checkable item flips its own mark; rebuild so the marks follow the state.
         a.menu_sig = 0;
     });
-    on!(ui, app, on_cell_down, |a, i, idx, right, touch, shift, alt, ctrl| {
-        a.cell_down(idx, right, touch, shift, alt, ctrl, i);
-    });
+    on!(
+        ui,
+        app,
+        on_cell_down,
+        |a, i, idx, right, touch, shift, alt, ctrl| {
+            a.cell_down(idx, right, touch, shift, alt, ctrl, i);
+        }
+    );
     on!(ui, app, on_cell_up, |a, i, _idx, _touch| {
         if let Some(c) = a.pressed.take() {
             i.push(Intent::PointerUp(c));
@@ -395,7 +404,11 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     });
     on!(ui, app, on_qe_gain, |a, i, v| {
         // 0 dB is easy to hit.
-        let db = if v.abs() < 0.25 { 0.0 } else { (v * 10.0).round() / 10.0 };
+        let db = if v.abs() < 0.25 {
+            0.0
+        } else {
+            (v * 10.0).round() / 10.0
+        };
         a.qe_edit(i, move |c| c.gain_db = db);
     });
     on!(ui, app, on_qe_speed, |a, i, v| {
@@ -416,9 +429,7 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
             "hold" => c.hold_to_play = on,
             "mute" => c.muted = on,
             "next" => c.play_next = on.then(|| "next_cell".to_string()),
-            "stop-others" => {
-                c.on_play.stop = if on { StopScope::All } else { StopScope::None }
-            }
+            "stop-others" => c.on_play.stop = if on { StopScope::All } else { StopScope::None },
             _ => {}
         });
     });
@@ -606,6 +617,8 @@ impl App {
             exited: false,
             first_tick: true,
             interval: IDLE,
+            timer: std::rc::Weak::new(),
+            last_input: Instant::now(),
         }
     }
 
@@ -686,7 +699,7 @@ impl App {
             .any(|r| matches!(r.state, Cs::Playing | Cs::Stopping));
         self.interval = if self.drag_hover {
             DRAGGING
-        } else if playing {
+        } else if playing || self.last_input.elapsed() < Duration::from_millis(600) {
             PLAYING
         } else if snap.pending > 0 || self.core.job.is_some() || self.core.opening.is_some() {
             BUSY
@@ -701,13 +714,19 @@ impl App {
         if let Some(d) = audio_wake {
             self.interval = self.interval.min(d);
         }
+        if let Some(t) = self.timer.upgrade() {
+            t.restart_with(self.interval);
+        }
     }
 
     /// Everything the window shows, from a snapshot. Models are only touched where
     /// something changed, so Slint redraws only that.
     fn show(&mut self, ui: &MainWindow, snap: &Snapshot) {
         // A selection that no longer exists (cart cleared, session changed) goes.
-        if self.selected.is_some_and(|id| snap.project.cart(id).is_none()) {
+        if self
+            .selected
+            .is_some_and(|id| snap.project.cart(id).is_none())
+        {
             self.selected = None;
         }
         if self.page_shown != snap.page {
@@ -723,6 +742,26 @@ impl App {
             self.last_title = title;
         }
 
+        // What Bubble is busy with goes where it happens: audio being copied into a
+        // cell shows on that tile, audio being prepared shows "loading…" on its tiles
+        // (and a count in the status line); anything else (opening, importing,
+        // converting) in a strip over the top of the wall.
+        let busy = self.core.busy(snap);
+        let busy_cell = self
+            .core
+            .job
+            .as_ref()
+            .and_then(|j| j.cell)
+            .map(|c| (c, "Copying…".to_string()));
+        let (strip, info) = match (&busy, &self.core.job, &self.core.opening) {
+            (Some(b), Some(j), _) if j.cell.is_none() => (Some(b.clone()), None),
+            (Some(b), None, Some(_)) => (Some(b.clone()), None),
+            (Some(b), _, _) if snap.pending > 0 && busy_cell.is_none() => {
+                (None, Some(b.text.clone()))
+            }
+            _ => (None, None),
+        };
+
         // Cart wall.
         let view = model::page_view(
             &self.core,
@@ -730,6 +769,7 @@ impl App {
             &Selection {
                 cart: self.selected,
                 empty: self.cursor_empty,
+                busy: busy_cell,
             },
         );
         ui.set_rows(view.rows as i32);
@@ -760,11 +800,10 @@ impl App {
         ui.set_current_page(snap.page as i32);
         ui.set_renaming(self.renaming.map_or(-1, |i| i as i32));
         ui.set_bar_height(bar_height(self.prefs.bar_size));
-        sync(&self.status, model::status(&self.core, snap));
+        sync(&self.status, model::status(&self.core, snap, info));
         ui.set_status_clickable(!snap.missing.is_empty());
-        let busy = self.core.busy(snap);
-        ui.set_busy_text(busy.as_ref().map_or("".into(), |b| b.text.as_str().into()));
-        ui.set_busy_progress(busy.and_then(|b| b.progress).unwrap_or(-1.0));
+        ui.set_busy_text(strip.as_ref().map_or("".into(), |b| b.text.as_str().into()));
+        ui.set_busy_progress(strip.and_then(|b| b.progress).unwrap_or(-1.0));
 
         self.show_menus(ui, snap);
         self.show_quick_edit(ui, snap);
@@ -919,7 +958,11 @@ impl App {
         };
         use bubble_project::Control as K;
         let mut items = vec![
-            (Popup::Assign(p, r, c), "Assign audio file(s)…".to_string(), true),
+            (
+                Popup::Assign(p, r, c),
+                "Assign audio file(s)…".to_string(),
+                true,
+            ),
             (
                 Popup::PasteCart(p, r, c),
                 "Paste cart".to_string(),
@@ -973,7 +1016,13 @@ impl App {
         // Above the bar, so it is not cut off at the bottom of the window.
         let h: f32 = items
             .iter()
-            .map(|(p, _, _)| if matches!(p, Popup::Separator) { 9.0 } else { 36.0 })
+            .map(|(p, _, _)| {
+                if matches!(p, Popup::Separator) {
+                    9.0
+                } else {
+                    36.0
+                }
+            })
             .sum::<f32>()
             + 8.0;
         self.show_popup(items, x, (y - h - 8.0).max(8.0));
@@ -991,7 +1040,16 @@ impl App {
             .collect();
         self.popup = items.into_iter().map(|(p, _, _)| p).collect();
         ui.set_popup_rows(ModelRc::new(VecModel::from(rows)));
-        ui.set_popup_x(x.min(ui.window().size().to_logical(ui.window().scale_factor()).width - 248.0).max(4.0));
+        ui.set_popup_x(
+            x.min(
+                ui.window()
+                    .size()
+                    .to_logical(ui.window().scale_factor())
+                    .width
+                    - 248.0,
+            )
+            .max(4.0),
+        );
         ui.set_popup_y(y);
         ui.invoke_open_popup();
     }
@@ -1515,7 +1573,9 @@ impl App {
     fn dialog_info(&self, d: Dialog, snap: &Snapshot) -> DialogInfo {
         let strings = |v: &[&str]| {
             ModelRc::new(VecModel::from(
-                v.iter().map(|s| (*s).into()).collect::<Vec<slint::SharedString>>(),
+                v.iter()
+                    .map(|s| (*s).into())
+                    .collect::<Vec<slint::SharedString>>(),
             ))
         };
         let rows = |v: Vec<DialogRow>| ModelRc::new(VecModel::from(v));
@@ -1605,7 +1665,8 @@ impl App {
                     .unwrap_or_default();
                 let a = &self.attr_choice;
                 info.title = "Paste Attributes".into();
-                info.body = format!("Copy from \u{201c}{from}\u{201d} to the selected cart:").into();
+                info.body =
+                    format!("Copy from \u{201c}{from}\u{201d} to the selected cart:").into();
                 info.rows = rows(
                     [
                         ("Gain and mute", a.gain),
@@ -1685,9 +1746,12 @@ impl App {
         );
         info.name = name;
         ui.set_dialog_ok(match d {
-            Dialog::NewSession => self.core.prompts.new_session.as_ref().is_some_and(|ns| {
-                !bubble_project::session::clean_name(&ns.name).is_empty()
-            }),
+            Dialog::NewSession => self
+                .core
+                .prompts
+                .new_session
+                .as_ref()
+                .is_some_and(|ns| !bubble_project::session::clean_name(&ns.name).is_empty()),
             _ => true,
         });
         if sig != self.dialog_sig {
@@ -1738,7 +1802,9 @@ impl App {
                 if let Some(path) = p.import_choice.take() {
                     match i {
                         0 => self.core.import_into_current(path),
-                        2 => self.core.request(PendingAction::Import(path), &snap, intents),
+                        2 => self
+                            .core
+                            .request(PendingAction::Import(path), &snap, intents),
                         _ => {}
                     }
                 }
@@ -1784,9 +1850,7 @@ impl App {
                             c.replace_project(p, project.clone());
                             c.set_dirty();
                         }
-                        Err(e) => {
-                            self.core.prompts.error = Some(format!("Could not restore: {e}"))
-                        }
+                        Err(e) => self.core.prompts.error = Some(format!("Could not restore: {e}")),
                     }
                     self.selected = None;
                 } else {

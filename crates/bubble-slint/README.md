@@ -61,7 +61,11 @@ Done (main window):
 - [x] Bottom bar: tabs (click, double-click rename, drag to reorder, right-click or
       press-and-hold menu: rename, copy/paste page, stop, add, remove), add page,
       STOP PAGE (fades), STOP ALL (immediate), status line (click for Relink when files
-      are missing), Small/Medium/Large heights, blue busy strip with progress.
+      are missing), Small/Medium/Large heights.
+- [x] Busy where it happens: a drop or assignment shows "Copying…" and a moving bar on the
+      target tile; audio being prepared shows "loading…" and the bar on its tiles and a
+      count in the status line; only opening, importing and converting use the blue strip,
+      which floats over the top of the wall so carts never move.
 - [x] Empty cells: double-click or menu to assign audio, paste, control buttons.
 - [x] Menus from the shared model: native on macOS (with its shortcuts) and Windows
       (shortcut shown after a tab, run by Bubble), in-window elsewhere. Windows still in

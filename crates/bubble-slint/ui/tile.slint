@@ -34,6 +34,8 @@ export struct Tile {
     learning: bool,
     // Shown after a moment's hover (why the output is rerouted).
     tip: string,
+    // Bubble is copying audio into this cell ("Copying…"); empty otherwise.
+    busy: string,
 }
 
 // How cart labels look (Session Settings ▸ Display).
@@ -72,7 +74,9 @@ export component TileView inherits Rectangle {
     property <bool> held;
     property <bool> playing: tile.state == CartState.playing || tile.state == CartState.stopping;
 
-    property <length> pad: 7px;
+    // Inside the 5 px playing border, so it never covers the number or the time.
+    property <length> pad: 9px;
+    property <length> top: 7px;
     property <length> small: clamp(11px * style.small, 7px, 40px);
     property <length> time-size: max(8px, clamp(self.height / 6, 11px, 22px) * style.small);
     property <length> label-size: clamp(clamp(self.height / 5, 12px, 26px) * style.size, 6px, 120px);
@@ -84,7 +88,7 @@ export component TileView inherits Rectangle {
     background: tile.has-cart ? tile.bg : Theme.empty-tile;
 
     // Empty cell in Edit mode: a "+" to show it can take audio.
-    if !tile.has-cart && edit-mode: Text {
+    if !tile.has-cart && edit-mode && tile.busy == "": Text {
         text: "+";
         font-size: 22px;
         color: #5a5a5a;
@@ -95,7 +99,7 @@ export component TileView inherits Rectangle {
     // ---- top row: number + group (left), triggers (right) ----
     chips := HorizontalLayout {
         x: pad;
-        y: 3px;
+        y: top;
         width: root.width - 2 * pad;
         height: self.preferred-height;
         spacing: 6px;
@@ -150,7 +154,7 @@ export component TileView inherits Rectangle {
     // The number of an empty cell (dim, like the egui tile's).
     if !tile.has-cart: Text {
         x: pad;
-        y: 3px;
+        y: top;
         text: tile.number;
         font-family: Theme.mono-font;
         font-size: small;
@@ -203,7 +207,7 @@ export component TileView inherits Rectangle {
     // ---- label in the remaining area ----
     Text {
         x: pad;
-        y: 3px + top-h + 2px;
+        y: top + top-h + 2px;
         width: root.width - 2 * pad;
         height: max(0px, bottom.y - 2px - self.y);
         visible: tile.has-cart && self.height > 4px;
@@ -216,6 +220,35 @@ export component TileView inherits Rectangle {
         overflow: clip;
         horizontal-alignment: style.h-align == 0 ? TextHorizontalAlignment.left : style.h-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center;
         vertical-alignment: style.v-align == 0 ? TextVerticalAlignment.top : style.v-align == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.center;
+    }
+
+    // ---- copying audio in, or preparing it: what is happening, and a moving bar ----
+    if tile.busy != "": Text {
+        x: pad;
+        width: root.width - 2 * pad;
+        y: (root.height - self.height) / 2;
+        text: tile.busy;
+        font-size: max(12px, small * 1.3);
+        font-weight: 600;
+        color: tile.has-cart ? tile.fg : #ffffff;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    if tile.busy != "" || tile.state == CartState.loading: Rectangle {
+        x: 5px;
+        y: root.height - 13px;
+        width: root.width - 10px;
+        height: 8px;
+        border-radius: 2px;
+        background: #0000006e;
+        clip: true;
+        property <float> phase: mod(animation-tick() / 1400ms, 1);
+        Rectangle {
+            width: parent.width * 0.3;
+            x: (parent.width + self.width) * phase - self.width;
+            border-radius: 2px;
+            background: #ffffffb0;
+        }
     }
 
     // ---- state: steady yellow border while playing, purple while fading out ----

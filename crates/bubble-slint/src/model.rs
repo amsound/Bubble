@@ -64,6 +64,8 @@ fn text_color(c: [u8; 3]) -> Color {
 pub struct Selection {
     pub cart: Option<Uuid>,
     pub empty: Option<(usize, u16, u16)>,
+    /// The cell audio is being copied into, and what to say there.
+    pub busy: Option<((usize, u16, u16), String)>,
 }
 
 /// The current page: rows, columns, the cart in each cell, and its tiles.
@@ -88,19 +90,28 @@ pub fn page_view(core: &Core, snap: &Snapshot, sel: &Selection) -> PageView {
     for row in 0..page.rows {
         for col in 0..page.cols {
             let number = (row * page.cols + col + 1) as i32;
+            let busy: SharedString = sel
+                .busy
+                .as_ref()
+                .filter(|(at, _)| *at == (snap.page, row, col))
+                .map(|(_, t)| t.as_str().into())
+                .unwrap_or_default();
             let Some(cell) = page.cell(row, col) else {
                 ids.push(None);
                 tiles.push(Tile {
                     number,
                     selected: sel.empty == Some((snap.page, row, col)),
                     state: CartState::Empty,
+                    busy,
                     ..Default::default()
                 });
                 continue;
             };
             let cart = &cell.cart;
             ids.push(Some(cart.id));
-            tiles.push(tile(core, snap, cart, number, sel.cart == Some(cart.id)));
+            let mut t = tile(core, snap, cart, number, sel.cart == Some(cart.id));
+            t.busy = busy;
+            tiles.push(t);
         }
     }
     PageView {
@@ -151,6 +162,7 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
             .filter(|_| rerouted)
             .unwrap_or_default()
             .into(),
+        busy: Default::default(),
     }
 }
 
@@ -202,13 +214,19 @@ pub fn page_tabs(snap: &Snapshot) -> Vec<PageTab> {
         .collect()
 }
 
-pub fn status(core: &Core, snap: &Snapshot) -> Vec<StatusItem> {
-    core.status_items(snap)
-        .into_iter()
-        .map(|i| StatusItem {
+/// The status line, plus `info` (audio being prepared) first.
+pub fn status(core: &Core, snap: &Snapshot, info: Option<String>) -> Vec<StatusItem> {
+    let info = info.map(|text| StatusItem {
+        text: text.into(),
+        info: true,
+        ..Default::default()
+    });
+    info.into_iter()
+        .chain(core.status_items(snap).into_iter().map(|i| StatusItem {
             text: i.text.into(),
             error: i.level == Level::Error,
-        })
+            info: false,
+        }))
         .collect()
 }
 
@@ -277,12 +295,21 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
         control: control.is_some(),
         show_group: control.is_none() || control == Some(bubble_project::Control::StopGroup),
         label: cart.label.as_str().into(),
-        label_hint: display_label(&Cart { label: String::new(), ..cart.clone() }, &snap.project)
-            .into(),
+        label_hint: display_label(
+            &Cart {
+                label: String::new(),
+                ..cart.clone()
+            },
+            &snap.project,
+        )
+        .into(),
         swatches: ModelRc::new(VecModel::from(
             SWATCHES.iter().map(|c| self::rgb(*c)).collect::<Vec<_>>(),
         )),
-        color: SWATCHES.iter().position(|c| *c == rgb).map_or(-1, |i| i as i32),
+        color: SWATCHES
+            .iter()
+            .position(|c| *c == rgb)
+            .map_or(-1, |i| i as i32),
         hex: cart.color.clone().unwrap_or_default().into(),
         gain: cart.gain_db,
         speed: cart.speed.max(0.01).log2(),

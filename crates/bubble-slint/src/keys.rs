@@ -213,7 +213,10 @@ mod tests {
         assert_eq!(code_name(KeyCode::KeyQ).as_deref(), Some("KeyQ"));
         assert_eq!(code_name(KeyCode::Numpad5).as_deref(), Some("Digit5"));
         assert_eq!(code_name(KeyCode::ArrowLeft).as_deref(), Some("Left"));
-        assert_eq!(code_name(KeyCode::BracketLeft).as_deref(), Some("OpenBracket"));
+        assert_eq!(
+            code_name(KeyCode::BracketLeft).as_deref(),
+            Some("OpenBracket")
+        );
         assert_eq!(code_name(KeyCode::NumpadEnter).as_deref(), Some("Enter"));
         assert_eq!(code_name(KeyCode::CapsLock), None);
     }

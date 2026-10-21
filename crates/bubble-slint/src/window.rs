@@ -63,7 +63,10 @@ pub fn keep_on_screen(ui: &MainWindow) {
         if on_screen {
             return;
         }
-        let Some(m) = w.primary_monitor().or_else(|| w.available_monitors().next()) else {
+        let Some(m) = w
+            .primary_monitor()
+            .or_else(|| w.available_monitors().next())
+        else {
             return;
         };
         let (mp, ms, ws) = (m.position(), m.size(), w.outer_size());
@@ -133,7 +136,10 @@ pub fn pointer_in_window(ui: &MainWindow) -> Option<(f32, f32)> {
         (x as f64, y as f64)
     };
     let s = ui.window().scale_factor() as f64;
-    Some((((px - inner.x as f64) / s) as f32, ((py - inner.y as f64) / s) as f32))
+    Some((
+        ((px - inner.x as f64) / s) as f32,
+        ((py - inner.y as f64) / s) as f32,
+    ))
 }
 
 /// The window icon, rendered from `assets/logo.svg` by the build script.

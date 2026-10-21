@@ -184,7 +184,13 @@ fn keys_for(accel: &str) -> Option<Keys> {
 
 /// The menu shortcuts Bubble runs itself (all platforms but macOS).
 pub struct Shortcuts {
-    list: Vec<(bool, bool, bool, slint::winit_030::winit::keyboard::KeyCode, Cmd)>,
+    list: Vec<(
+        bool,
+        bool,
+        bool,
+        slint::winit_030::winit::keyboard::KeyCode,
+        Cmd,
+    )>,
 }
 
 impl Shortcuts {
@@ -209,9 +215,7 @@ impl Shortcuts {
         }
         let list = found
             .into_iter()
-            .filter_map(|(a, cmd)| {
-                keys::parse_accel(a).map(|(c, s, alt, k)| (c, s, alt, k, cmd))
-            })
+            .filter_map(|(a, cmd)| keys::parse_accel(a).map(|(c, s, alt, k)| (c, s, alt, k, cmd)))
             .collect();
         Shortcuts { list }
     }
@@ -243,7 +247,10 @@ mod tests {
                     Item::action("A", Cmd::AddPage),
                     Item::Separator,
                     Item::sub("Mouse", vec![Item::action("T", Cmd::MouseToggle)]),
-                    Item::sub("Scope", vec![Item::action("G", Cmd::ScopeGlobal).check(true)]),
+                    Item::sub(
+                        "Scope",
+                        vec![Item::action("G", Cmd::ScopeGlobal).check(true)],
+                    ),
                     Item::action("B", Cmd::StopAll),
                 ],
             }],
@@ -260,7 +267,10 @@ mod tests {
         let second = slots.row_data(1).unwrap();
         assert_eq!(second.sub_title, "Scope");
         assert!(second.sub.row_data(0).unwrap().checked);
-        assert_eq!(slots.row_data(2).unwrap().items.row_data(0).unwrap().title, "B");
+        assert_eq!(
+            slots.row_data(2).unwrap().items.row_data(0).unwrap().title,
+            "B"
+        );
     }
 
     #[test]
