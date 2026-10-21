@@ -13,14 +13,14 @@ use std::time::{Duration, Instant};
 use bubble_control::Route;
 use bubble_engine::device::{AudioOutput, OutputRequest, StreamProblem, list_output_devices};
 
-use super::BubbleApp;
+use super::Core;
 
 /// How often the device list is checked while a device is missing.
-const WATCH_EVERY: Duration = Duration::from_secs(2);
+pub const WATCH_EVERY: Duration = Duration::from_secs(2);
 
 /// Devices lost or never opened, and the background check for their return.
 #[derive(Default)]
-pub(super) struct DeviceWatch {
+pub struct DeviceWatch {
     /// Configured devices that are not open (by name as listed).
     pub missing: Vec<String>,
     /// Where their outputs play meanwhile ("MacBook Pro Speakers").
@@ -33,9 +33,9 @@ pub(super) struct DeviceWatch {
     last: Option<Instant>,
 }
 
-impl BubbleApp {
+impl Core {
     /// Opens every output afresh (settings changed, or "Reopen audio output").
-    pub(super) fn open_audio(&mut self) {
+    pub fn open_audio(&mut self) {
         self.rebuild_audio(&[], false);
     }
 
@@ -44,7 +44,7 @@ impl BubbleApp {
     /// those listed in `dead`, indices into `self.audio`) are kept, so carts playing
     /// on them are not interrupted. Outputs whose device cannot be opened play on
     /// the system default output.
-    pub(super) fn rebuild_audio(&mut self, dead: &[usize], keep: bool) {
+    pub fn rebuild_audio(&mut self, dead: &[usize], keep: bool) {
         let outputs = self.prefs.effective_outputs();
         let rate = self.prefs.rate();
         // Devices in order of first use, with the channels they must provide.
@@ -189,7 +189,9 @@ impl BubbleApp {
     }
 
     /// Once per frame: reacts to failed streams and reconnects returning devices.
-    pub(super) fn watch_audio(&mut self, ctx: &eframe::egui::Context) {
+    /// Returns when it next needs to run while a device is missing (the interface
+    /// should wake by then).
+    pub fn watch_audio(&mut self) -> Option<Duration> {
         let mut dead = Vec::new();
         let mut lost = Vec::new();
         for (i, a) in self.audio.iter().enumerate() {
@@ -209,7 +211,7 @@ impl BubbleApp {
 
         if self.watch.missing.is_empty() {
             self.watch.pending = None;
-            return;
+            return None;
         }
         // Ask for the device list off the UI thread; enumeration can be slow.
         if let Some(rx) = &self.watch.pending {
@@ -240,23 +242,23 @@ impl BubbleApp {
         if self.watch.back && !self.lock().any_voice() {
             self.rebuild_audio(&[], true);
         }
-        ctx.request_repaint_after(WATCH_EVERY);
+        Some(WATCH_EVERY)
     }
 
     /// Whether carts on `output` ("A", "B", …) are playing on the fallback.
     /// Also true for a letter not set up on this machine (it plays on Output A).
-    pub(super) fn is_rerouted(&self, output: &str) -> bool {
+    pub fn is_rerouted(&self, output: &str) -> bool {
         bubble_project::output_index(output)
             .is_some_and(|i| !self.output_set_up(i) || self.watch.rerouted.contains(&i))
     }
 
     /// Whether output `index` (0 = A) is set up on this machine.
-    fn output_set_up(&self, index: usize) -> bool {
+    pub fn output_set_up(&self, index: usize) -> bool {
         index < self.prefs.outputs.len().max(1)
     }
 
     /// Where a rerouted output is playing, for the tile's tooltip.
-    pub(super) fn reroute_text(&self, output: &str) -> Option<String> {
+    pub fn reroute_text(&self, output: &str) -> Option<String> {
         if !self.is_rerouted(output) {
             return None;
         }
@@ -285,7 +287,7 @@ impl BubbleApp {
     }
 
     /// Status-bar text while a device is missing.
-    pub(super) fn audio_notice(&self) -> Option<String> {
+    pub fn audio_notice(&self) -> Option<String> {
         let lost = self.watch.missing.join(", ");
         if lost.is_empty() {
             return None;

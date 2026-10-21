@@ -2,6 +2,7 @@
 //! Slint app next). Nothing here draws: interfaces show state from here and send
 //! requests back.
 
+pub mod app;
 pub mod autosave;
 pub mod cloud;
 pub mod crash;
@@ -10,3 +11,5 @@ pub mod instance;
 pub mod log;
 pub mod midi;
 pub mod prefs;
+
+pub use app::{Core, Intent, PendingAction, Prompts, Snapshot};

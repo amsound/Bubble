@@ -7,41 +7,35 @@
 //! rendering (decision D-06).
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bubble_control::{
-    AssetState, AttrSet, CartClip, CartRuntime, CartState, Controller, InputEvent, LogKind,
-    MouseButton, TriggerSource, describe, display_label,
+    AssetState, AttrSet, CartState, InputEvent, LogKind, MouseButton, describe, display_label,
 };
 use bubble_engine::Overview;
-use bubble_engine::device::{AudioOutput, OutputDeviceInfo, list_output_devices};
 use bubble_project::{
-    Action, Cart, Curve, ExclusiveGroup, FadeSpec, HAlign, Project, ProjectSettings, Retrigger,
-    StopScope, VAlign,
+    Action, Cart, Curve, FadeSpec, HAlign, Project, Retrigger, StopScope, VAlign,
 };
 use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Sense, Vec2};
 use uuid::Uuid;
 
-mod audio_out;
-use bubble_core::autosave::{autosave_path, recovery_dir};
-use bubble_core::{cloud, crash};
+use bubble_core::app::{AfterCreate, Core};
+use bubble_core::{Intent, PendingAction, Snapshot};
 mod convert;
 mod outputs_ui;
 mod session_ui;
 mod setup_ui;
 
-use crate::dialogs::{AUDIO_EXTS, FileDialogs, OPEN_EXTS, Purpose};
+use crate::dialogs::{AUDIO_EXTS, OPEN_EXTS, Purpose};
 use crate::fonts::FontState;
 use crate::menu::{Cmd, Item, Menu, Top};
 use crate::meter::{Ppm, ppm_ui};
-use crate::midi::{MidiInputs, available_ports};
+use crate::midi::available_ports;
 use crate::native::{WindowSpec, native_window};
-use crate::prefs::Prefs;
 use crate::tile::{DEFAULT_CART_COLOR, TileState, fmt_precise, parse_color};
 use crate::waveform::{TrimEdit, WaveView, waveform_ui};
-use session_ui::{AfterCreate, Job, NewSession};
 
 /// Output level presets offered in the Audio menu (dB).
 const OUTPUT_LEVELS: [i32; 7] = [0, -3, -6, -10, -12, -15, -20];
@@ -58,98 +52,6 @@ const SWATCHES: [[u8; 3]; 10] = [
     [0x5D, 0x40, 0x37],
     [0x54, 0x5B, 0x64],
 ];
-/// A project being read in the background: (path, opened at start-up?, result).
-type PendingOpen = (
-    PathBuf,
-    bool,
-    std::sync::mpsc::Receiver<Result<Project, String>>,
-);
-
-const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
-
-/// Changes requested by the UI during a frame, applied after rendering.
-#[allow(clippy::large_enum_variant)] // short-lived, a few per frame
-enum Intent {
-    PointerDown(Uuid, MouseButton),
-    PointerUp(Uuid),
-    StopAll(bool),
-    StopPage(usize),
-    SetPage(usize),
-    AssignFiles(usize, u16, u16, Vec<PathBuf>),
-    ClearCell(usize, u16, u16),
-    MoveCell((usize, u16, u16), (usize, u16, u16)),
-    ReplaceCart(Cart),
-    SetGroups(Vec<ExclusiveGroup>),
-    AddGroup,
-    SetBindingAction(Uuid, Action),
-    LiveSpeed(Uuid, f32),
-    /// Speed bar x1: ramp back to normal speed over the cart's speed-up time.
-    SpeedNormal(Uuid),
-    SlowToStop(Uuid),
-    ReleaseHolds,
-    /// Learn a trigger with the default action for the current mouse mode.
-    LearnDefault(Uuid),
-    Settings(ProjectSettings),
-    RenameProject(String),
-    AddPage,
-    MovePage(usize, usize),
-    ReassignOutputs(Option<String>, String, bubble_control::ReassignScope),
-    /// Add an imported project's pages to this session.
-    Append(Project),
-    CreateControl(usize, u16, u16, bubble_project::Control, Option<Uuid>),
-    PastePage(usize, bubble_control::PageClip),
-    RemovePage(usize),
-    RenamePage(usize, String),
-    ResizePage(usize, u16, u16),
-    CancelLearn,
-    ClearBindings(Uuid, Option<bool>),
-    Relink(Uuid, PathBuf),
-    Refresh,
-    Input(InputEvent),
-    Open(PathBuf),
-    Save,
-    /// Start a new, empty session saved at this file (its folder already exists).
-    CreateSession(PathBuf, String),
-    SaveAsWith(PathBuf, Vec<(Uuid, PathBuf)>),
-    Retarget(Vec<(Uuid, PathBuf)>),
-    /// Assets converted to WAV: repoint them and rescale their trims.
-    Converted(Vec<bubble_control::Conversion>),
-    Trigger(Uuid),
-    /// Play a cart with unsaved Cart Setup settings.
-    LiveGain(Uuid, f32, bool),
-    LiveSpeedRamp(Uuid, f32, u32),
-    /// Cart Setup: turn looping on or off on the playing preview.
-    LiveLoop(Uuid, bool),
-    /// Cart Setup: new In and Out (seconds) for the playing preview.
-    LiveTrim(Uuid, f64, f64),
-    /// Cart Setup: move the playing preview to seconds from the file start.
-    Seek(Uuid, f64),
-    /// Cart Setup: start the preview at seconds from the file start.
-    PreviewAt(Cart, f64),
-    /// Stop a cart at once, ignoring its fade-out.
-    KillCart(Uuid),
-    Preview(Cart),
-    Undo,
-    Redo,
-    Paste(usize, u16, u16, CartClip),
-    PasteAttrs(Cart, Vec<Uuid>, AttrSet),
-}
-
-struct Snapshot {
-    project: Project,
-    runtime: HashMap<Uuid, CartRuntime>,
-    page: usize,
-    dirty: bool,
-    path: Option<PathBuf>,
-    learning: Option<bubble_control::Learn>,
-    pending: usize,
-    missing: Vec<Uuid>,
-    asset_info: HashMap<Uuid, String>,
-    can_undo: bool,
-    can_redo: bool,
-    /// Output peaks per playing cart since the last frame (linear).
-    peaks: HashMap<Uuid, (f32, f32)>,
-}
 
 #[derive(Default)]
 struct Dialogs {
@@ -164,41 +66,14 @@ struct Dialogs {
     page_settings: Option<usize>,
     /// Carts with an open speed bar window.
     speed_bars: Vec<Uuid>,
-    /// Autosaves found at start-up: (autosave file, project it belongs to).
-    recover: Vec<(PathBuf, Option<PathBuf>)>,
     relink: bool,
     log: bool,
     confirm_close: bool,
-    confirm_discard: Option<PendingAction>,
-    new_session: Option<NewSession>,
-    /// A SpotOn file to import: add to the open session, or start a new one?
-    import_choice: Option<PathBuf>,
-    /// Files to offer converting to WAV (session setting).
-    convert_offer: Option<Vec<(Uuid, PathBuf)>>,
-    error: Option<String>,
-}
-
-#[derive(Clone)]
-enum PendingAction {
-    New,
-    Open(PathBuf),
-    /// Import a SpotOn session or package into a new session.
-    Import(PathBuf),
 }
 
 pub struct BubbleApp {
-    ctrl: Arc<Mutex<Controller>>,
-    /// One running stream per output device (output A's device first).
-    audio: Vec<AudioOutput>,
-    /// The device each stream was asked for ("" = system default), parallel to `audio`.
-    audio_keys: Vec<String>,
-    /// Devices that are missing, and the check for their return.
-    watch: audio_out::DeviceWatch,
-    audio_error: Option<String>,
-    /// Outputs that could not be opened ("Output B: …").
-    output_errors: Vec<String>,
-    midi: MidiInputs,
-    prefs: Prefs,
+    /// Everything that is not drawing (shared with the Slint interface).
+    core: Core,
     edit_mode: bool,
     selected: Option<Uuid>,
     pressed: Option<Uuid>,
@@ -208,44 +83,12 @@ pub struct BubbleApp {
     /// Keyboard cursor on an empty cell (arrow keys); a cart cell uses `selected`.
     cursor_empty: Option<(usize, u16, u16)>,
     dialogs: Dialogs,
-    last_autosave: Instant,
     allow_close: bool,
-    repaint: Arc<dyn Fn() + Send + Sync>,
-    files: FileDialogs,
-    clipboard: Option<CartClip>,
-    /// Project being read in the background: (path, startup?, result channel).
-    opening: Option<PendingOpen>,
-    /// Identifies this run's untitled recovery file.
-    session_id: u64,
-    started: Instant,
     /// The main window moved or resized; saved to preferences once it settles.
     window_moved: Option<Instant>,
-    /// A session or SpotOn file named on the command line, opened on the first frame.
-    open_at_start: Option<PathBuf>,
-    /// Requests from later launches (see `crate::instance`).
-    requests: std::sync::mpsc::Receiver<crate::instance::Request>,
-    /// When the open session started loading its audio (logged once it is ready).
-    loading_since: Option<Instant>,
-    /// Most audio files seen waiting at once, for the "n of total" progress.
-    loading_total: usize,
-    /// The last autosave or preferences save failed (shown until one succeeds).
-    autosave_problem: Option<String>,
-    prefs_problem: Option<String>,
-    /// The open session is in a cloud-synced folder (status line), and when it was
-    /// last checked; the fuller alert is shown once per opened session.
-    cloud_status: Option<String>,
-    cloud_checked: Option<Instant>,
-    cloud_alerted: bool,
     first_frame_logged: bool,
-    /// Set when the user chose to quit without saving.
-    discard_on_exit: bool,
     attr_choice: AttrSet,
     wave_view: WaveView,
-    devices: Vec<OutputDeviceInfo>,
-    /// A device scan running on a helper thread (enumeration can take seconds on
-    /// Windows with Bluetooth or virtual devices).
-    devices_scan: Option<std::sync::mpsc::Receiver<Vec<OutputDeviceInfo>>>,
-    midi_ports: Vec<String>,
     fonts: FontState,
     font_names: Vec<&'static str>,
     meters: HashMap<Uuid, Ppm>,
@@ -256,8 +99,6 @@ pub struct BubbleApp {
     page_drag: Option<usize>,
     /// Page tab being renamed in place, and the text so far.
     renaming_page: Option<(usize, String)>,
-    /// Copied page (Copy Page / Paste Page).
-    page_clip: Option<bubble_control::PageClip>,
     /// Cart Setup's unapplied edits, and whether closing asked to keep them.
     setup_draft: Option<Cart>,
     setup_close_prompt: bool,
@@ -270,14 +111,6 @@ pub struct BubbleApp {
     setup_picker: bool,
     /// Pointer position during an OS file drag (window points).
     drag_hover: Option<Pos2>,
-    /// Background copy/import in progress.
-    job: Option<Job>,
-    /// Collect outside audio into the session once nothing else is running.
-    want_collect: bool,
-    /// A WAV conversion check is due (`true`: offer it first).
-    wav_check: Option<bool>,
-    /// When the session file was last written (for the title).
-    saved_at: Option<std::time::SystemTime>,
     last_title: String,
     /// Speed bars showing the ramp-time choices: true = x0 slow-down, false = x1.
     speed_pick: HashMap<Uuid, bool>,
@@ -289,76 +122,48 @@ pub struct BubbleApp {
     native_menu: crate::menu::NativeMenu,
 }
 
+impl std::ops::Deref for BubbleApp {
+    type Target = Core;
+    fn deref(&self) -> &Core {
+        &self.core
+    }
+}
+
+impl std::ops::DerefMut for BubbleApp {
+    fn deref_mut(&mut self) -> &mut Core {
+        &mut self.core
+    }
+}
+
 impl BubbleApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let prefs = Prefs::load();
-        if let Some(scale) = prefs.ui_scale {
-            cc.egui_ctx.set_zoom_factor(scale);
-        }
-        cc.egui_ctx.set_theme(theme(prefs.appearance));
-        // The last project is opened in the background (see `start_open`): reading a
-        // file in a protected folder can block on a macOS privacy prompt, and the
-        // window must appear regardless.
-        let ctrl = Controller::new(Controller::new_project("Untitled"), None);
-        let startup_error: Option<String> = None;
-        let ctrl = Arc::new(Mutex::new(ctrl));
         let ctx = cc.egui_ctx.clone();
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ctx.request_repaint());
+        let core = Core::new(repaint);
+        if let Some(scale) = core.prefs.ui_scale {
+            cc.egui_ctx.set_zoom_factor(scale);
+        }
+        cc.egui_ctx.set_theme(theme(core.prefs.appearance));
         let mut app = BubbleApp {
-            ctrl,
-            audio: Vec::new(),
-            audio_keys: Vec::new(),
-            watch: Default::default(),
-            audio_error: None,
-            output_errors: Vec::new(),
-            midi: MidiInputs::empty(),
-            prefs,
+            core,
             edit_mode: true,
             selected: None,
             pressed: None,
             dragging: None,
             drag_copy: false,
             cursor_empty: None,
-            dialogs: Dialogs {
-                error: startup_error,
-                ..Default::default()
-            },
-            last_autosave: Instant::now(),
+            dialogs: Dialogs::default(),
             allow_close: false,
-            files: FileDialogs::new(repaint.clone()),
-            clipboard: None,
-            opening: None,
-            started: Instant::now(),
             window_moved: None,
-            open_at_start: None,
-            requests: {
-                let r = repaint.clone();
-                crate::instance::watch(move || r())
-            },
-            loading_since: None,
-            loading_total: 0,
-            autosave_problem: None,
-            prefs_problem: None,
-            cloud_status: None,
-            cloud_checked: None,
-            cloud_alerted: false,
             first_frame_logged: false,
-            session_id: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs()),
-            discard_on_exit: false,
             attr_choice: AttrSet::ALL,
             wave_view: WaveView::default(),
-            devices: Vec::new(),
-            devices_scan: None,
-            midi_ports: available_ports(),
             fonts: FontState::default(),
             font_names: crate::fonts::available(),
             meters: HashMap::new(),
             last_frame: Instant::now(),
             quick_edit: None,
             speed_pick: HashMap::new(),
-            job: None,
             drag_hover: None,
             qe_picker: false,
             setup_draft: None,
@@ -368,54 +173,21 @@ impl BubbleApp {
             setup_picker: false,
             page_drag: None,
             renaming_page: None,
-            page_clip: None,
-            want_collect: false,
-            wav_check: None,
-            saved_at: None,
             last_title: String::new(),
             had_focus: true,
             child_focus: false,
             #[cfg(target_os = "macos")]
             native_menu: crate::menu::NativeMenu::new(),
-            repaint,
         };
         #[cfg(target_os = "macos")]
         {
             let r = app.repaint.clone();
             crate::menu::NativeMenu::set_wakeup(move || r());
         }
-        crash::install(app.ctrl.clone(), app.session_id);
-        app.scan_devices();
-        app.open_audio();
-        for a in &app.audio {
-            crate::log::info(&format!(
-                "audio output: {} at {} Hz, {} ch, {}",
-                a.device_name, a.sample_rate, a.channels, a.sample_format
-            ));
-        }
-        for e in app.output_errors.iter().chain(app.audio_error.iter()) {
-            crate::log::info(&format!("audio problem: {e}"));
-        }
-        app.open_midi();
-        app.find_recoverable();
-        if let Some(report) = crash::take_unreported() {
-            app.dialogs.error = Some(format!(
-                "Bubble quit unexpectedly last time.\n\nA crash report was saved to:\n{}\n\n\
-                 Any unsaved work it could keep is offered for recovery.",
-                report.display()
-            ));
-        }
-        // A file given at launch (dropped on Bubble.exe, Open With → Bubble) opens
-        // instead of the last session.
-        app.open_at_start = std::env::args_os()
-            .skip(1)
-            .map(PathBuf::from)
-            .find(|p| p.is_file());
-        if app.open_at_start.is_none()
-            && let Some(p) = app.prefs.last_project.clone()
-        {
-            app.start_open(p, true);
-        }
+        // Audio, MIDI, recovery and the session to open (in the background: reading a
+        // file in a protected folder can block on a macOS privacy prompt, and the
+        // window must appear regardless).
+        app.core.start();
         app
     }
 
@@ -475,69 +247,11 @@ impl BubbleApp {
         ui.ctx().request_repaint_after(Duration::from_millis(100));
     }
 
-    /// Lists the output devices on a helper thread; the result arrives on a later frame.
-    fn scan_devices(&mut self) {
-        if self.devices_scan.is_some() {
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let repaint = self.repaint.clone();
-        std::thread::Builder::new()
-            .name("bubble-devices".into())
-            .spawn(move || {
-                let _ = tx.send(list_output_devices().unwrap_or_default());
-                repaint();
-            })
-            .expect("spawn device scan");
-        self.devices_scan = Some(rx);
-    }
-
-    /// Warns when the open session lives in a cloud-synced folder, and clearly when
-    /// any of its audio is online-only (checked on open and every minute).
-    fn check_cloud(&mut self) {
-        if self.opening.is_some()
-            || self
-                .cloud_checked
-                .is_some_and(|t| t.elapsed() < Duration::from_secs(60))
-        {
-            return;
-        }
-        self.cloud_checked = Some(Instant::now());
-        let (path, audio) = {
-            let c = self.lock();
-            let audio: Vec<PathBuf> = c.asset_files().into_iter().map(|(_, p)| p).collect();
-            (c.path().map(Path::to_path_buf), audio)
-        };
-        let Some(path) = path else {
-            self.cloud_status = None;
-            return;
-        };
-        let found = cloud::check(&path, &audio);
-        let status = found.as_ref().map(|c| c.status.clone());
-        if status != self.cloud_status
-            && let Some(s) = &status
-        {
-            crate::log::info(s);
-        }
-        self.cloud_status = status;
-        if let Some(alert) = found.and_then(|c| c.alert)
-            && !self.cloud_alerted
-        {
-            self.cloud_alerted = true;
-            self.dialogs.error = Some(alert);
-        }
-    }
-
-    /// Saves preferences; a failure is logged and shown in the status bar until a
-    /// later save succeeds.
-    fn save_prefs(&mut self) {
-        match self.prefs.save() {
-            Ok(()) => self.prefs_problem = None,
-            Err(e) => {
-                let msg = format!("Preferences could not be saved: {e}");
-                crate::log::info(&msg);
-                self.prefs_problem = Some(msg);
-            }
+    /// Applies a selection the core asked for (a cart just created, pasted or
+    /// assigned; none after opening a session).
+    fn take_selection(&mut self) {
+        if let Some(s) = self.core.select.take() {
+            self.selected = s;
         }
     }
 
@@ -590,549 +304,6 @@ impl BubbleApp {
             self.save_prefs();
         } else if self.window_moved.is_some() {
             ctx.request_repaint_after(Duration::from_secs(1));
-        }
-    }
-
-    fn lock(&self) -> MutexGuard<'_, Controller> {
-        self.ctrl.lock().unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// "Output A", "Output A - PA", or with `detail` the device and channels.
-    /// Labels for every output a cart can pick (plus `extra`'s, if not set up here).
-    fn output_labels(&self, extra: &str) -> Vec<String> {
-        let n = self
-            .prefs
-            .effective_outputs()
-            .len()
-            .max(bubble_project::output_index(extra).map_or(0, |i| i + 1));
-        (0..n).map(|i| self.output_label(i, false)).collect()
-    }
-
-    fn output_label(&self, index: usize, detail: bool) -> String {
-        let outs = self.prefs.effective_outputs();
-        let letter = bubble_project::output_letter(index);
-        let Some(o) = outs.get(index) else {
-            return format!("Output {letter} (not set up here)");
-        };
-        let device = if o.device.is_empty() {
-            "System default"
-        } else {
-            &o.device
-        };
-        match (o.alias.trim().is_empty(), detail) {
-            (false, false) => format!("Output {letter} - {}", o.alias.trim()),
-            (false, true) => format!(
-                "Output {letter} - {} ({device} {})",
-                o.alias.trim(),
-                o.channel_text()
-            ),
-            (true, _) => format!("Output {letter} - {device} {}", o.channel_text()),
-        }
-    }
-
-    fn open_midi(&mut self) {
-        self.midi = if self.prefs.midi_disabled {
-            MidiInputs::empty()
-        } else {
-            let repaint = self.repaint.clone();
-            MidiInputs::open(&self.ctrl, &self.prefs.midi_inputs, move || repaint())
-        };
-    }
-
-    fn snapshot(&self) -> Snapshot {
-        let mut c = self.lock();
-        c.tick();
-        let project = c.project().clone();
-        let mut asset_info = HashMap::new();
-        for a in &project.assets {
-            let s = match c.asset_state(a.id) {
-                Some(AssetState::Ready {
-                    path,
-                    audio,
-                    source,
-                    changed,
-                }) => format!(
-                    "{}\n{} Hz, {} ch, {:.2} s{}",
-                    path.display(),
-                    source.sample_rate,
-                    source.channels,
-                    audio.duration_secs(),
-                    if *changed {
-                        "\n⚠ file changed since it was assigned"
-                    } else {
-                        ""
-                    }
-                ),
-                Some(AssetState::Loading { path }) => format!("{}\nloading…", path.display()),
-                Some(AssetState::Missing { tried }) => format!(
-                    "MISSING: {}\ntried:\n{}",
-                    a.path,
-                    tried
-                        .iter()
-                        .map(|p| format!("  {}", p.display()))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                ),
-                Some(AssetState::Error { path, message }) => {
-                    format!("{}\nERROR: {message}", path.display())
-                }
-                None => a.path.clone(),
-            };
-            asset_info.insert(a.id, s);
-        }
-        Snapshot {
-            can_undo: c.can_undo(),
-            can_redo: c.can_redo(),
-            peaks: c.take_cart_peaks(),
-            runtime: c.runtime(),
-            page: c.current_page(),
-            dirty: c.is_dirty(),
-            path: c.path().map(|p| p.to_path_buf()),
-            learning: c.learning(),
-            pending: c.assets_pending(),
-            missing: c.missing_assets(),
-            asset_info,
-            project,
-        }
-    }
-
-    fn apply(&mut self, intents: Vec<Intent>) {
-        let mut reopen_prefs = false;
-        let ctrl = self.ctrl.clone();
-        for intent in intents {
-            let mut c = ctrl.lock().unwrap_or_else(|p| p.into_inner());
-            let result: Result<(), String> = match intent {
-                Intent::PointerDown(id, b) => {
-                    c.pointer_down(id, b);
-                    Ok(())
-                }
-                Intent::PointerUp(id) => {
-                    c.pointer_up(id);
-                    Ok(())
-                }
-                Intent::StopAll(fade) => {
-                    c.stop_all(fade);
-                    Ok(())
-                }
-                Intent::StopPage(p) => {
-                    c.stop_page(p);
-                    Ok(())
-                }
-                Intent::SetPage(p) => {
-                    c.set_current_page(p);
-                    Ok(())
-                }
-                Intent::AssignFiles(p, r, col, files) => {
-                    let errors: Vec<String> = c
-                        .assign_files(p, r, col, &files)
-                        .into_iter()
-                        .filter_map(|r| r.err())
-                        .collect();
-                    if let Some(first) = c
-                        .project()
-                        .pages
-                        .get(p)
-                        .and_then(|pg| pg.cell(r, col))
-                        .map(|x| x.cart.id)
-                    {
-                        self.selected = Some(first);
-                    }
-                    if errors.is_empty() {
-                        Ok(())
-                    } else {
-                        Err(errors.join("\n"))
-                    }
-                }
-                Intent::ClearCell(p, r, col) => {
-                    c.clear_cell(p, r, col);
-                    Ok(())
-                }
-                Intent::MoveCell(a, b) => {
-                    c.move_cell(a, b);
-                    Ok(())
-                }
-                Intent::ReplaceCart(cart) => {
-                    let id = cart.id;
-                    c.edit_cart(id, |x| *x = cart);
-                    Ok(())
-                }
-                Intent::SetGroups(g) => {
-                    c.set_groups(g);
-                    Ok(())
-                }
-                Intent::AddGroup => {
-                    c.add_group();
-                    Ok(())
-                }
-                Intent::SetBindingAction(b, a) => {
-                    c.set_binding_action(b, a);
-                    Ok(())
-                }
-                Intent::LiveSpeed(id, v) => {
-                    c.set_live_speed(id, v, 40);
-                    Ok(())
-                }
-                Intent::SpeedNormal(id) => {
-                    c.speed_to_normal(id);
-                    Ok(())
-                }
-                Intent::SlowToStop(id) => {
-                    c.slow_to_stop(id);
-                    Ok(())
-                }
-                Intent::ReleaseHolds => {
-                    c.release_holds();
-                    Ok(())
-                }
-                Intent::LearnDefault(id) => {
-                    let a = c.default_trigger_action();
-                    c.start_learn(id, a);
-                    Ok(())
-                }
-                Intent::Settings(s) => {
-                    let wav_on = s.convert_to_wav && !c.project().settings.convert_to_wav;
-                    c.edit_settings(|x| *x = s);
-                    if wav_on {
-                        self.want_wav_check(true);
-                    }
-                    Ok(())
-                }
-                Intent::RenameProject(n) => {
-                    c.rename_project(&n);
-                    Ok(())
-                }
-                Intent::AddPage => {
-                    let n = c.project().pages.len() + 1;
-                    let (r, col) = c
-                        .project()
-                        .pages
-                        .last()
-                        .map_or((4, 6), |p| (p.rows, p.cols));
-                    let p = c.add_page(&format!("Page {n}"), r, col);
-                    c.set_current_page(p);
-                    Ok(())
-                }
-                Intent::RemovePage(p) => c.remove_page(p).map_err(|e| e.to_string()),
-                Intent::CreateControl(p, r, col, kind, group) => {
-                    if let Some(id) = c.create_control(p, r, col, kind, group) {
-                        self.selected = Some(id);
-                    }
-                    Ok(())
-                }
-                Intent::ReassignOutputs(from, to, scope) => {
-                    let n = c.reassign_outputs(from.as_deref(), &to, &scope);
-                    if n == 0 {
-                        Err("No carts matched.".to_string())
-                    } else {
-                        Ok(())
-                    }
-                }
-                Intent::Append(p) => {
-                    let first = c.append_project(p);
-                    c.set_current_page(first);
-                    Ok(())
-                }
-                Intent::MovePage(a, b) => {
-                    c.move_page(a, b);
-                    Ok(())
-                }
-                Intent::PastePage(p, clip) => {
-                    c.paste_page(p, &clip);
-                    Ok(())
-                }
-                Intent::RenamePage(p, n) => {
-                    c.rename_page(p, &n);
-                    Ok(())
-                }
-                Intent::ResizePage(p, r, col) => {
-                    c.resize_page(p, r, col).map_err(|e| e.to_string())
-                }
-                Intent::CancelLearn => {
-                    c.cancel_learn();
-                    Ok(())
-                }
-                Intent::ClearBindings(id, k) => {
-                    c.clear_bindings(id, k);
-                    Ok(())
-                }
-                Intent::Relink(a, p) => {
-                    let r = c.relink(a, &p).map(|_| ()).map_err(|e| e.to_string());
-                    self.want_collect = true;
-                    self.want_wav_check(false);
-                    r
-                }
-                Intent::Retarget(moves) => {
-                    c.retarget_assets(&moves);
-                    Ok(())
-                }
-                Intent::Converted(done) => {
-                    c.apply_conversions(&done);
-                    Ok(())
-                }
-                Intent::CreateSession(file, name) => {
-                    c.replace_project(Controller::new_project(&name), None);
-                    self.selected = None;
-                    match c.save_as(&file) {
-                        Ok(()) => {
-                            self.saved_at = Some(std::time::SystemTime::now());
-                            self.prefs.add_recent(file);
-                            reopen_prefs = true;
-                            Ok(())
-                        }
-                        Err(e) => Err(e.to_string()),
-                    }
-                }
-                Intent::SaveAsWith(p, moves) => match c.save_as_with(&p, &moves) {
-                    Ok(()) => {
-                        self.saved_at = Some(std::time::SystemTime::now());
-                        if let Some(d) = recovery_dir() {
-                            let _ = std::fs::remove_file(
-                                d.join(format!("Untitled-{}.bubble", self.session_id)),
-                            );
-                        }
-                        self.prefs.add_recent(p);
-                        reopen_prefs = true;
-                        Ok(())
-                    }
-                    Err(e) => Err(e.to_string()),
-                },
-                Intent::Refresh => {
-                    c.refresh_assets();
-                    Ok(())
-                }
-                Intent::Input(ev) => {
-                    c.handle_input(&ev);
-                    Ok(())
-                }
-                Intent::Open(p) => {
-                    drop(c);
-                    self.start_open(p, false);
-                    continue;
-                }
-                Intent::LiveGain(id, db, muted) => {
-                    c.set_live_gain(id, db, muted);
-                    Ok(())
-                }
-                Intent::LiveSpeedRamp(id, v, ms) => {
-                    c.set_live_speed(id, v, ms);
-                    Ok(())
-                }
-                Intent::LiveLoop(id, looping) => {
-                    c.set_live_loop(id, looping);
-                    Ok(())
-                }
-                Intent::LiveTrim(id, a, b) => {
-                    c.set_live_trim(id, a, b);
-                    Ok(())
-                }
-                Intent::Seek(id, s) => {
-                    c.seek(id, s);
-                    Ok(())
-                }
-                Intent::PreviewAt(cart, s) => {
-                    c.preview_at(&cart, s);
-                    Ok(())
-                }
-                Intent::KillCart(id) => {
-                    c.stop_cart(id, false);
-                    Ok(())
-                }
-                Intent::Preview(cart) => {
-                    c.preview(&cart);
-                    Ok(())
-                }
-                Intent::Trigger(id) => {
-                    c.trigger(id, TriggerSource::Ui, None);
-                    Ok(())
-                }
-                Intent::Undo => {
-                    c.undo();
-                    Ok(())
-                }
-                Intent::Redo => {
-                    c.redo();
-                    Ok(())
-                }
-                Intent::Paste(p, r, col, clip) => {
-                    if let Some(id) = c.paste_cart(p, r, col, &clip) {
-                        self.selected = Some(id);
-                    }
-                    Ok(())
-                }
-                Intent::PasteAttrs(from, targets, what) => {
-                    c.paste_attributes(&from, &targets, what);
-                    Ok(())
-                }
-                Intent::Save => match c.save() {
-                    Ok(()) => {
-                        drop(c);
-                        self.saved_at = Some(std::time::SystemTime::now());
-                        self.remove_autosave();
-                        continue;
-                    }
-                    Err(e) => Err(e.to_string()),
-                },
-            };
-            drop(c);
-            if let Err(e) = result {
-                self.dialogs.error = Some(e);
-            }
-        }
-        if reopen_prefs {
-            self.save_prefs();
-        }
-    }
-
-    /// Reads a project on a helper thread; `poll_open` applies it.
-    fn start_open(&mut self, path: PathBuf, startup: bool) {
-        crate::log::info(&format!("opening {}", path.display()));
-        let (tx, rx) = std::sync::mpsc::channel();
-        let repaint = self.repaint.clone();
-        let p = path.clone();
-        std::thread::Builder::new()
-            .name("bubble-open".into())
-            .spawn(move || {
-                let r = bubble_project::io::load(&p).map_err(|e| e.to_string());
-                let _ = tx.send(r);
-                repaint();
-            })
-            .expect("spawn open thread");
-        self.opening = Some((path, startup, rx));
-    }
-
-    fn poll_open(&mut self) {
-        let Some((path, startup, rx)) = &self.opening else {
-            return;
-        };
-        let Ok(result) = rx.try_recv() else { return };
-        let (path, startup) = (path.clone(), *startup);
-        self.opening = None;
-        match result {
-            Ok(project) => {
-                crate::log::info(&format!(
-                    "opened: {} page(s), {} audio file(s)",
-                    project.pages.len(),
-                    project.assets.len()
-                ));
-                self.loading_since = Some(Instant::now());
-                self.cloud_checked = None;
-                self.cloud_alerted = false;
-                self.lock().replace_project(project, Some(path.clone()));
-                self.selected = None;
-                self.saved_at = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-                self.want_collect = true;
-                self.want_wav_check(true);
-                self.prefs.add_recent(path);
-                self.save_prefs();
-                self.find_recoverable();
-            }
-            // A last project that no longer exists is not worth an error at start-up.
-            Err(_) if startup && !path.exists() => {}
-            Err(e) => {
-                crate::log::info(&format!("could not open {}: {e}", path.display()));
-                self.dialogs.error = Some(format!("Could not open {}:\n{e}", path.display()));
-            }
-        }
-    }
-
-    fn autosave(&mut self) {
-        if self.last_autosave.elapsed() < AUTOSAVE_EVERY {
-            return;
-        }
-        self.last_autosave = Instant::now();
-        self.write_autosave();
-    }
-
-    /// Writes unsaved changes next to the project (`<file>.autosave`) or, for an
-    /// untitled project, into the recovery folder. Never overwrites the project file.
-    fn write_autosave(&mut self) {
-        let c = self.lock();
-        if !c.is_dirty() {
-            return;
-        }
-        let json = bubble_project::io::to_json_string(c.project());
-        let target = match c.path() {
-            Some(p) => Some(autosave_path(p)),
-            None => recovery_dir().map(|d| d.join(format!("Untitled-{}.bubble", self.session_id))),
-        };
-        drop(c);
-        if let Some(t) = target {
-            match bubble_project::io::write_atomic(&t, json.as_bytes(), false) {
-                Ok(()) => self.autosave_problem = None,
-                Err(e) => {
-                    let msg = format!("Autosave failed ({}): {e}", t.display());
-                    crate::log::info(&msg);
-                    self.autosave_problem = Some(msg);
-                }
-            }
-        }
-    }
-
-    fn remove_autosave(&self) {
-        let c = self.lock();
-        if let Some(p) = c.path() {
-            let _ = std::fs::remove_file(autosave_path(p));
-        }
-        if let Some(d) = recovery_dir() {
-            let _ = std::fs::remove_file(d.join(format!("Untitled-{}.bubble", self.session_id)));
-        }
-    }
-
-    /// Looks for unsaved work left by a previous session.
-    fn find_recoverable(&mut self) {
-        let mut found = Vec::new();
-        if let Some(p) = self.lock().path().map(|p| p.to_path_buf()) {
-            let a = autosave_path(&p);
-            let newer = match (std::fs::metadata(&a), std::fs::metadata(&p)) {
-                (Ok(am), Ok(pm)) => am.modified().ok() > pm.modified().ok(),
-                (Ok(_), Err(_)) => true,
-                _ => false,
-            };
-            if newer {
-                found.push((a, Some(p)));
-            }
-        }
-        if let Some(d) = recovery_dir()
-            && let Ok(rd) = std::fs::read_dir(d)
-        {
-            {
-                for e in rd.flatten() {
-                    let p = e.path();
-                    if p.extension()
-                        .is_some_and(|x| x == bubble_project::io::EXTENSION)
-                    {
-                        found.push((p, None));
-                    }
-                }
-            }
-        }
-        self.dialogs.recover = found;
-    }
-
-    fn save_or_save_as(&mut self, snap: &Snapshot, intents: &mut Vec<Intent>) {
-        if snap.path.is_some() {
-            intents.push(Intent::Save);
-        } else {
-            let name = if snap.project.name == "Untitled" {
-                String::new()
-            } else {
-                snap.project.name.clone()
-            };
-            self.begin_new_session(name, AfterCreate::SaveAs);
-        }
-    }
-
-    /// Turns finished file dialogs into intents.
-    fn file_results(&mut self, snap: &Snapshot, intents: &mut Vec<Intent>) {
-        for (purpose, paths) in self.files.poll() {
-            match purpose {
-                Purpose::Assign { page, row, col, .. } => {
-                    self.assign_into_session(page, row, col, paths)
-                }
-                Purpose::Relink(a) => intents.push(Intent::Relink(a, paths[0].clone())),
-                Purpose::Open => self.open_any(paths[0].clone(), snap, intents),
-                Purpose::ChooseFolder => self.set_session_location(paths[0].clone()),
-            }
         }
     }
 }
@@ -1634,7 +805,9 @@ impl eframe::App for BubbleApp {
             self.first_frame_logged = true;
             crate::log::info("first frame drawn");
         }
-        self.watch_audio(&ctx);
+        if let Some(d) = self.watch_audio() {
+            ctx.request_repaint_after(d);
+        }
         if let Some(rx) = &self.devices_scan
             && let Ok(list) = rx.try_recv()
         {
@@ -1642,6 +815,7 @@ impl eframe::App for BubbleApp {
             self.devices_scan = None;
         }
         self.poll_open();
+        self.take_selection();
         self.check_cloud();
         let snap = self.snapshot();
         if snap.pending == 0
@@ -1736,6 +910,7 @@ impl eframe::App for BubbleApp {
         self.had_focus = focused;
 
         self.apply(intents);
+        self.take_selection();
         self.files.launch(frame);
         self.autosave();
 
@@ -1862,28 +1037,6 @@ impl BubbleApp {
         }
     }
 
-    fn request(&mut self, a: PendingAction, snap: &Snapshot, intents: &mut Vec<Intent>) {
-        if snap.dirty {
-            self.dialogs.confirm_discard = Some(a);
-        } else {
-            self.perform(a, intents);
-        }
-    }
-
-    fn perform(&mut self, a: PendingAction, intents: &mut Vec<Intent>) {
-        match a {
-            PendingAction::New => self.begin_new_session(String::new(), AfterCreate::Empty),
-            PendingAction::Open(p) => intents.push(Intent::Open(p)),
-            PendingAction::Import(p) => {
-                let stem = p
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().trim_start_matches('~').to_string())
-                    .unwrap_or_default();
-                self.begin_new_session(stem, AfterCreate::Import(p));
-            }
-        }
-    }
-
     /// Where the pointer is during an OS file drag, in window points. winit 0.30
     /// reports dragged files without a position and macOS sends no mouse moves during
     /// a drag, so the system cursor is read and mapped into the window.
@@ -1973,7 +1126,7 @@ impl BubbleApp {
         let title = match &snap.path {
             None => "Bubble - No session".to_string(),
             Some(_) => {
-                let saved = self.saved_at.map(session_ui::saved_text);
+                let saved = self.saved_at.map(bubble_core::app::saved_text);
                 match (snap.dirty, saved) {
                     (false, Some(t)) => format!("Bubble - {} > {t}", snap.project.name),
                     (true, Some(t)) => format!(
@@ -2007,7 +1160,7 @@ impl BubbleApp {
         let clip = self.lock().copy_cart(id);
         match (free, clip) {
             (Some((nr, nc)), Some(clip)) => intents.push(Intent::Paste(p, nr, nc, clip)),
-            (None, _) => self.dialogs.error = Some("This page is full.".into()),
+            (None, _) => self.prompts.error = Some("This page is full.".into()),
             _ => {}
         }
     }
@@ -2552,12 +1705,6 @@ impl BubbleApp {
         if settings != snap.project.settings {
             intents.push(Intent::Settings(settings));
         }
-    }
-
-    fn reopen_midi(&mut self) {
-        self.save_prefs();
-        self.midi = MidiInputs::empty();
-        self.open_midi();
     }
 
     /// Up to four speed bars at once (as in the reference); the oldest makes way.
@@ -3558,12 +2705,12 @@ impl BubbleApp {
             self.child_focus |= f;
         }
 
-        if !self.dialogs.recover.is_empty() {
+        if !self.prompts.recover.is_empty() {
             let mut done: Option<usize> = None;
             egui::Modal::new(egui::Id::unique("recover")).show(ctx, |ui| {
                 ui.heading("Recover Unsaved Work");
                 ui.label("Bubble found unsaved changes from a previous session:");
-                let items = self.dialogs.recover.clone();
+                let items = self.prompts.recover.clone();
                 for (i, (file, project)) in items.iter().enumerate() {
                     ui.horizontal(|ui| {
                         let name = project
@@ -3581,7 +2728,7 @@ impl BubbleApp {
                                     c.set_dirty();
                                 }
                                 Err(e) => {
-                                    self.dialogs.error = Some(format!("Could not restore: {e}"))
+                                    self.prompts.error = Some(format!("Could not restore: {e}"))
                                 }
                             }
                             done = Some(i);
@@ -3601,7 +2748,7 @@ impl BubbleApp {
                 );
             });
             if let Some(i) = done {
-                let (file, project) = self.dialogs.recover.remove(i);
+                let (file, project) = self.prompts.recover.remove(i);
                 // A restored untitled recovery file is no longer needed once loaded.
                 if project.is_none() {
                     let _ = std::fs::remove_file(file);
@@ -3645,7 +2792,7 @@ impl BubbleApp {
             }
         }
 
-        if let Some(err) = self.dialogs.error.clone() {
+        if let Some(err) = self.prompts.error.clone() {
             let mut ok = false;
             let resp = egui::Modal::new(egui::Id::unique("error")).show(ctx, |ui| {
                 ui.set_max_width(520.0);
@@ -3664,11 +2811,11 @@ impl BubbleApp {
                 });
             });
             if ok || resp.should_close() {
-                self.dialogs.error = None;
+                self.prompts.error = None;
             }
         }
 
-        if let Some(action) = self.dialogs.confirm_discard.clone() {
+        if let Some(action) = self.prompts.confirm_discard.clone() {
             let resp = egui::Modal::new(egui::Id::unique("confirm-discard")).show(ctx, |ui| {
                 ui.heading("Unsaved changes");
                 ui.label("The current project has unsaved changes.");
@@ -3676,22 +2823,22 @@ impl BubbleApp {
                     if ui.add(crate::native::primary("Save first")).clicked() {
                         self.save_or_save_as(snap, intents);
                         self.perform(action.clone(), intents);
-                        self.dialogs.confirm_discard = None;
+                        self.prompts.confirm_discard = None;
                     }
                     if ui.add(crate::native::secondary("Cancel")).clicked() {
-                        self.dialogs.confirm_discard = None;
+                        self.prompts.confirm_discard = None;
                     }
                     if ui
                         .add(crate::native::secondary("Discard changes"))
                         .clicked()
                     {
                         self.perform(action.clone(), intents);
-                        self.dialogs.confirm_discard = None;
+                        self.prompts.confirm_discard = None;
                     }
                 });
             });
             if resp.should_close() {
-                self.dialogs.confirm_discard = None;
+                self.prompts.confirm_discard = None;
             }
         }
     }
