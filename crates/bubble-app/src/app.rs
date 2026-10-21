@@ -293,22 +293,7 @@ fn hex(c: [u8; 3]) -> String {
 }
 
 /// Maps an egui key to the project's physical key-code names.
-/// Shows a file in the platform's file manager.
-fn reveal(path: &std::path::Path) {
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open")
-        .arg("-R")
-        .arg(path)
-        .spawn();
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer")
-        .arg(format!("/select,{}", path.display()))
-        .spawn();
-    #[cfg(not(target_os = "macos"))]
-    if let Some(dir) = path.parent() {
-        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
-    }
-}
+use bubble_core::dialogs::reveal;
 
 fn action_name(a: Action) -> &'static str {
     match a {

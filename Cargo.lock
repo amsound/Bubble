@@ -956,6 +956,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "bubble-slint"
+version = "0.1.0"
+dependencies = [
+ "bubble-control",
+ "bubble-core",
+ "bubble-project",
+ "mouse_position",
+ "resvg 0.45.1",
+ "rfd",
+ "slint",
+ "slint-build",
+ "uuid",
+]
+
+[[package]]
 name = "bubble-slint-proto"
 version = "0.1.0"
 dependencies = [
@@ -5671,6 +5686,7 @@ dependencies = [
  "const-field-offset",
  "i-slint-backend-linuxkms",
  "i-slint-backend-selector",
+ "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",
@@ -5679,6 +5695,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "pin-weak",
+ "raw-window-handle",
  "slint-macros",
  "unicode-segmentation",
  "vtable",

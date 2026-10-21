@@ -1,0 +1,27 @@
+[package]
+name = "bubble-slint"
+description = "Bubble cart player: the Slint interface (main window), on top of bubble-core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "bubble-slint"
+path = "src/main.rs"
+
+[dependencies]
+bubble-control = { path = "../bubble-control" }
+bubble-core = { path = "../bubble-core" }
+bubble-project = { path = "../bubble-project" }
+# Bubble is GPL-3.0-or-later, so Slint is used under its GPLv3 licence (D-38).
+# `unstable-winit-030`: OS file drops, physical keys and the window's place, which
+# Slint's own API does not report yet. Pinned: the winit accessor may change.
+slint = { version = "=1.18.1", features = ["unstable-winit-030", "raw-window-handle-06"] }
+mouse_position = "0.1.4"
+rfd.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+slint-build = "=1.18.1"
+resvg.workspace = true

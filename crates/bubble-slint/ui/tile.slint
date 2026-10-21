@@ -1,0 +1,332 @@
+// One cart tile, laid out as the egui tile (crates/bubble-app/src/tile.rs):
+//
+//   ┌──────────────────────────────────────┐
+//   │ 12  G1 Drums                [ F1 ]   │  number, exclusive group, triggers
+//   │            Label text                │  typeface, size and alignment from Display
+//   │ Out A > ⟲ ×0.75 ■ →         -1:23    │  output, flags; time
+//   └▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀────────────────────┘  progress
+//
+// Input is reported, not acted on: the app decides what a press does in each mode.
+
+import { Theme } from "theme.slint";
+
+export enum CartState { empty, loading, missing, error, ready, playing, stopping }
+
+export struct Tile {
+    has-cart: bool,
+    // 1-based position on the page.
+    number: int,
+    label: string,
+    bg: color,
+    fg: color,
+    group: string,
+    triggers: string,
+    // "Out A"; empty for a control button.
+    output: string,
+    // The output is playing elsewhere or not set up here (amber badge).
+    rerouted: bool,
+    flags: string,
+    time: string,
+    progress: float,
+    ending: bool,
+    state: CartState,
+    selected: bool,
+    learning: bool,
+    // Shown after a moment's hover (why the output is rerouted).
+    tip: string,
+}
+
+// How cart labels look (Session Settings ▸ Display).
+export struct LabelStyle {
+    font: string,
+    weight: int,
+    size: float,
+    small: float,
+    // 0 left/top, 1 centre, 2 right/bottom.
+    h-align: int,
+    v-align: int,
+}
+
+export component TileView inherits Rectangle {
+    in property <Tile> tile;
+    in property <LabelStyle> style;
+    in property <bool> edit-mode;
+    // Files are dragged over it, or a cart is being moved onto it.
+    in property <bool> drop-target;
+    in property <color> drop-color: Theme.drop;
+
+    // A press: right button, touch, and the modifiers held.
+    callback down(bool /* right */, bool /* touch */, bool /* shift */, bool /* alt */, bool /* ctrl */);
+    callback up(bool /* touch */);
+    // Touch in Edit mode: a tap (released before the hold time) or a press-and-hold.
+    callback tap();
+    callback hold();
+    callback double();
+    // The pointer moved while pressed (tile coordinates).
+    callback dragged(length, length);
+    callback released-at(length, length);
+    callback show-tip(string, length, length);
+    callback hide-tip();
+
+    property <bool> holding;
+    property <bool> held;
+    property <bool> playing: tile.state == CartState.playing || tile.state == CartState.stopping;
+
+    property <length> pad: 7px;
+    property <length> small: clamp(11px * style.small, 7px, 40px);
+    property <length> time-size: max(8px, clamp(self.height / 6, 11px, 22px) * style.small);
+    property <length> label-size: clamp(clamp(self.height / 5, 12px, 26px) * style.size, 6px, 120px);
+    // The bottom text row ends here; the progress track sits below it.
+    property <length> bottom-y: self.height - 15px;
+    property <length> top-h: max(small + 2px, chips.preferred-height);
+
+    border-radius: 6px;
+    background: tile.has-cart ? tile.bg : Theme.empty-tile;
+
+    // Empty cell in Edit mode: a "+" to show it can take audio.
+    if !tile.has-cart && edit-mode: Text {
+        text: "+";
+        font-size: 22px;
+        color: #5a5a5a;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    // ---- top row: number + group (left), triggers (right) ----
+    chips := HorizontalLayout {
+        x: pad;
+        y: 3px;
+        width: root.width - 2 * pad;
+        height: self.preferred-height;
+        spacing: 6px;
+        visible: tile.has-cart;
+        Text {
+            text: tile.number;
+            font-family: Theme.mono-font;
+            font-size: small;
+            color: tile.fg.transparentize(30%);
+            vertical-alignment: center;
+        }
+        if tile.group != "": Rectangle {
+            border-radius: 3px;
+            background: tile.fg.transparentize(82%);
+            horizontal-stretch: 0;
+            min-width: group-text.preferred-width + 8px;
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-top: 1px;
+                padding-bottom: 1px;
+                group-text := Text {
+                    text: tile.group;
+                    font-size: small;
+                    color: tile.fg;
+                    overflow: elide;
+                }
+            }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+        // A prominent "keycap", so the operator can read the hot key at a glance.
+        if tile.triggers != "": Rectangle {
+            border-radius: 3px;
+            background: tile.fg.transparentize(15%);
+            horizontal-stretch: 0;
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                padding-top: 1px;
+                padding-bottom: 1px;
+                Text {
+                    text: tile.triggers;
+                    font-family: Theme.mono-font;
+                    font-size: max(9px, small * 1.15);
+                    color: tile.bg;
+                }
+            }
+        }
+    }
+    // The number of an empty cell (dim, like the egui tile's).
+    if !tile.has-cart: Text {
+        x: pad;
+        y: 3px;
+        text: tile.number;
+        font-family: Theme.mono-font;
+        font-size: small;
+        color: #ffffff40;
+    }
+
+    // ---- bottom row: output and flags (left), time (right) ----
+    bottom := HorizontalLayout {
+        x: pad;
+        width: root.width - 2 * pad;
+        height: self.preferred-height;
+        y: bottom-y - self.height;
+        spacing: 4px;
+        visible: tile.has-cart;
+        alignment: stretch;
+        // A rerouted output is a badge, so it is noticed before the cart is played.
+        if tile.rerouted && tile.output != "": Rectangle {
+            border-radius: 3px;
+            background: Theme.rerouted;
+            horizontal-stretch: 0;
+            min-width: badge.preferred-width + 8px;
+            badge := Text {
+                text: tile.output;
+                font-size: small * 1.15;
+                color: #000000;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: tile.rerouted || tile.output == "" ? tile.flags : (tile.flags == "" ? tile.output : tile.output + " " + tile.flags);
+            font-size: small * 1.15;
+            color: tile.fg;
+            overflow: elide;
+            vertical-alignment: TextVerticalAlignment.bottom;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: tile.time;
+            font-family: Theme.mono-font;
+            font-size: time-size;
+            font-weight: root.playing ? 700 : 400;
+            color: tile.fg;
+            horizontal-alignment: right;
+            vertical-alignment: TextVerticalAlignment.bottom;
+            horizontal-stretch: 0;
+        }
+    }
+
+    // ---- label in the remaining area ----
+    Text {
+        x: pad;
+        y: 3px + top-h + 2px;
+        width: root.width - 2 * pad;
+        height: max(0px, bottom.y - 2px - self.y);
+        visible: tile.has-cart && self.height > 4px;
+        text: tile.label;
+        font-family: style.font;
+        font-weight: style.weight;
+        font-size: label-size;
+        color: tile.fg;
+        wrap: word-wrap;
+        overflow: clip;
+        horizontal-alignment: style.h-align == 0 ? TextHorizontalAlignment.left : style.h-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center;
+        vertical-alignment: style.v-align == 0 ? TextVerticalAlignment.top : style.v-align == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.center;
+    }
+
+    // ---- state: steady yellow border while playing, purple while fading out ----
+    if tile.state == CartState.playing || tile.state == CartState.stopping: Rectangle {
+        border-radius: 6px;
+        border-width: 5px;
+        border-color: tile.state == CartState.playing ? Theme.playing : Theme.fading;
+    }
+    // Progress, inside the border so nothing covers it.
+    if root.playing: Rectangle {
+        x: 5px;
+        y: root.height - 13px;
+        width: root.width - 10px;
+        height: 8px;
+        border-radius: 2px;
+        background: #0000006e;
+        Rectangle {
+            x: 0;
+            width: parent.width * clamp(tile.progress, 0, 1);
+            border-radius: 2px;
+            background: tile.ending ? #ff5030 : #40ff80;
+        }
+    }
+    if tile.selected && edit-mode: Rectangle {
+        x: -2px;
+        y: -2px;
+        width: root.width + 4px;
+        height: root.height + 4px;
+        border-radius: 8px;
+        border-width: 2px;
+        border-color: Theme.select;
+    }
+    if tile.learning: Rectangle {
+        border-radius: 6px;
+        border-width: 4px;
+        border-color: Theme.learning;
+    }
+    if drop-target: Rectangle {
+        border-radius: 6px;
+        border-width: 3px;
+        border-color: root.drop-color;
+    }
+
+    // A touch press waits for release (tap) or the hold time. Only in Edit mode: in
+    // Show mode touch plays on press like the mouse, for the lowest latency.
+    hold-timer := Timer {
+        interval: 500ms;
+        running: root.holding;
+        triggered => {
+            root.holding = false;
+            root.held = true;
+            root.hold();
+        }
+    }
+    tip-timer := Timer {
+        interval: 600ms;
+        running: ta.has-hover && !ta.pressed && tile.tip != "";
+        triggered => {
+            self.running = false;
+            root.show-tip(tile.tip, ta.mouse-x, ta.mouse-y);
+        }
+    }
+
+    ta := TouchArea {
+        changed has-hover => {
+            if !self.has-hover {
+                root.hide-tip();
+            }
+        }
+        double-clicked => {
+            root.double();
+        }
+        moved => {
+            if self.pressed {
+                if root.holding && (abs(self.mouse-x - self.pressed-x) > 12px || abs(self.mouse-y - self.pressed-y) > 12px) {
+                    // A touch that moves is not a tap or a hold.
+                    root.holding = false;
+                    root.held = true;
+                }
+                root.dragged(self.mouse-x, self.mouse-y);
+            }
+        }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                root.hide-tip();
+                if e.button == PointerEventButton.right {
+                    root.down(true, false, e.modifiers.shift, e.modifiers.alt, e.modifiers.control);
+                } else if e.button == PointerEventButton.left {
+                    if (e.touch-finger-id != 0) && root.edit-mode {
+                        root.held = false;
+                        root.holding = true;
+                    } else {
+                        root.down(false, (e.touch-finger-id != 0), e.modifiers.shift, e.modifiers.alt, e.modifiers.control);
+                    }
+                }
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                if e.button == PointerEventButton.right {
+                    // Right-click acted on press.
+                } else if root.holding {
+                    root.holding = false;
+                    if e.kind == PointerEventKind.up {
+                        root.tap();
+                    }
+                } else if !root.held {
+                    root.up((e.touch-finger-id != 0));
+                }
+                if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                    root.released-at(self.mouse-x, self.mouse-y);
+                }
+                root.held = false;
+            }
+        }
+    }
+}

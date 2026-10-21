@@ -1,0 +1,121 @@
+// Colours, light and dark, and the small building blocks every part of the window uses.
+
+import { LineEdit } from "std-widgets.slint";
+
+export global Theme {
+    // 0 follow the system, 1 light, 2 dark (`Prefs.appearance`).
+    in-out property <int> appearance;
+    // Set from the window system's theme (winit), kept current while running.
+    in-out property <bool> system-dark: true;
+    out property <bool> dark: appearance == 2 || (appearance == 0 && system-dark);
+
+    out property <color> window-bg: dark ? #1b1d21 : #eceef1;
+    out property <color> bar-bg: dark ? #24272c : #dde1e6;
+    out property <color> empty-tile: dark ? #363a40 : #2a2d31;
+    out property <color> button: dark ? #3a3f46 : #c7cdd5;
+    out property <color> button-hover: dark ? #454b53 : #d3d8de;
+    out property <color> text: dark ? #e8e8e8 : #1c1f23;
+    out property <color> weak-text: dark ? #9aa0a6 : #5f6670;
+    out property <color> panel: dark ? #2b2f35 : #fbfbfc;
+    out property <color> panel-border: dark ? #474d55 : #c5cad1;
+    out property <color> hover: dark ? #3d434b : #e3e7ec;
+    out property <color> shade: #00000080;
+
+    out property <color> accent: #2f6bff;
+    out property <color> current-tab: #2f5f9a;
+    out property <color> stop-all: #b02020;
+    out property <color> edit-mode: #f09a2a;
+    out property <color> show-mode: #3cb371;
+    out property <color> warn: #f09a2a;
+    out property <color> error: #e53935;
+    out property <color> select: #80c0ff;
+    out property <color> playing: #ffd82e;
+    out property <color> fading: #a855f7;
+    out property <color> learning: #ff40ff;
+    out property <color> drop: #ffff00;
+    out property <color> rerouted: #ffb020;
+
+    // Monospaced and label typefaces (set per platform from Rust).
+    in-out property <string> mono-font;
+}
+
+// Copy, cut, paste, undo, redo and select-all from the menus, for whichever text
+// field has the keyboard (the macOS menu takes ⌘C etc. before the field sees them).
+export global TextCommand {
+    in-out property <int> seq;
+    in-out property <string> name;
+    // A text field has the keyboard: hot keys and arrow keys leave it alone.
+    in-out property <bool> typing;
+}
+
+// A text field that tells the app when it has the keyboard.
+export component Field inherits LineEdit {
+    // The field gained or lost the keyboard.
+    callback focus-changed(bool);
+    property <int> seq: TextCommand.seq;
+    changed has-focus => {
+        TextCommand.typing = self.has-focus;
+        self.focus-changed(self.has-focus);
+    }
+    changed seq => {
+        if self.has-focus {
+            if TextCommand.name == "copy" {
+                self.copy();
+            } else if TextCommand.name == "cut" {
+                self.cut();
+            } else if TextCommand.name == "paste" {
+                self.paste();
+            } else if TextCommand.name == "undo" {
+                self.undo();
+            } else if TextCommand.name == "redo" {
+                self.redo();
+            } else if TextCommand.name == "select-all" {
+                self.select-all();
+            }
+        }
+    }
+}
+
+// A flat button sized for touch, never taking the keyboard (so Space and Return stay
+// hot keys).
+export component FlatButton inherits Rectangle {
+    in property <string> text;
+    in property <color> fill: Theme.button;
+    in property <color> text-color: Theme.text;
+    in property <length> font-size: 14px;
+    in property <bool> bold: true;
+    in property <bool> enabled: true;
+    in property <string> tip;
+    callback clicked;
+    border-radius: 5px;
+    preferred-width: label.preferred-width + 24px;
+    min-height: 28px;
+    background: !enabled ? fill.transparentize(50%) : ta.pressed ? fill.darker(25%) : ta.has-hover ? fill.brighter(12%) : fill;
+    label := Text {
+        text: root.text;
+        color: root.enabled ? root.text-color : root.text-color.transparentize(50%);
+        font-size: root.font-size;
+        font-weight: root.bold ? 700 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        width: parent.width - 8px;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A dialog or panel frame.
+export component Panel inherits Rectangle {
+    background: Theme.panel;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.panel-border;
+    drop-shadow-blur: 18px;
+    drop-shadow-offset-y: 6px;
+    drop-shadow-color: #00000070;
+}

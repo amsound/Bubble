@@ -1,0 +1,279 @@
+// Bottom bar: Edit/Show toggle, page tabs (click, double-click to rename, drag to
+// reorder, right-click or press-and-hold for more), add page, a status line when there
+// is news, STOP PAGE and STOP ALL. Placed by arithmetic like the egui bar, so nothing
+// is clipped at any bar height.
+
+import { Theme, FlatButton, Field } from "theme.slint";
+
+export struct PageTab {
+    name: string,
+    // Something on the page is playing (shown as "▶ name").
+    playing: bool,
+}
+
+export struct StatusItem {
+    text: string,
+    error: bool,
+}
+
+component Tab inherits Rectangle {
+    in property <PageTab> page;
+    in property <bool> current;
+    in property <length> font-size;
+    callback select();
+    callback rename();
+    callback menu(length, length);
+    // Dragging: the pointer's x in the tab, and the drop.
+    callback drag(length);
+    callback drop(length);
+
+    property <bool> dragging;
+    property <bool> holding;
+    property <bool> held;
+    border-radius: 5px;
+    background: current ? Theme.current-tab : ta.has-hover ? Theme.button-hover : Theme.button;
+    Text {
+        x: 6px;
+        width: parent.width - 12px;
+        text: page.playing ? "▶ " + page.name : page.name;
+        color: root.current ? #ffffff : Theme.text;
+        font-size: root.font-size;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Timer {
+        interval: 500ms;
+        running: root.holding;
+        triggered => {
+            root.holding = false;
+            root.held = true;
+            root.menu(ta.mouse-x, ta.mouse-y);
+        }
+    }
+    ta := TouchArea {
+        double-clicked => {
+            root.rename();
+        }
+        moved => {
+            if self.pressed && !root.held {
+                if !root.dragging && abs(self.mouse-x - self.pressed-x) > 8px {
+                    root.dragging = true;
+                    root.holding = false;
+                }
+                if root.dragging {
+                    root.drag(self.mouse-x);
+                }
+            }
+        }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                if e.button == PointerEventButton.right {
+                    root.menu(self.mouse-x, self.mouse-y);
+                } else if e.button == PointerEventButton.left {
+                    root.dragging = false;
+                    root.held = false;
+                    root.holding = e.touch-finger-id != 0;
+                }
+            } else if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                if root.dragging {
+                    root.drop(self.mouse-x);
+                } else if !root.held {
+                    root.select();
+                }
+                root.dragging = false;
+                root.holding = false;
+                root.held = false;
+            } else if e.kind == PointerEventKind.cancel {
+                root.dragging = false;
+                root.holding = false;
+                root.held = false;
+            }
+        }
+    }
+}
+
+export component BottomBar inherits Rectangle {
+    in property <[PageTab]> pages;
+    in property <int> current;
+    in property <bool> edit-mode;
+    in property <[StatusItem]> status;
+    // The page being renamed (-1: none) and its name when the rename began.
+    in property <int> renaming: -1;
+    in property <string> rename-text;
+    // Missing files are listed in the status: clicking it opens Relink.
+    in property <bool> status-clickable;
+
+    callback toggle-mode();
+    callback select-page(int);
+    callback start-rename(int);
+    callback renamed(int, string);
+    callback page-menu(int, length, length);
+    callback move-page(int, int);
+    callback add-page();
+    callback stop-page();
+    callback stop-all();
+    callback status-clicked();
+
+    background: Theme.bar-bg;
+
+    property <length> m: 5px;
+    property <length> gap: 6px;
+    property <length> btn-h: max(20px, self.height - 2 * m);
+    property <length> text: clamp(btn-h * 0.36, 12px, 30px);
+    property <length> stop-w: max(120px, btn-h * 3.2);
+    property <length> page-w: max(96px, btn-h * 2.4);
+    property <length> mode-w: max(56px, btn-h * 1.5);
+    property <length> right: self.width - m - stop-w - gap - page-w - gap;
+    property <length> tabs-x: m + mode-w + 2 * gap;
+    property <length> status-w: status.length == 0 ? 0px : (right - tabs-x) * 0.35;
+    property <int> n: pages.length + (edit-mode ? 1 : 0);
+    property <length> tabs-avail: max(40px, right - status-w - gap - tabs-x);
+    property <length> tab-w: clamp((tabs-avail - gap * (n - 1)) / max(n, 1), 24px, btn-h * 3.2);
+    // Where a dragged tab would land (-1: not dragging).
+    property <int> drag-from: -1;
+    property <int> drag-to: -1;
+
+    // Left: Edit/Show toggle.
+    FlatButton {
+        x: m;
+        y: m;
+        width: mode-w;
+        height: btn-h;
+        text: edit-mode ? "EDIT" : "SHOW";
+        fill: edit-mode ? Theme.edit-mode : Theme.show-mode;
+        text-color: #ffffff;
+        font-size: text * 0.8;
+        clicked => {
+            root.toggle-mode();
+        }
+    }
+
+    for p[i] in pages: Rectangle {
+        x: tabs-x + i * (tab-w + gap);
+        y: m;
+        width: tab-w;
+        height: btn-h;
+        if i != root.renaming: Tab {
+            page: p;
+            current: i == root.current;
+            font-size: text;
+            select => {
+                root.select-page(i);
+            }
+            rename => {
+                root.start-rename(i);
+            }
+            menu(x, y) => {
+                root.page-menu(i, parent.x + x, y);
+            }
+            drag(x) => {
+                root.drag-from = i;
+                root.drag-to = clamp(floor((parent.x + x - tabs-x + (tab-w + gap) / 2) / (tab-w + gap)), 0, pages.length);
+            }
+            drop(x) => {
+                if root.drag-to >= 0 {
+                    root.move-page(i, root.drag-to > i ? root.drag-to - 1 : root.drag-to);
+                }
+                root.drag-from = -1;
+                root.drag-to = -1;
+            }
+        }
+        if i == root.renaming: Field {
+            text: root.rename-text;
+            font-size: text;
+            min-width: 0;
+            init => {
+                self.focus();
+                self.select-all();
+            }
+            accepted(t) => {
+                root.renamed(i, t);
+            }
+            focus-changed(f) => {
+                if !f && root.renaming == i {
+                    root.renamed(i, self.text);
+                }
+            }
+        }
+    }
+    // Where a dragged tab will land.
+    if drag-from >= 0 && drag-to >= 0: Rectangle {
+        x: tabs-x + drag-to * (tab-w + gap) - gap / 2 - 1.5px;
+        y: m - 2px;
+        width: 3px;
+        height: btn-h + 4px;
+        background: Theme.select;
+    }
+    if edit-mode: FlatButton {
+        x: tabs-x + pages.length * (tab-w + gap);
+        y: m;
+        width: min(btn-h, tab-w);
+        height: btn-h;
+        text: "+";
+        font-size: text;
+        clicked => {
+            root.add-page();
+        }
+    }
+
+    // Status line, only when there is something to say.
+    if status.length > 0: Rectangle {
+        x: right - status-w;
+        y: m;
+        width: status-w;
+        height: btn-h;
+        clip: true;
+        HorizontalLayout {
+            alignment: end;
+            spacing: 0;
+            for s[i] in status: HorizontalLayout {
+                if i > 0: Text {
+                    text: "  ·  ";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: s.text;
+                    font-size: 12px;
+                    color: s.error ? Theme.error : Theme.warn;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+        TouchArea {
+            enabled: root.status-clickable;
+            mouse-cursor: root.status-clickable ? pointer : default;
+            clicked => {
+                root.status-clicked();
+            }
+        }
+    }
+
+    FlatButton {
+        x: root.width - m - stop-w - gap - page-w;
+        y: m;
+        width: page-w;
+        height: btn-h;
+        text: "■ STOP PAGE";
+        font-size: text * 0.95;
+        clicked => {
+            root.stop-page();
+        }
+    }
+    FlatButton {
+        x: root.width - m - stop-w;
+        y: m;
+        width: stop-w;
+        height: btn-h;
+        text: "■ STOP ALL";
+        fill: Theme.stop-all;
+        text-color: #ffffff;
+        font-size: text * 1.1;
+        clicked => {
+            root.stop-all();
+        }
+    }
+}

@@ -176,3 +176,20 @@ fn block_on<F: Future>(f: F) -> F::Output {
         thread::park();
     }
 }
+
+/// Shows a file in the platform's file manager (Finder, Explorer), or opens its folder.
+pub fn reveal(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer")
+        .arg(format!("/select,{}", path.display()))
+        .spawn();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    if let Some(dir) = path.parent() {
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    }
+}

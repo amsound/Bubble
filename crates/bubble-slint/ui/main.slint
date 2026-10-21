@@ -1,0 +1,663 @@
+// Bubble's main window: menus, busy strip, cart wall, bottom bar, quick edit, popup
+// menus and dialogs. State comes from Rust (`src/app.rs`); input goes back as
+// callbacks, and Rust decides what it does.
+
+import { Palette, Spinner, ProgressIndicator, Button } from "std-widgets.slint";
+import { Theme, TextCommand, FlatButton, Panel } from "theme.slint";
+import { TileView, Tile, LabelStyle, CartState } from "tile.slint";
+import { BottomBar, PageTab, StatusItem } from "bar.slint";
+import { QuickEditPanel, QuickEdit } from "quickedit.slint";
+import { DialogView, DialogInfo, DialogRow } from "dialogs.slint";
+
+export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit, DialogInfo, DialogRow }
+
+// A menu entry; a separator has the separator title (see `src/menu.rs`).
+export struct MenuEntryData {
+    id: int,
+    title: string,
+    enabled: bool,
+    checkable: bool,
+    checked: bool,
+    shortcut: keys,
+}
+
+// A run of entries, then (optionally) a submenu. Slint menus cannot choose between an
+// item and a submenu per model row, so each top-level menu is a list of these.
+export struct MenuSlot {
+    items: [MenuEntryData],
+    sub-title: string,
+    sub: [MenuEntryData],
+}
+
+export struct MenuTop {
+    title: string,
+    slots: [MenuSlot],
+}
+
+export struct PopupRow {
+    text: string,
+    enabled: bool,
+    separator: bool,
+}
+
+export component MainWindow inherits Window {
+    in property <string> window-title: "Bubble";
+    in property <image> window-icon;
+    title: window-title;
+    icon: window-icon;
+    preferred-width: 1200px;
+    preferred-height: 760px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.window-bg;
+
+    // ---- state from Rust ----
+    in property <[MenuTop]> menus;
+    in property <[Tile]> tiles;
+    in property <int> rows: 4;
+    in property <int> cols: 6;
+    in property <LabelStyle> label-style: { font: "", weight: 400, size: 1, small: 1, h-align: 1, v-align: 1 };
+    in property <bool> edit-mode: true;
+    in property <[PageTab]> pages;
+    in property <int> current-page;
+    in property <[StatusItem]> status;
+    in property <bool> status-clickable;
+    in property <int> renaming: -1;
+    in property <string> rename-text;
+    in property <length> bar-height: 44px;
+    in property <string> busy-text;
+    // -1: no progress bar.
+    in property <float> busy-progress: -1;
+    // 0 none, 1 no session (New/Open), 2 an empty session (hints).
+    in property <int> empty-card;
+    // The cell files are dragged over (-1: none).
+    in property <int> drop-index: -1;
+    // Quick edit: shown while `qe-gen` has one entry; a new model rebuilds it.
+    in property <[int]> qe-gen;
+    in property <QuickEdit> qe;
+    in property <length> qe-x;
+    in property <length> qe-y;
+    in property <[int]> dialog-gen;
+    in property <DialogInfo> dialog;
+    in property <bool> dialog-ok: true;
+    in property <[PopupRow]> popup-rows;
+    in property <length> popup-x;
+    in property <length> popup-y;
+    // Flipped to repaint the whole window (stale areas after a restore).
+    in property <int> redraw-nonce;
+
+    // ---- input to Rust ----
+    callback menu-activated(int);
+    callback cell-down(int, bool, bool, bool, bool, bool);
+    callback cell-up(int, bool);
+    callback cell-tap(int);
+    callback cell-hold(int);
+    callback cell-double(int);
+    // Shift-drag (move) or Option/Alt-drag (copy) from one cell to another.
+    callback cell-drop(int, int, bool);
+    callback toggle-mode();
+    callback select-page(int);
+    callback start-rename(int);
+    callback renamed(int, string);
+    callback page-menu(int, length, length);
+    callback move-page(int, int);
+    callback add-page();
+    callback stop-page();
+    callback stop-all();
+    callback status-clicked();
+    callback popup-chosen(int);
+    callback qe-close();
+    callback qe-label(string);
+    callback qe-colour(int);
+    callback qe-hex(string);
+    callback qe-gain(float);
+    callback qe-speed(float);
+    callback qe-choice(string, int);
+    callback qe-flag(string, bool);
+    callback qe-action(string);
+    callback dialog-button(int);
+    callback dialog-row-action(int, int);
+    callback dialog-row-check(int, bool);
+    callback dialog-name-edited(string);
+    callback dialog-name-accepted();
+    callback dialog-choose-folder();
+    callback new-session();
+    callback open-session();
+
+    // ---- layout ----
+    property <length> gap: 6px;
+    property <length> pad: 6px;
+    property <length> busy-h: busy-text == "" ? 0px : 34px;
+    property <length> wall-top: busy-h + pad;
+    property <length> wall-w: self.width - 2 * pad;
+    property <length> wall-h: self.height - bar-height - busy-h - 2 * pad;
+    property <length> tile-w: max(40px, (wall-w - (cols - 1) * gap) / max(cols, 1));
+    property <length> tile-h: max(30px, (wall-h - (rows - 1) * gap) / max(rows, 1));
+
+    // Shift/Option drag of a cart.
+    property <int> drag-from: -1;
+    property <int> drag-to: -1;
+    property <bool> drag-copy;
+
+    // The standard widgets follow Bubble's appearance, not only the system's.
+    property <bool> dark: Theme.dark;
+    changed dark => {
+        Palette.color-scheme = self.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    init => {
+        Palette.color-scheme = self.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    property <string> tip-text;
+    property <length> tip-x;
+    property <length> tip-y;
+
+    // The cell at a point in the window (-1: none), for file drops and drags.
+    public pure function cell-at(x: length, y: length) -> int {
+        if x < pad || y < wall-top {
+            return -1;
+        }
+        let c = floor((x - pad) / (tile-w + gap));
+        let r = floor((y - wall-top) / (tile-h + gap));
+        if c >= cols || r >= rows || x > pad + c * (tile-w + gap) + tile-w || y > wall-top + r * (tile-h + gap) + tile-h {
+            return -1;
+        }
+        r * cols + c
+    }
+    public pure function cell-x(i: int) -> length {
+        pad + mod(i, max(cols, 1)) * (tile-w + gap)
+    }
+    public pure function cell-y(i: int) -> length {
+        wall-top + floor(i / max(cols, 1)) * (tile-h + gap)
+    }
+    public function open-popup() {
+        popup.show();
+    }
+    public function close-popup() {
+        popup.close();
+    }
+    public function text-command(name: string) {
+        TextCommand.name = name;
+        TextCommand.seq += 1;
+    }
+
+    MenuBar {
+        for top in root.menus: Menu {
+            title: top.title;
+            for it in top.slots[0].items: MenuItem {
+                title: it.title;
+                enabled: it.enabled;
+                checkable: it.checkable;
+                checked: it.checked;
+                shortcut: it.shortcut;
+                activated => {
+                    root.menu-activated(it.id);
+                }
+            }
+            if top.slots[0].sub-title != "": Menu {
+                title: top.slots[0].sub-title;
+                for it in top.slots[0].sub: MenuItem {
+                    title: it.title;
+                    enabled: it.enabled;
+                    checkable: it.checkable;
+                    checked: it.checked;
+                    activated => {
+                        root.menu-activated(it.id);
+                    }
+                }
+            }
+            for it in top.slots[1].items: MenuItem {
+                title: it.title;
+                enabled: it.enabled;
+                checkable: it.checkable;
+                checked: it.checked;
+                shortcut: it.shortcut;
+                activated => {
+                    root.menu-activated(it.id);
+                }
+            }
+            if top.slots[1].sub-title != "": Menu {
+                title: top.slots[1].sub-title;
+                for it in top.slots[1].sub: MenuItem {
+                    title: it.title;
+                    enabled: it.enabled;
+                    checkable: it.checkable;
+                    checked: it.checked;
+                    activated => {
+                        root.menu-activated(it.id);
+                    }
+                }
+            }
+            for it in top.slots[2].items: MenuItem {
+                title: it.title;
+                enabled: it.enabled;
+                checkable: it.checkable;
+                checked: it.checked;
+                shortcut: it.shortcut;
+                activated => {
+                    root.menu-activated(it.id);
+                }
+            }
+            if top.slots[2].sub-title != "": Menu {
+                title: top.slots[2].sub-title;
+                for it in top.slots[2].sub: MenuItem {
+                    title: it.title;
+                    enabled: it.enabled;
+                    checkable: it.checkable;
+                    checked: it.checked;
+                    activated => {
+                        root.menu-activated(it.id);
+                    }
+                }
+            }
+            for it in top.slots[3].items: MenuItem {
+                title: it.title;
+                enabled: it.enabled;
+                checkable: it.checkable;
+                checked: it.checked;
+                shortcut: it.shortcut;
+                activated => {
+                    root.menu-activated(it.id);
+                }
+            }
+            if top.slots[3].sub-title != "": Menu {
+                title: top.slots[3].sub-title;
+                for it in top.slots[3].sub: MenuItem {
+                    title: it.title;
+                    enabled: it.enabled;
+                    checkable: it.checkable;
+                    checked: it.checked;
+                    activated => {
+                        root.menu-activated(it.id);
+                    }
+                }
+            }
+            for it in top.slots[4].items: MenuItem {
+                title: it.title;
+                enabled: it.enabled;
+                checkable: it.checkable;
+                checked: it.checked;
+                shortcut: it.shortcut;
+                activated => {
+                    root.menu-activated(it.id);
+                }
+            }
+            if top.slots[4].sub-title != "": Menu {
+                title: top.slots[4].sub-title;
+                for it in top.slots[4].sub: MenuItem {
+                    title: it.title;
+                    enabled: it.enabled;
+                    checkable: it.checkable;
+                    checked: it.checked;
+                    activated => {
+                        root.menu-activated(it.id);
+                    }
+                }
+            }
+            for it in top.slots[5].items: MenuItem {
+                title: it.title;
+                enabled: it.enabled;
+                checkable: it.checkable;
+                checked: it.checked;
+                shortcut: it.shortcut;
+                activated => {
+                    root.menu-activated(it.id);
+                }
+            }
+            if top.slots[5].sub-title != "": Menu {
+                title: top.slots[5].sub-title;
+                for it in top.slots[5].sub: MenuItem {
+                    title: it.title;
+                    enabled: it.enabled;
+                    checkable: it.checkable;
+                    checked: it.checked;
+                    activated => {
+                        root.menu-activated(it.id);
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- busy strip ----
+    if busy-text != "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: busy-h;
+        background: Theme.accent;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 10px;
+            Spinner {
+                indeterminate: true;
+                width: 20px;
+                height: 20px;
+                y: (parent.height - self.height) / 2;
+            }
+            Text {
+                text: root.busy-text;
+                color: #ffffff;
+                font-weight: 700;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if root.busy-progress >= 0: Rectangle {
+                width: min(320px, root.width / 3);
+                height: 8px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 4px;
+                background: #ffffff50;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * clamp(root.busy-progress, 0, 1);
+                    border-radius: 4px;
+                    background: #ffffff;
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+        }
+    }
+
+    // ---- cart wall ----
+    for t[i] in tiles: TileView {
+        x: pad + mod(i, max(cols, 1)) * (tile-w + gap);
+        y: wall-top + floor(i / max(cols, 1)) * (tile-h + gap);
+        width: tile-w;
+        height: tile-h;
+        tile: t;
+        style: root.label-style;
+        edit-mode: root.edit-mode;
+        drop-target: i == root.drop-index || (root.drag-from >= 0 && i == root.drag-to && i != root.drag-from);
+        drop-color: root.drag-from >= 0 ? Theme.select : Theme.drop;
+        down(right, touch, shift, alt, ctrl) => {
+            if !right && root.edit-mode && t.has-cart && (shift || alt) {
+                root.drag-from = i;
+                root.drag-to = i;
+                root.drag-copy = alt && !shift;
+            }
+            root.cell-down(i, right, touch, shift, alt, ctrl);
+        }
+        up(touch) => {
+            root.cell-up(i, touch);
+        }
+        tap => {
+            root.cell-tap(i);
+        }
+        hold => {
+            root.cell-hold(i);
+        }
+        double => {
+            root.cell-double(i);
+        }
+        dragged(x, y) => {
+            if root.drag-from >= 0 {
+                root.drag-to = root.cell-at(self.x + x, self.y + y);
+            }
+        }
+        released-at(x, y) => {
+            if root.drag-from >= 0 {
+                let to = root.cell-at(self.x + x, self.y + y);
+                if to >= 0 && to != root.drag-from {
+                    root.cell-drop(root.drag-from, to, root.drag-copy);
+                }
+                root.drag-from = -1;
+                root.drag-to = -1;
+            }
+        }
+        show-tip(text, x, y) => {
+            root.tip-text = text;
+            root.tip-x = self.x + x;
+            root.tip-y = self.y + y;
+        }
+        hide-tip => {
+            root.tip-text = "";
+        }
+    }
+
+    // An empty session shows the mark and how to start. Only the buttons take clicks:
+    // the cells underneath still take clicks and drops.
+    if empty-card != 0 && drop-index < 0: Panel {
+        width: min(460px, root.wall-w - 24px);
+        height: min(300px, root.wall-h - 24px);
+        x: (root.width - self.width) / 2;
+        y: root.wall-top + (root.wall-h - self.height) / 2;
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            alignment: center;
+            Image {
+                source: @image-url("../../../assets/logo.svg");
+                height: 110px;
+                image-fit: contain;
+            }
+            Text {
+                text: "Bubble";
+                font-size: 28px;
+                font-weight: 700;
+                color: Theme.text;
+                horizontal-alignment: center;
+            }
+            if root.empty-card == 1: HorizontalLayout {
+                alignment: center;
+                spacing: 12px;
+                FlatButton {
+                    width: 150px;
+                    height: 34px;
+                    text: "New Session…";
+                    fill: Theme.accent;
+                    text-color: #ffffff;
+                    clicked => {
+                        root.new-session();
+                    }
+                }
+                FlatButton {
+                    width: 150px;
+                    height: 34px;
+                    text: "Open…";
+                    clicked => {
+                        root.open-session();
+                    }
+                }
+            }
+            if root.empty-card == 2: VerticalLayout {
+                spacing: 4px;
+                for line in [
+                    "Drop audio files onto the grid, or double-click a cell.",
+                    "Right-click a cart (or press and hold) for quick edits.",
+                    "Audio ▸ Outputs chooses where carts play.",
+                ]: Text {
+                    text: line;
+                    font-size: 14px;
+                    color: Theme.weak-text;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+
+    BottomBar {
+        x: 0;
+        y: root.height - root.bar-height;
+        width: root.width;
+        height: root.bar-height;
+        pages: root.pages;
+        current: root.current-page;
+        edit-mode: root.edit-mode;
+        status: root.status;
+        status-clickable: root.status-clickable;
+        renaming: root.renaming;
+        rename-text: root.rename-text;
+        toggle-mode => {
+            root.toggle-mode();
+        }
+        select-page(i) => {
+            root.select-page(i);
+        }
+        start-rename(i) => {
+            root.start-rename(i);
+        }
+        renamed(i, t) => {
+            root.renamed(i, t);
+        }
+        page-menu(i, x, y) => {
+            root.page-menu(i, self.x + x, self.y + y);
+        }
+        move-page(a, b) => {
+            root.move-page(a, b);
+        }
+        add-page => {
+            root.add-page();
+        }
+        stop-page => {
+            root.stop-page();
+        }
+        stop-all => {
+            root.stop-all();
+        }
+        status-clicked => {
+            root.status-clicked();
+        }
+    }
+
+    // ---- quick edit ----
+    for g in qe-gen: Rectangle {
+        // A click outside closes it, and does nothing else.
+        TouchArea {
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down {
+                    root.qe-close();
+                }
+            }
+        }
+        QuickEditPanel {
+            x: clamp(root.qe-x, 8px, max(8px, root.width - self.width - 8px));
+            y: clamp(root.qe-y, 8px, max(8px, root.height - self.height - 8px));
+            qe: root.qe;
+            label(t) => {
+                root.qe-label(t);
+            }
+            colour(i) => {
+                root.qe-colour(i);
+            }
+            hex(t) => {
+                root.qe-hex(t);
+            }
+            gain(v) => {
+                root.qe-gain(v);
+            }
+            speed(v) => {
+                root.qe-speed(v);
+            }
+            choice(f, i) => {
+                root.qe-choice(f, i);
+            }
+            flag(f, on) => {
+                root.qe-flag(f, on);
+            }
+            action(a) => {
+                root.qe-action(a);
+            }
+        }
+    }
+
+    // ---- tooltip ----
+    if tip-text != "": Rectangle {
+        x: clamp(root.tip-x + 12px, 4px, max(4px, root.width - self.width - 4px));
+        y: clamp(root.tip-y + 18px, 4px, max(4px, root.height - self.height - 4px));
+        width: min(360px, tip.preferred-width + 16px);
+        height: tip.preferred-height + 10px;
+        border-radius: 4px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.panel-border;
+        tip := Text {
+            x: 8px;
+            width: parent.width - 16px;
+            text: root.tip-text;
+            wrap: word-wrap;
+            color: Theme.text;
+            font-size: 12px;
+        }
+    }
+
+    // ---- dialogs ----
+    for g in dialog-gen: Rectangle {
+        background: Theme.shade;
+        TouchArea { }
+        DialogView {
+            x: (root.width - self.width) / 2;
+            y: max(12px, (root.height - self.height) / 3);
+            info: root.dialog;
+            ok: root.dialog-ok;
+            button(i) => {
+                root.dialog-button(i);
+            }
+            row-action(i, j) => {
+                root.dialog-row-action(i, j);
+            }
+            row-check(i, on) => {
+                root.dialog-row-check(i, on);
+            }
+            name-edited(t) => {
+                root.dialog-name-edited(t);
+            }
+            name-accepted => {
+                root.dialog-name-accepted();
+            }
+            choose-folder => {
+                root.dialog-choose-folder();
+            }
+        }
+    }
+
+    // ---- popup menu (empty cells, page tabs) ----
+    popup := PopupWindow {
+        x: root.popup-x;
+        y: root.popup-y;
+        width: 240px;
+        close-policy: close-on-click-outside;
+        Panel {
+            drop-shadow-blur: 12px;
+            VerticalLayout {
+                padding: 4px;
+                for item[i] in root.popup-rows: Rectangle {
+                    height: item.separator ? 9px : 36px;
+                    border-radius: 4px;
+                    background: !item.separator && item.enabled && (mta.has-hover || mta.pressed) ? Theme.hover : transparent;
+                    if item.separator: Rectangle {
+                        x: 6px;
+                        width: parent.width - 12px;
+                        height: 1px;
+                        background: Theme.panel-border;
+                    }
+                    if !item.separator: Text {
+                        x: 12px;
+                        width: parent.width - 20px;
+                        text: item.text;
+                        color: item.enabled ? Theme.text : Theme.weak-text;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    mta := TouchArea {
+                        enabled: item.enabled && !item.separator;
+                        clicked => {
+                            popup.close();
+                            root.popup-chosen(i);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Repaints the whole window when the nonce changes (see `redraw-nonce`).
+    Rectangle {
+        visible: mod(root.redraw-nonce, 2) == 1;
+        background: #00000001;
+    }
+}

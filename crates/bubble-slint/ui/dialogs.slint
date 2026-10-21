@@ -1,0 +1,181 @@
+// The questions and messages from `Core::prompts` (and the main window's own: quit
+// with unsaved changes, paste attributes, relink), as dialogs inside the main window.
+// One at a time; the window behind is shaded and takes no clicks.
+
+import { Button, CheckBox, ScrollView } from "std-widgets.slint";
+import { Theme, Field, Panel } from "theme.slint";
+
+export struct DialogRow {
+    text: string,
+    // A checkbox row (Paste Attributes).
+    check: bool,
+    checked: bool,
+    // Buttons on the row ("Restore", "Discard", "Locate…").
+    actions: [string],
+}
+
+export struct DialogInfo {
+    kind: string,
+    title: string,
+    body: string,
+    // An error: the text can be selected, and Copy copies it.
+    selectable: bool,
+    rows: [DialogRow],
+    note: string,
+    // New Session: the name field, the folder, and why it could not be created.
+    has-name: bool,
+    name: string,
+    location: string,
+    error: string,
+    // The first is the main (default) button.
+    buttons: [string],
+}
+
+export component DialogView inherits Panel {
+    in property <DialogInfo> info;
+    // The main button may be pressed (e.g. a session name was typed).
+    in property <bool> ok: true;
+    callback button(int);
+    callback row-action(int, int);
+    callback row-check(int, bool);
+    callback name-edited(string);
+    callback name-accepted();
+    callback choose-folder();
+
+    width: min(520px, max(380px, layout.preferred-width));
+    height: layout.preferred-height;
+
+    // "Copy" on an error copies its text (handled here: no round trip to Rust).
+    property <int> copy-request;
+
+    TouchArea { }
+
+    layout := VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        Text {
+            text: info.title;
+            font-size: 17px;
+            font-weight: 700;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        if info.body != "" && !info.selectable: Text {
+            text: info.body;
+            color: Theme.text;
+            wrap: word-wrap;
+        }
+        // Selectable and copyable, so the exact message can be passed on.
+        if info.selectable: ScrollView {
+            max-height: 320px;
+            preferred-height: min(320px, body-text.preferred-height + 4px);
+            body-text := TextInput {
+                text: info.body;
+                read-only: true;
+                wrap: word-wrap;
+                color: Theme.text;
+                selection-background-color: Theme.accent;
+                width: parent.visible-width;
+                property <int> req: root.copy-request;
+                changed req => {
+                    self.select-all();
+                    self.copy();
+                    self.clear-selection();
+                }
+            }
+        }
+        if info.has-name: HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: "Name";
+                color: Theme.weak-text;
+                vertical-alignment: center;
+                width: 64px;
+            }
+            Field {
+                text: info.name;
+                init => {
+                    self.focus();
+                }
+                edited(t) => {
+                    root.name-edited(t);
+                }
+                accepted => {
+                    root.name-accepted();
+                }
+            }
+        }
+        if info.has-name: HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: "Location";
+                color: Theme.weak-text;
+                vertical-alignment: center;
+                width: 64px;
+            }
+            Text {
+                text: info.location;
+                color: Theme.weak-text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Choose…";
+                clicked => {
+                    root.choose-folder();
+                }
+            }
+        }
+        if info.error != "": Text {
+            text: info.error;
+            color: Theme.error;
+            wrap: word-wrap;
+        }
+        for r[i] in info.rows: HorizontalLayout {
+            spacing: 8px;
+            if r.check: CheckBox {
+                text: r.text;
+                checked: r.checked;
+                toggled => {
+                    root.row-check(i, self.checked);
+                }
+            }
+            if !r.check: Text {
+                text: r.text;
+                color: Theme.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            for a[j] in r.actions: Button {
+                text: a;
+                clicked => {
+                    root.row-action(i, j);
+                }
+            }
+        }
+        if info.note != "": Text {
+            text: info.note;
+            font-size: 11px;
+            color: Theme.weak-text;
+            wrap: word-wrap;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            for b[i] in info.buttons: Button {
+                text: b;
+                primary: i == 0;
+                enabled: i != 0 || root.ok;
+                clicked => {
+                    if root.info.selectable && b == "Copy" {
+                        root.copy-request += 1;
+                    } else {
+                        root.button(i);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,338 @@
+// Quick edit: the common cart settings in a panel inside the main window (not a
+// separate OS window), opened by right-click, press-and-hold or Return in Edit mode.
+// It stays open until Done, Esc or a click outside it.
+
+import { Slider, ComboBox, CheckBox, Button } from "std-widgets.slint";
+import { Theme, Field, Panel } from "theme.slint";
+
+export struct QuickEdit {
+    title: string,
+    // A control button: no gain, speed, output, fade or options.
+    control: bool,
+    show-group: bool,
+    label: string,
+    label-hint: string,
+    swatches: [color],
+    // Index into `swatches`; -1 for any other colour.
+    color: int,
+    hex: string,
+    gain: float,
+    // log2 of the speed (0 = 100%).
+    speed: float,
+    outputs: [string],
+    output: int,
+    fades: [string],
+    fade: int,
+    groups: [string],
+    group: int,
+    triggers: string,
+    looping: bool,
+    hold: bool,
+    muted: bool,
+    next: bool,
+    stop-others: bool,
+    can-paste: bool,
+}
+
+component FieldRow inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 8px;
+    Text {
+        text: root.label;
+        color: Theme.weak-text;
+        width: 64px;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+    }
+    @children
+}
+
+export component QuickEditPanel inherits Panel {
+    in property <QuickEdit> qe;
+    callback label(string);
+    callback colour(int);
+    callback hex(string);
+    callback gain(float);
+    callback speed(float);
+    // "output", "fade" or "group", and the chosen index.
+    callback choice(string, int);
+    // "loop", "hold", "mute", "next" or "stop-others".
+    callback flag(string, bool);
+    // "done", "learn", "replace", "copy", "paste", "clear", "gain-reset" or "speed-reset".
+    callback action(string);
+
+    width: 380px;
+    height: layout.preferred-height;
+
+    // Clicks inside the panel must not reach the backdrop (which closes it).
+    TouchArea { }
+
+    layout := VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        HorizontalLayout {
+            Text {
+                text: qe.title;
+                font-weight: 700;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Done";
+                clicked => {
+                    root.action("done");
+                }
+            }
+        }
+        FieldRow {
+            label: "Label";
+            Field {
+                text: qe.label;
+                placeholder-text: qe.label-hint;
+                edited(t) => {
+                    root.label(t);
+                }
+            }
+        }
+        FieldRow {
+            label: "Colour";
+            HorizontalLayout {
+                spacing: 4px;
+                for c[i] in qe.swatches: Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 4px;
+                    background: c;
+                    border-width: i == qe.color ? 2px : 0px;
+                    border-color: Theme.text;
+                    TouchArea {
+                        clicked => {
+                            root.colour(i);
+                        }
+                    }
+                }
+            }
+        }
+        FieldRow {
+            label: "";
+            Field {
+                text: qe.hex;
+                placeholder-text: "Other colour: #RRGGBB";
+                accepted(t) => {
+                    root.hex(t);
+                }
+            }
+        }
+        if !qe.control: FieldRow {
+            label: "Gain";
+            Rectangle {
+                horizontal-stretch: 1;
+                min-height: 28px;
+                // 0 dB is in the middle of the range.
+                Rectangle {
+                    x: parent.width / 2 - 0.5px;
+                    y: 0;
+                    width: 1px;
+                    height: 5px;
+                    background: Theme.weak-text;
+                }
+                gain-slider := Slider {
+                    width: parent.width;
+                    minimum: -12;
+                    maximum: 12;
+                    value: qe.gain;
+                    changed(v) => {
+                        root.gain(v);
+                    }
+                }
+            }
+            gain-text := Text {
+                width: 64px;
+                text: (gain-slider.value >= 0 ? "+" : "") + round(gain-slider.value * 10) / 10 + " dB";
+                color: Theme.text;
+                vertical-alignment: center;
+                TouchArea {
+                    // Back to 0 dB.
+                    clicked => {
+                        root.action("gain-reset");
+                    }
+                }
+            }
+        }
+        if !qe.control: FieldRow {
+            label: "Speed";
+            speed-slider := Slider {
+                minimum: -2;
+                maximum: 2;
+                value: qe.speed;
+                changed(v) => {
+                    root.speed(v);
+                }
+            }
+            Text {
+                width: 64px;
+                text: round(pow(2, speed-slider.value) * 100) + "%";
+                color: Theme.text;
+                vertical-alignment: center;
+                TouchArea {
+                    // Back to 100%.
+                    clicked => {
+                        root.action("speed-reset");
+                    }
+                }
+            }
+        }
+        if !qe.control: FieldRow {
+            label: "Output";
+            ComboBox {
+                model: qe.outputs;
+                current-index: qe.output;
+                selected => {
+                    root.choice("output", self.current-index);
+                }
+            }
+        }
+        if !qe.control: FieldRow {
+            label: "Fade out";
+            ComboBox {
+                model: qe.fades;
+                current-index: qe.fade;
+                selected => {
+                    root.choice("fade", self.current-index);
+                }
+            }
+        }
+        if qe.show-group: FieldRow {
+            label: "Group";
+            ComboBox {
+                model: qe.groups;
+                current-index: qe.group;
+                selected => {
+                    root.choice("group", self.current-index);
+                }
+            }
+        }
+        FieldRow {
+            label: "Trigger";
+            Text {
+                text: qe.triggers == "" ? "none" : qe.triggers;
+                font-family: qe.triggers == "" ? "" : Theme.mono-font;
+                color: qe.triggers == "" ? Theme.weak-text : Theme.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Learn";
+                clicked => {
+                    root.action("learn");
+                }
+            }
+        }
+        if !qe.control: FieldRow {
+            label: "Options";
+            GridLayout {
+                spacing: 4px;
+                Row {
+                    CheckBox {
+                        text: "Loop";
+                        checked: qe.looping;
+                        toggled => {
+                            root.flag("loop", self.checked);
+                        }
+                    }
+                    CheckBox {
+                        text: "Hold";
+                        checked: qe.hold;
+                        toggled => {
+                            root.flag("hold", self.checked);
+                        }
+                    }
+                    CheckBox {
+                        text: "Mute";
+                        checked: qe.muted;
+                        toggled => {
+                            root.flag("mute", self.checked);
+                        }
+                    }
+                }
+                Row {
+                    CheckBox {
+                        text: "Play next";
+                        checked: qe.next;
+                        toggled => {
+                            root.flag("next", self.checked);
+                        }
+                    }
+                    CheckBox {
+                        colspan: 2;
+                        text: "Stop others";
+                        checked: qe.stop-others;
+                        toggled => {
+                            root.flag("stop-others", self.checked);
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.panel-border;
+        }
+        // Actions: equal-width buttons in rows of three.
+        if !qe.control: HorizontalLayout {
+            spacing: 6px;
+            Button {
+                text: "Cart Setup…";
+                enabled: false;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Speed Bar…";
+                enabled: false;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "Replace file…";
+                horizontal-stretch: 1;
+                clicked => {
+                    root.action("replace");
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Button {
+                text: "Copy";
+                horizontal-stretch: 1;
+                clicked => {
+                    root.action("copy");
+                }
+            }
+            Button {
+                text: "Paste over";
+                enabled: qe.can-paste;
+                horizontal-stretch: 1;
+                clicked => {
+                    root.action("paste");
+                }
+            }
+            Button {
+                text: "Clear";
+                horizontal-stretch: 1;
+                clicked => {
+                    root.action("clear");
+                }
+            }
+        }
+        if !qe.control: Text {
+            text: "Cart Setup and the speed bar are not in this interface yet.";
+            font-size: 11px;
+            color: Theme.weak-text;
+            horizontal-alignment: center;
+        }
+    }
+}
