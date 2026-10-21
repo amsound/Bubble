@@ -30,15 +30,12 @@ mod setup_ui;
 
 use crate::dialogs::{AUDIO_EXTS, OPEN_EXTS, Purpose};
 use crate::fonts::FontState;
-use crate::menu::{Cmd, Item, Menu, Top};
+use crate::menu::{Cmd, Menu};
 use crate::meter::{Ppm, ppm_ui};
-use crate::midi::available_ports;
 use crate::native::{WindowSpec, native_window};
 use crate::tile::{DEFAULT_CART_COLOR, TileState, fmt_precise, parse_color};
 use crate::waveform::{TrimEdit, WaveView, waveform_ui};
 
-/// Output level presets offered in the Audio menu (dB).
-const OUTPUT_LEVELS: [i32; 7] = [0, -3, -6, -10, -12, -15, -20];
 /// Quick colour choices for tiles.
 const SWATCHES: [[u8; 3]; 10] = [
     [0x3A, 0x6E, 0xA5],
@@ -194,29 +191,9 @@ impl BubbleApp {
     /// A strip across the top while Bubble is busy (opening, importing, copying,
     /// converting, preparing audio), so long operations are never mistaken for a hang.
     fn progress_banner(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
-        // Audio preparation: the largest pending count seen is the total.
-        if snap.pending == 0 {
-            self.loading_total = 0;
-        } else {
-            self.loading_total = self.loading_total.max(snap.pending);
-        }
-        let opening = self.opening.as_ref().map(|(p, _, _)| {
-            format!(
-                "Opening {}…",
-                p.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default()
-            )
-        });
-        let task = self.job.as_ref().map(|j| j.label.clone()).or(opening);
-        let loading = (snap.pending > 0).then(|| {
-            let total = self.loading_total.max(1);
-            let done = total - snap.pending.min(total);
-            (done, total)
-        });
-        if task.is_none() && loading.is_none() {
+        let Some(busy) = self.busy(snap) else {
             return;
-        }
+        };
         let accent = Color32::from_rgb(0x2F, 0x6B, 0xFF);
         egui::Panel::top("progress")
             .frame(
@@ -227,17 +204,10 @@ impl BubbleApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new().color(Color32::WHITE));
-                    let text = match (&task, loading) {
-                        (Some(t), _) => t.clone(),
-                        (None, Some((done, total))) => {
-                            format!("Preparing audio: {done} of {total} files ready")
-                        }
-                        (None, None) => String::new(),
-                    };
-                    ui.label(egui::RichText::new(text).strong().color(Color32::WHITE));
-                    if let Some((done, total)) = loading {
+                    ui.label(egui::RichText::new(&busy.text).strong().color(Color32::WHITE));
+                    if let Some(progress) = busy.progress {
                         ui.add(
-                            egui::ProgressBar::new(done as f32 / total as f32)
+                            egui::ProgressBar::new(progress)
                                 .desired_width(ui.available_width().min(320.0))
                                 .fill(Color32::WHITE),
                         );
@@ -795,12 +765,7 @@ impl eframe::App for BubbleApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.track_window(&ctx);
-        // For testing crash handling: BUBBLE_CRASH_TEST=1 panics a few seconds in.
-        if std::env::var_os("BUBBLE_CRASH_TEST").is_some()
-            && self.started.elapsed() > Duration::from_secs(3)
-        {
-            panic!("crash test requested by BUBBLE_CRASH_TEST");
-        }
+        self.crash_test();
         if !self.first_frame_logged {
             self.first_frame_logged = true;
             crate::log::info("first frame drawn");
@@ -818,17 +783,7 @@ impl eframe::App for BubbleApp {
         self.take_selection();
         self.check_cloud();
         let snap = self.snapshot();
-        if snap.pending == 0
-            && let Some(t) = self.loading_since.take()
-        {
-            let (used, _) = self.lock().audio_memory();
-            crate::log::info(&format!(
-                "audio ready in {:.1} s ({:.0} MB in memory, {} missing)",
-                t.elapsed().as_secs_f32(),
-                used as f64 / 1e6,
-                snap.missing.len()
-            ));
-        }
+        self.note_loaded(&snap);
         let mut intents = Vec::new();
         if let Some(p) = self.open_at_start.take() {
             self.open_any(p, &snap, &mut intents);
@@ -852,10 +807,7 @@ impl eframe::App for BubbleApp {
         // Before poll_job, so audio a finished job adds is in the project by now.
         self.wav_check_when_idle();
         self.poll_job(&mut intents);
-        if self.want_collect && self.job.is_none() && self.opening.is_none() {
-            self.want_collect = false;
-            self.collect_external();
-        }
+        self.collect_when_idle();
         self.update_title(&ctx, &snap);
 
         self.file_results(&snap, &mut intents);
@@ -1123,22 +1075,7 @@ impl BubbleApp {
 
     /// Window title: the session and whether it is saved, as in the reference.
     fn update_title(&mut self, ctx: &egui::Context, snap: &Snapshot) {
-        let title = match &snap.path {
-            None => "Bubble - No session".to_string(),
-            Some(_) => {
-                let saved = self.saved_at.map(bubble_core::app::saved_text);
-                match (snap.dirty, saved) {
-                    (false, Some(t)) => format!("Bubble - {} > {t}", snap.project.name),
-                    (true, Some(t)) => format!(
-                        "Bubble - {} > Unsaved changes ({})",
-                        snap.project.name,
-                        t.replacen("Last saved", "last saved", 1)
-                    ),
-                    (true, None) => format!("Bubble - {} > Unsaved changes", snap.project.name),
-                    (false, None) => format!("Bubble - {}", snap.project.name),
-                }
-            }
-        };
+        let title = self.window_title(snap);
         if title != self.last_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.last_title = title;
@@ -1147,19 +1084,13 @@ impl BubbleApp {
 
     /// Duplicates a cart into the next empty cell after it on its page.
     fn duplicate_cart(&mut self, id: Uuid, snap: &Snapshot, intents: &mut Vec<Intent>) {
-        let Some((p, r, c)) = snap.project.cart_position(id) else {
+        if snap.project.cart_position(id).is_none() {
             return;
-        };
-        let page = &snap.project.pages[p];
-        let start = r as u32 * page.cols as u32 + c as u32 + 1;
-        let total = page.rows as u32 * page.cols as u32;
-        let free = (start..total)
-            .chain(0..start)
-            .map(|i| ((i / page.cols as u32) as u16, (i % page.cols as u32) as u16))
-            .find(|(r, c)| page.cell(*r, *c).is_none());
+        }
+        let free = bubble_core::view::free_cell_after(&snap.project, id);
         let clip = self.lock().copy_cart(id);
         match (free, clip) {
-            (Some((nr, nc)), Some(clip)) => intents.push(Intent::Paste(p, nr, nc, clip)),
+            (Some((p, nr, nc)), Some(clip)) => intents.push(Intent::Paste(p, nr, nc, clip)),
             (None, _) => self.prompts.error = Some("This page is full.".into()),
             _ => {}
         }
@@ -1187,8 +1118,8 @@ impl BubbleApp {
                 return;
             }
         };
-        let idx = (r * cols + c + dr * cols + dc).rem_euclid(rows * cols);
-        let (nr, nc) = ((idx / cols) as u16, (idx % cols) as u16);
+        let (nr, nc) =
+            bubble_core::view::step_cell(rows as u16, cols as u16, (r as u16, c as u16), dr, dc);
         match page.cell(nr, nc) {
             Some(cell) => {
                 self.selected = Some(cell.cart.id);
@@ -1217,284 +1148,19 @@ impl BubbleApp {
     }
 
     fn first_empty_cell(&self, snap: &Snapshot) -> Option<(usize, u16, u16)> {
-        let page = snap.project.pages.get(snap.page)?;
-        (0..page.rows)
-            .flat_map(|r| (0..page.cols).map(move |c| (r, c)))
-            .find(|(r, c)| page.cell(*r, *c).is_none())
-            .map(|(r, c)| (snap.page, r, c))
+        bubble_core::view::first_empty_cell(&snap.project, snap.page)
     }
 
     fn build_menu(&self, snap: &Snapshot) -> Menu {
-        let s = &snap.project.settings;
-        let sel = self.selected.filter(|id| snap.project.cart(*id).is_some());
-        let has_sel = sel.is_some();
-        let target_cell = self.target_cell(snap);
-        let recent: Vec<Item> = self
-            .prefs
-            .recent_projects
-            .iter()
-            .enumerate()
-            .map(|(i, p)| Item::action(p.display().to_string(), Cmd::OpenRecent(i)))
-            .collect();
-        let mut file = vec![
-            Item::action("New Session…", Cmd::New).accel("CmdOrCtrl+N"),
-            Item::action("Open…", Cmd::Open).accel("CmdOrCtrl+O"),
-        ];
-        if !recent.is_empty() {
-            file.push(Item::sub("Open Recent", recent));
-        }
-        file.extend([
-            Item::Separator,
-            Item::action("Save", Cmd::Save).accel("CmdOrCtrl+S"),
-            Item::action("Save Session As…", Cmd::SaveAs).accel("CmdOrCtrl+Shift+S"),
-            Item::Separator,
-            Item::action(
-                if cfg!(target_os = "macos") {
-                    "Show Session in Finder"
-                } else {
-                    "Show Session Folder"
-                },
-                Cmd::RevealSession,
-            )
-            .enabled(snap.path.is_some()),
-            Item::action("Relink Missing Files…", Cmd::Relink),
-            Item::action("Reload All Audio", Cmd::ReloadAudio),
-        ]);
-        #[cfg(not(target_os = "macos"))]
-        file.extend([
-            Item::Separator,
-            Item::action("Quit", Cmd::Quit).accel("CmdOrCtrl+Q"),
-        ]);
-
-        let edit = vec![
-            Item::action("Undo", Cmd::Undo)
-                .accel("CmdOrCtrl+Z")
-                .enabled(snap.can_undo),
-            Item::action("Redo", Cmd::Redo)
-                .accel("CmdOrCtrl+Shift+Z")
-                .enabled(snap.can_redo),
-            Item::Separator,
-            Item::action("Cut Cart", Cmd::Cut)
-                .accel("CmdOrCtrl+X")
-                .enabled(has_sel),
-            Item::action("Copy Cart", Cmd::Copy)
-                .accel("CmdOrCtrl+C")
-                .enabled(has_sel),
-            Item::action("Paste Cart", Cmd::Paste)
-                .accel("CmdOrCtrl+V")
-                .enabled(self.clipboard.is_some() && target_cell.is_some()),
-            Item::action("Paste Attributes…", Cmd::PasteAttributes)
-                .accel("CmdOrCtrl+Shift+V")
-                .enabled(self.clipboard.is_some() && has_sel),
-            Item::action("Duplicate Cart", Cmd::DuplicateCart)
-                .accel("CmdOrCtrl+D")
-                .enabled(has_sel),
-            Item::action("Clear Cart", Cmd::ClearCart).enabled(has_sel),
-            Item::Separator,
-            Item::action("Copy Page", Cmd::CopyPage),
-            Item::action("Paste Page", Cmd::PastePage).enabled(self.page_clip.is_some()),
-            Item::Separator,
-            Item::action("Edit Mode", Cmd::ToggleEditMode)
-                .accel("CmdOrCtrl+E")
-                .check(self.edit_mode),
-        ];
-        let level = s.master_gain_db;
-        let mut levels: Vec<Item> = OUTPUT_LEVELS
-            .iter()
-            .map(|db| {
-                let label = if *db == 0 {
-                    "0 dB (no attenuation)".to_string()
-                } else if *db == bubble_project::DEFAULT_MASTER_GAIN_DB as i32 {
-                    format!("{db} dB (default)")
-                } else {
-                    format!("{db} dB")
-                };
-                Item::action(label, Cmd::OutputLevel(*db)).check((level - *db as f32).abs() < 0.05)
-            })
-            .collect();
-        let custom = !OUTPUT_LEVELS
-            .iter()
-            .any(|db| (level - *db as f32).abs() < 0.05);
-        levels.extend([
-            Item::Separator,
-            Item::action(
-                if custom {
-                    format!("Custom ({level:.1} dB)…")
-                } else {
-                    "Custom…".to_string()
-                },
-                Cmd::ProjectSettings,
-            )
-            .check(custom),
-        ]);
-
-        let cart = vec![
-            Item::action("Cart Setup…", Cmd::AudioSetup)
-                .accel("CmdOrCtrl+I")
-                .enabled(has_sel),
-            Item::action("Speed Bar…", Cmd::SpeedBar).enabled(has_sel),
-            Item::action("Play Selected Cart", Cmd::PlaySelected).enabled(has_sel),
-        ];
-
-        let rate = self.prefs.rate();
-        let rates: Vec<Item> = [44_100u32, 48_000, 96_000]
-            .into_iter()
-            .map(|r| {
-                let label = if r == crate::prefs::DEFAULT_SAMPLE_RATE {
-                    format!("{} kHz (default)", r as f32 / 1000.0)
-                } else {
-                    format!("{} kHz", r as f32 / 1000.0)
-                };
-                Item::action(label, Cmd::SampleRate(r)).check(r == rate)
-            })
-            .collect();
-        let buffers: Vec<Item> = [
-            None,
-            Some(64),
-            Some(128),
-            Some(256),
-            Some(480),
-            Some(512),
-            Some(1024),
-        ]
-        .into_iter()
-        .map(|b| {
-            Item::action(
-                b.map_or("Device Default".to_string(), |b| format!("{b} frames")),
-                Cmd::BufferFrames(b),
-            )
-            .check(self.prefs.buffer_frames == b)
-        })
-        .collect();
-        let mut midi_items = vec![
-            Item::action("Enable MIDI Input", Cmd::MidiEnabled).check(!self.prefs.midi_disabled),
-            Item::action("All Ports", Cmd::MidiAllPorts).check(self.prefs.midi_inputs.is_empty()),
-            Item::Separator,
-        ];
-        for port in &self.midi_ports {
-            midi_items.push(
-                Item::action(port.clone(), Cmd::MidiPort(port.clone()))
-                    .check(self.prefs.midi_inputs.contains(port))
-                    .enabled(!self.prefs.midi_disabled),
-            );
-        }
-        if self.midi_ports.is_empty() {
-            midi_items.push(Item::action("(no MIDI ports found)", Cmd::RescanMidi).enabled(false));
-        }
-        midi_items.extend([
-            Item::Separator,
-            Item::action("Rescan Ports", Cmd::RescanMidi),
-        ]);
-        use bubble_project::{DuplicatePolicy as D, MouseMode as M, Scope as S};
-        let audio = vec![
-            Item::action("Outputs…", Cmd::Outputs),
-            Item::action("Reassign Cart Outputs…", Cmd::ReassignOutputs),
-            Item::sub("Sample Rate", rates),
-            Item::sub("Buffer Size", buffers),
-            Item::action("Output Safety Limiter", Cmd::Limiter).check(s.limiter),
-            Item::sub("MIDI Inputs", midi_items),
-            Item::Separator,
-            Item::action("Stop All (fade)", Cmd::StopAll),
-            Item::action("Stop Page (fade)", Cmd::StopPage),
-            Item::action("Stop All Immediately", Cmd::StopAllNow).accel("CmdOrCtrl+Period"),
-        ];
-        let session = vec![
-            Item::action("Session Settings…", Cmd::ProjectSettings).accel("CmdOrCtrl+Comma"),
-            Item::action("Page Settings…", Cmd::PageSettings),
-            Item::action("Add Page", Cmd::AddPage),
-            Item::action("Remove Page", Cmd::RemovePage).enabled(snap.project.pages.len() > 1),
-            Item::Separator,
-            Item::sub(format!("Output Level ({level:.0} dB)"), levels),
-            Item::sub(
-                "Mouse",
-                vec![
-                    Item::action("Click Toggles Play/Stop", Cmd::MouseToggle)
-                        .check(s.mouse_mode == M::Toggle),
-                    Item::action("Left Plays, Right Stops", Cmd::MouseLeftRight)
-                        .check(s.mouse_mode == M::LeftPlayRightStop),
-                ],
-            ),
-            Item::sub(
-                "Same Trigger on Several Carts",
-                vec![
-                    Item::action("Ganged (all play)", Cmd::DuplicatesGanged)
-                        .check(s.duplicate_binding_policy == D::Ganged),
-                    Item::action("Overlapped (next free one)", Cmd::DuplicatesOverlapped)
-                        .check(s.duplicate_binding_policy == D::Overlapped),
-                ],
-            ),
-            Item::sub(
-                "Triggers Act On",
-                vec![
-                    Item::action("All Pages", Cmd::ScopeGlobal).check(s.binding_scope == S::Global),
-                    Item::action("Current Page Only", Cmd::ScopePage)
-                        .check(s.binding_scope == S::CurrentPage),
-                ],
-            ),
-        ];
-        let zoom = (self.prefs.ui_scale.unwrap_or(1.0) * 100.0).round() as u32;
-        let view = vec![
-            Item::sub(
-                "Page Bar Size",
-                ["Small", "Medium", "Large (touch screen)"]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, n)| {
-                        Item::action(n, Cmd::BarSize(i as u8)).check(self.prefs.bar_size == i as u8)
-                    })
-                    .collect(),
-            ),
-            Item::sub(
-                "Interface Size",
-                [75u32, 100, 125, 150, 200]
-                    .into_iter()
-                    .map(|z| Item::action(format!("{z}%"), Cmd::Zoom(z)).check(z == zoom))
-                    .collect(),
-            ),
-            Item::sub("Appearance", {
-                use crate::prefs::Appearance as A;
-                [
-                    ("Follow System", A::System),
-                    ("Light", A::Light),
-                    ("Dark", A::Dark),
-                ]
-                .into_iter()
-                .map(|(n, a)| Item::action(n, Cmd::Appearance(a)).check(self.prefs.appearance == a))
-                .collect()
-            }),
-            Item::Separator,
-            Item::action("Playout Log", Cmd::ShowLog).accel("CmdOrCtrl+L"),
-            Item::action("Audio Diagnostics", Cmd::ShowDiagnostics),
-            Item::action("Show Log File", Cmd::ShowLogs),
-        ];
-        Menu {
-            tops: vec![
-                Top {
-                    title: "File".into(),
-                    items: file,
-                },
-                Top {
-                    title: "Edit".into(),
-                    items: edit,
-                },
-                Top {
-                    title: "Session".into(),
-                    items: session,
-                },
-                Top {
-                    title: "Cart".into(),
-                    items: cart,
-                },
-                Top {
-                    title: "Audio".into(),
-                    items: audio,
-                },
-                Top {
-                    title: "View".into(),
-                    items: view,
-                },
-            ],
-        }
+        bubble_core::menu::build(
+            &self.core,
+            snap,
+            &bubble_core::menu::MenuState {
+                edit_mode: self.edit_mode,
+                selected: self.selected.filter(|id| snap.project.cart(*id).is_some()),
+                paste_target: self.target_cell(snap),
+            },
+        )
     }
 
     /// The cell Paste targets: the selected cart's cell, else the first empty cell of the page.
@@ -1519,8 +1185,9 @@ impl BubbleApp {
         snap: &Snapshot,
         intents: &mut Vec<Intent>,
     ) {
-        use bubble_project::{DuplicatePolicy as D, MouseMode as M, Scope as S};
-        let mut settings = snap.project.settings.clone();
+        if bubble_core::menu::apply_common(&mut self.core, &cmd, snap, intents) {
+            return;
+        }
         let sel = self.selected.filter(|id| snap.project.cart(*id).is_some());
         match cmd {
             Cmd::New => self.request(PendingAction::New, snap, intents),
@@ -1627,43 +1294,6 @@ impl BubbleApp {
                     self.duplicate_cart(id, snap, intents);
                 }
             }
-            Cmd::SampleRate(r) => {
-                self.prefs.sample_rate = r;
-                self.save_prefs();
-                self.open_audio();
-            }
-            Cmd::BufferFrames(b) => {
-                self.prefs.buffer_frames = b;
-                self.save_prefs();
-                self.open_audio();
-            }
-            Cmd::MidiEnabled => {
-                self.prefs.midi_disabled = !self.prefs.midi_disabled;
-                self.reopen_midi();
-            }
-            Cmd::MidiAllPorts => {
-                self.prefs.midi_inputs.clear();
-                self.reopen_midi();
-            }
-            Cmd::MidiPort(name) => {
-                if let Some(i) = self.prefs.midi_inputs.iter().position(|n| *n == name) {
-                    self.prefs.midi_inputs.remove(i);
-                } else {
-                    self.prefs.midi_inputs.push(name);
-                }
-                self.reopen_midi();
-            }
-            Cmd::RescanMidi => {
-                self.midi_ports = available_ports();
-                self.reopen_midi();
-            }
-            Cmd::MouseToggle => settings.mouse_mode = M::Toggle,
-            Cmd::MouseLeftRight => settings.mouse_mode = M::LeftPlayRightStop,
-            Cmd::DuplicatesGanged => settings.duplicate_binding_policy = D::Ganged,
-            Cmd::DuplicatesOverlapped => settings.duplicate_binding_policy = D::Overlapped,
-            Cmd::ScopeGlobal => settings.binding_scope = S::Global,
-            Cmd::ScopePage => settings.binding_scope = S::CurrentPage,
-            Cmd::Limiter => settings.limiter = !settings.limiter,
             Cmd::ShowLog => {
                 self.dialogs.log = true;
                 crate::native::raise(ctx, "log");
@@ -1672,7 +1302,6 @@ impl BubbleApp {
                 self.dialogs.diagnostics = true;
                 crate::native::raise(ctx, "diagnostics");
             }
-            Cmd::OutputLevel(db) => settings.master_gain_db = db as f32,
             Cmd::ProjectSettings => {
                 self.dialogs.project_settings = true;
                 crate::native::raise(ctx, "project-settings");
@@ -1686,10 +1315,6 @@ impl BubbleApp {
                     self.open_speed_bar(id);
                 }
             }
-            Cmd::BarSize(b) => {
-                self.prefs.bar_size = b.min(2);
-                self.save_prefs();
-            }
             Cmd::Appearance(a) => {
                 self.prefs.appearance = a;
                 ctx.set_theme(theme(a));
@@ -1701,9 +1326,8 @@ impl BubbleApp {
                 self.prefs.ui_scale = Some(f);
                 self.save_prefs();
             }
-        }
-        if settings != snap.project.settings {
-            intents.push(Intent::Settings(settings));
+            // Handled by `apply_common`.
+            _ => {}
         }
     }
 
@@ -1815,38 +1439,17 @@ impl BubbleApp {
 
         // Status line (only when there is something to say), measured first so the
         // tabs know how much room they have.
-        let mut status: Vec<(String, Color32)> = Vec::new();
-        let warn = Color32::from_rgb(0xF0, 0x9A, 0x2A);
-        if let Some(e) = &self.audio_error {
-            status.push((
-                format!("No audio: {e}"),
-                Color32::from_rgb(0xE5, 0x39, 0x35),
-            ));
-        } else if let Some(n) = self.audio_notice() {
-            status.push((n, warn));
-        } else if !self.output_errors.is_empty() {
-            status.push((
-                "Some outputs are unavailable (Audio ▸ Outputs)".into(),
-                warn,
-            ));
-        }
-        if !snap.missing.is_empty() {
-            status.push((format!("{} missing file(s)", snap.missing.len()), warn));
-        }
-        if let Some(c) = &self.cloud_status {
-            status.push((c.clone(), warn));
-        }
-        // Never let a failing autosave or preferences save go unnoticed.
-        for p in self
-            .autosave_problem
-            .iter()
-            .chain(self.prefs_problem.iter())
-        {
-            status.push((p.clone(), Color32::from_rgb(0xE5, 0x39, 0x35)));
-        }
-        if self.midi.active_recently(150) {
-            status.push(("● MIDI".into(), Color32::from_rgb(0xE5, 0x39, 0x35)));
-        }
+        let status: Vec<(String, Color32)> = self
+            .status_items(snap)
+            .into_iter()
+            .map(|i| {
+                let c = match i.level {
+                    bubble_core::view::Level::Warn => Color32::from_rgb(0xF0, 0x9A, 0x2A),
+                    bubble_core::view::Level::Error => Color32::from_rgb(0xE5, 0x39, 0x35),
+                };
+                (i.text, c)
+            })
+            .collect();
         let status_w = if status.is_empty() {
             0.0
         } else {

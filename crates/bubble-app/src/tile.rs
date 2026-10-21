@@ -11,8 +11,8 @@
 //! └▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀────────────────────┘  progress
 //! ```
 
-use bubble_control::{CartRuntime, CartState, describe, display_label};
-use bubble_project::{Cart, HAlign, Project, StopScope, VAlign};
+use bubble_control::{CartRuntime, CartState, display_label};
+use bubble_project::{Cart, HAlign, Project, VAlign};
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2,
 };
@@ -48,72 +48,7 @@ pub fn text_color(bg: Color32) -> Color32 {
     }
 }
 
-/// Tile clock: MM:SS (H:MM:SS from an hour). `round_up` for durations and
-/// countdowns, so a 0.9 s cart reads 00:01 and a countdown reaches 00:00 at the end.
-pub fn fmt_clock(s: f32, round_up: bool) -> String {
-    if !s.is_finite() {
-        return "∞".into();
-    }
-    let s = s.max(0.0);
-    let t = if round_up {
-        (s - 1e-3).max(0.0).ceil()
-    } else {
-        s.floor()
-    } as u64;
-    let (h, m, sec) = (t / 3600, (t / 60) % 60, t % 60);
-    if h > 0 {
-        format!("{h}:{m:02}:{sec:02}")
-    } else {
-        format!("{m:02}:{sec:02}")
-    }
-}
-
-/// Precise time for editing windows: MM:SS.s
-pub fn fmt_precise(s: f32) -> String {
-    if !s.is_finite() {
-        return "∞".into();
-    }
-    let s = s.max(0.0);
-    let m = (s / 60.0).floor();
-    format!("{:02}:{:04.1}", m as u32, s - m * 60.0)
-}
-
-/// Whether the In and Out points differ from the file's start and end.
-pub fn trim_flags(cart: &Cart, project: &Project) -> (bool, bool) {
-    let Some(t) = cart.trim else {
-        return (false, false);
-    };
-    let total = cart
-        .asset
-        .and_then(|a| project.asset(a))
-        .and_then(|a| a.meta.as_ref())
-        .map(|m| m.frames);
-    let out_trimmed = match total {
-        Some(n) => t.out_frames < n,
-        // Unknown length: a trim that does not move In must have moved Out.
-        None => t.in_frames == 0,
-    };
-    (t.in_frames > 0, out_trimmed)
-}
-
-/// Short trigger names for the tile, e.g. "F1", "⌘1", "N60".
-pub fn trigger_names(cart: &Cart, project: &Project) -> Vec<String> {
-    project
-        .bindings
-        .iter()
-        .filter(|b| b.targets.contains(&cart.id))
-        .map(|b| describe(&b.source))
-        .collect()
-}
-
-pub fn group_label(cart: &Cart, project: &Project) -> Option<String> {
-    let g = cart.group?;
-    project
-        .groups
-        .iter()
-        .position(|x| x.id == g)
-        .map(|i| project.groups[i].label(i))
-}
+pub use bubble_core::view::{fmt_precise, group_label, tile_text, trigger_names};
 
 pub fn paint_empty(ui: &egui::Ui, rect: Rect, st: &TileState) {
     let painter = ui.painter_at(rect.expand(3.0));
@@ -217,66 +152,14 @@ pub fn paint_cart(
     // ---- bottom row: flags (left), time (right) ----
     // Fixed, so nothing moves when a cart starts (the progress track sits below).
     let bottom_y = rect.bottom() - 15.0;
-    let mut flags: Vec<String> = Vec::new();
-    let (trim_in, trim_out) = trim_flags(cart, project);
-    // The output letter first, so it stays in place whatever follows it.
-    flags.push(format!("Out {}", cart.output));
-    match (trim_in, trim_out) {
-        // In and Out both trimmed.
-        (true, true) => flags.push("X".into()),
-        (true, false) => flags.push(">".into()),
-        (false, true) => flags.push("<".into()),
-        _ => {}
-    }
-    if cart.looping {
-        flags.push("⟲".into());
-    }
-    let shown_speed = if playing { rt.speed } else { cart.speed };
-    if (shown_speed - 1.0).abs() > 0.005 {
-        flags.push(format!("×{shown_speed:.2}"));
-    }
-    if cart.muted {
-        flags.push("MUTE".into());
-    }
-    if cart.hold_to_play {
-        flags.push("HOLD".into());
-    }
-    if cart.on_play.stop != StopScope::None {
-        flags.push("■".into());
-    }
-    if cart.play_next.is_some() {
-        flags.push("→".into());
-    }
-    if rt.changed {
-        flags.push("⚠".into());
-    }
-    if let Some(k) = cart.control {
-        flags.clear();
-        flags.push(k.name().to_uppercase());
-    }
-    let time = if cart.control.is_some() {
-        String::new()
+    let text = tile_text(cart, project, &rt);
+    let mut flags: Vec<String> = if cart.control.is_some() {
+        text.flags
     } else {
-        match rt.state {
-            CartState::Playing | CartState::Stopping => {
-                format!("-{}", fmt_clock(rt.remaining_s, true))
-            }
-            CartState::Ready => fmt_clock(rt.duration_s, true),
-            CartState::Loading => "loading…".into(),
-            CartState::Missing => "MISSING".into(),
-            CartState::Error => "ERROR".into(),
-            CartState::Empty => String::new(),
-        }
+        // The output letter first, so it stays in place whatever follows it.
+        std::iter::once(text.output).chain(text.flags).collect()
     };
-    // As in the reference: '@' marks a time affected by a speed change.
-    let time = if (shown_speed - 1.0).abs() > 0.005
-        && !time.is_empty()
-        && rt.state != CartState::Missing
-    {
-        format!("@{time}")
-    } else {
-        time
-    };
+    let time = text.time;
     let time_font =
         FontId::monospace(((rect.height() / 6.0).clamp(11.0, 22.0) * disp.small_size).max(8.0));
     let time_g = painter.text(
@@ -399,17 +282,3 @@ pub fn paint_cart(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clock_format() {
-        assert_eq!(fmt_clock(0.916, true), "00:01");
-        assert_eq!(fmt_clock(0.0, true), "00:00");
-        assert_eq!(fmt_clock(20.0, true), "00:20");
-        assert_eq!(fmt_clock(83.4, false), "01:23");
-        assert_eq!(fmt_clock(3725.0, false), "1:02:05");
-        assert_eq!(fmt_precise(83.46), "01:23.5");
-    }
-}

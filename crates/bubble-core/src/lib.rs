@@ -9,7 +9,9 @@ pub mod crash;
 pub mod dialogs;
 pub mod instance;
 pub mod log;
+pub mod menu;
 pub mod midi;
 pub mod prefs;
+pub mod view;
 
 pub use app::{Core, Intent, PendingAction, Prompts, Snapshot};
