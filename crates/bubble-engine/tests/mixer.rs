@@ -6,7 +6,7 @@ use std::sync::Arc;
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use bubble_engine::{
     CartKey, EndReason, Engine, EngineCommand, EngineConfig, EngineEvent, EngineHandle, Fade,
-    FadeCurve, Mixer, PlayParams, Retrigger, SampleBuffer, StopOthers, StopTarget,
+    FadeCurve, Mixer, PlayParams, Playable, Retrigger, SampleBuffer, StopOthers, StopTarget,
 };
 
 #[global_allocator]
@@ -23,18 +23,22 @@ fn engine(voices: usize) -> (EngineHandle, Mixer) {
 }
 
 /// Constant stereo buffer (L = value, R = value).
-fn dc(value: f32, frames: usize) -> Arc<SampleBuffer> {
-    SampleBuffer::from_interleaved(SR, 2, vec![value; frames * 2]).shared()
+fn dc(value: f32, frames: usize) -> Arc<Playable> {
+    Playable::resident(SampleBuffer::from_interleaved(
+        SR,
+        2,
+        vec![value; frames * 2],
+    ))
 }
 
 /// Stereo ramp: sample n = n (both channels) — lets tests read the playback position.
-fn ramp(frames: usize) -> Arc<SampleBuffer> {
+fn ramp(frames: usize) -> Arc<Playable> {
     let mut v = Vec::with_capacity(frames * 2);
     for n in 0..frames {
         v.push(n as f32);
         v.push(n as f32);
     }
-    SampleBuffer::from_interleaved(SR, 2, v).shared()
+    Playable::resident(SampleBuffer::from_interleaved(SR, 2, v))
 }
 
 fn render(m: &mut Mixer, frames: usize) -> Vec<f32> {
@@ -49,10 +53,11 @@ fn events(h: &mut EngineHandle) -> Vec<EngineEvent> {
     v
 }
 
-fn play(h: &mut EngineHandle, cart: u32, buf: &Arc<SampleBuffer>, p: PlayParams) {
+fn play(h: &mut EngineHandle, cart: u32, buf: &Arc<Playable>, p: PlayParams) {
     h.send(EngineCommand::Play {
         cart: CartKey(cart),
-        buffer: buf.clone(),
+        audio: buf.clone(),
+        stream: None,
         params: p,
     })
     .unwrap();
@@ -563,7 +568,7 @@ fn empty_or_invalid_range_is_ignored_without_leaking() {
     render(&mut m, 10);
     // start ≥ end is clamped to start = 0, so it plays.
     assert_eq!(h.status().active_voices(), 1);
-    let empty = SampleBuffer::from_interleaved(SR, 2, vec![]).shared();
+    let empty = Playable::resident(SampleBuffer::from_interleaved(SR, 2, vec![]));
     play(&mut h, 2, &empty, PlayParams::default());
     render(&mut m, 10);
     assert!(
@@ -582,7 +587,7 @@ fn empty_or_invalid_range_is_ignored_without_leaking() {
 fn mono_source_pans_with_constant_power() {
     let (mut h, mut m) = engine(4);
     no_limiter(&mut h);
-    let mono = SampleBuffer::from_interleaved(SR, 1, vec![1.0; 1000]).shared();
+    let mono = Playable::resident(SampleBuffer::from_interleaved(SR, 1, vec![1.0; 1000]));
     play(&mut h, 1, &mono, PlayParams::default());
     let out = render(&mut m, 10);
     assert!((out[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
@@ -769,7 +774,11 @@ fn render_ch(m: &mut Mixer, frames: usize, channels: usize) -> Vec<f32> {
 fn outputs_route_to_their_channels_on_one_device() {
     let (mut h, mut m) = engine_ch(8);
     no_limiter(&mut h);
-    let a = SampleBuffer::from_interleaved(SR, 2, [0.25f32, -0.25].repeat(100)).shared();
+    let a = Playable::resident(SampleBuffer::from_interleaved(
+        SR,
+        2,
+        [0.25f32, -0.25].repeat(100),
+    ));
     // Stereo output on channels 3–4 (offset 2).
     play(
         &mut h,
@@ -781,7 +790,11 @@ fn outputs_route_to_their_channels_on_one_device() {
         },
     );
     // Mono output on channel 8: L+R summed at half each.
-    let b = SampleBuffer::from_interleaved(SR, 2, [0.4f32, 0.2].repeat(100)).shared();
+    let b = Playable::resident(SampleBuffer::from_interleaved(
+        SR,
+        2,
+        [0.4f32, 0.2].repeat(100),
+    ));
     play(
         &mut h,
         2,
@@ -809,7 +822,7 @@ fn surround_output_passes_six_channels_through() {
     let (mut h, mut m) = engine_ch(8);
     no_limiter(&mut h);
     let frame: Vec<f32> = (1..=6).map(|c| c as f32 * 0.1).collect();
-    let s = SampleBuffer::from_interleaved(SR, 6, frame.repeat(50)).shared();
+    let s = Playable::resident(SampleBuffer::from_interleaved(SR, 6, frame.repeat(50)));
     play(
         &mut h,
         1,

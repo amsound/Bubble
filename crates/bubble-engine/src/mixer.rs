@@ -3,8 +3,11 @@
 //!
 //! Rules enforced here:
 //! * Voices live in a fixed, preallocated pool.
-//! * `Arc<SampleBuffer>`s leaving the audio thread are pushed onto the garbage ring
-//!   (or parked in a preallocated list) so their memory is never freed on this thread.
+//! * Audio (`Arc<Playable>`) and disk streams leaving the audio thread are pushed onto
+//!   the garbage ring (or parked in a preallocated list) so their memory is never
+//!   freed on this thread.
+//! * A streamed voice that finds no data plays silence and holds its place; it never
+//!   waits (see [`crate::stream`]).
 //! * Large callbacks are split into blocks of at most [`MAX_BLOCK`] frames so commands
 //!   and ramps stay fine-grained. Any callback size works, including non powers of two.
 
@@ -12,12 +15,14 @@ use std::f32::consts::FRAC_PI_2;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 
-use crate::buffer::SampleBuffer;
 use crate::command::{
     CartKey, EndReason, EngineCommand, EngineEvent, Fade, FadeCurve, PlayParams, Retrigger,
     StopOthers, StopTarget, VoiceId,
 };
+use crate::engine::Garbage;
+use crate::playable::{MAX_CHANNELS, Playable};
 use crate::status::{EngineStatus, VoicePhase};
+use crate::stream::{Fetch, VoiceStream};
 
 /// Highest playback speed (4 × normal, as in the reference).
 pub const MAX_SPEED: f32 = 4.0;
@@ -188,12 +193,17 @@ impl Envelope {
     }
 }
 
-#[derive(Clone)]
 struct Voice {
     active: bool,
     cart: CartKey,
     id: VoiceId,
-    buffer: Option<Arc<SampleBuffer>>,
+    audio: Option<Arc<Playable>>,
+    /// Disk stream of a streamed source.
+    stream: Option<Box<VoiceStream>>,
+    /// A seek's new position waiting for the stream of the voice it replaces.
+    heir_of: Option<VoiceId>,
+    /// Out of stream data since the last frame (for counting underruns once).
+    starved: bool,
     pos: usize,
     /// Fractional position between `pos` and the next frame (variable speed).
     frac: f64,
@@ -225,7 +235,10 @@ impl Voice {
             active: false,
             cart: CartKey(0),
             id: VoiceId(0),
-            buffer: None,
+            audio: None,
+            stream: None,
+            heir_of: None,
+            starved: false,
             pos: 0,
             frac: 0.0,
             rate: Ramp::new(1.0),
@@ -251,6 +264,67 @@ impl Voice {
     fn stopping(&self) -> bool {
         self.env.stopping()
     }
+
+    /// A copy for a seek: everything but the stream, which follows later.
+    fn seek_copy(&self) -> Voice {
+        Voice {
+            active: self.active,
+            cart: self.cart,
+            id: self.id,
+            audio: self.audio.clone(),
+            stream: None,
+            heir_of: (self.stream.is_some() || self.heir_of.is_some()).then_some(self.id),
+            starved: false,
+            pos: self.pos,
+            frac: self.frac,
+            rate: self.rate,
+            peak_l: self.peak_l,
+            peak_r: self.peak_r,
+            start: self.start,
+            end: self.end,
+            looping: self.looping,
+            gain: self.gain,
+            pan_l: self.pan_l,
+            pan_r: self.pan_r,
+            env: self.env,
+            fade_out: self.fade_out,
+            group: self.group,
+            page: self.page,
+            started_seq: self.started_seq,
+            pending_reason: self.pending_reason,
+            out_off: self.out_off,
+            out_w: self.out_w,
+        }
+    }
+
+    /// Asks the disk for data to follow a jump to `self.pos` (loop, seek, trim).
+    fn follow_jump(&mut self) {
+        if let (Some(s), Some(a)) = (self.stream.as_mut(), self.audio.as_ref()) {
+            let from = a.stream_from(self.pos);
+            s.request(from, from > self.pos);
+        }
+    }
+}
+
+/// Reads frame `pos` into `out`: from memory, else from the voice's stream.
+#[inline]
+fn fetch(
+    audio: &Playable,
+    stream: &mut Option<Box<VoiceStream>>,
+    heir: bool,
+    pos: usize,
+    out: &mut [f32; MAX_CHANNELS],
+    may_request: bool,
+) -> Fetch {
+    if audio.memory_frame(pos, out) {
+        return Fetch::Ok;
+    }
+    match stream {
+        Some(s) => s.fetch(pos, out, may_request),
+        // A seek's copy before the stream reaches it.
+        None if heir => Fetch::Wait { starved: false },
+        None => Fetch::End,
+    }
 }
 
 /// Pan gains for a source with `channels` channels.
@@ -266,12 +340,12 @@ fn pan_gains(pan: f32, channels: u16) -> (f32, f32) {
     }
 }
 
-/// Reads one source frame as a stereo pair.
+/// Reads one source frame (`n` channels) as a stereo pair.
 #[inline]
-fn source_lr(frame: crate::buffer::Frame<'_>) -> (f32, f32) {
+fn source_lr(frame: &[f32; MAX_CHANNELS], n: usize) -> (f32, f32) {
     const M3DB: f32 = std::f32::consts::FRAC_1_SQRT_2;
-    let s = |c| frame.get(c);
-    match frame.len() {
+    let s = |c: usize| frame[c];
+    match n {
         1 => (s(0), s(0)),
         2 => (s(0), s(1)),
         // Quad (L R Ls Rs): fold surrounds at −3 dB.
@@ -297,8 +371,8 @@ pub struct Mixer {
     voices: Box<[Voice]>,
     commands: rtrb::Consumer<EngineCommand>,
     events: rtrb::Producer<EngineEvent>,
-    garbage: rtrb::Producer<Arc<SampleBuffer>>,
-    parked: Box<[Option<Arc<SampleBuffer>>]>,
+    garbage: rtrb::Producer<Garbage>,
+    parked: Box<[Option<Garbage>]>,
     status: Arc<EngineStatus>,
     next_voice_id: u64,
     seq: u64,
@@ -320,7 +394,7 @@ impl Mixer {
         voices: usize,
         commands: rtrb::Consumer<EngineCommand>,
         events: rtrb::Producer<EngineEvent>,
-        garbage: rtrb::Producer<Arc<SampleBuffer>>,
+        garbage: rtrb::Producer<Garbage>,
         status: Arc<EngineStatus>,
         declick_ms: f32,
     ) -> Self {
@@ -332,7 +406,7 @@ impl Mixer {
             commands,
             events,
             garbage,
-            parked: (0..voices * 2).map(|_| None).collect(),
+            parked: (0..voices * 4).map(|_| None).collect(),
             status,
             next_voice_id: 1,
             seq: 0,
@@ -388,9 +462,10 @@ impl Mixer {
         match cmd {
             EngineCommand::Play {
                 cart,
-                buffer,
+                audio,
+                stream,
                 params,
-            } => self.play(cart, buffer, params),
+            } => self.play(cart, audio, stream, params),
             EngineCommand::Stop { target, fade } => {
                 let kill = self.kill_ramp;
                 for v in self.voices.iter_mut().filter(|v| v.active) {
@@ -427,7 +502,7 @@ impl Mixer {
                     .iter_mut()
                     .filter(|v| v.active && v.cart == cart)
                 {
-                    let ch = v.buffer.as_ref().map_or(2, |b| b.channels());
+                    let ch = v.audio.as_ref().map_or(2, |b| b.channels());
                     let (l, rr) = pan_gains(pan, ch);
                     v.pan_l.set(l, r);
                     v.pan_r.set(rr, r);
@@ -462,7 +537,7 @@ impl Mixer {
                     .iter_mut()
                     .filter(|v| v.active && v.cart == cart)
                 {
-                    let frames = v.buffer.as_ref().map_or(0, |b| b.frames());
+                    let frames = v.audio.as_ref().map_or(0, |b| b.frames());
                     let end = end.min(frames);
                     if start < end {
                         v.start = start;
@@ -471,6 +546,7 @@ impl Mixer {
                         if v.pos < start || (v.looping && v.pos >= end) {
                             v.pos = start;
                             v.frac = 0.0;
+                            v.follow_jump();
                         }
                     }
                 }
@@ -483,8 +559,21 @@ impl Mixer {
         }
     }
 
-    fn play(&mut self, cart: CartKey, buffer: Arc<SampleBuffer>, p: PlayParams) {
-        let frames = buffer.frames();
+    fn play(
+        &mut self,
+        cart: CartKey,
+        audio: Arc<Playable>,
+        stream: Option<Box<VoiceStream>>,
+        p: PlayParams,
+    ) {
+        let stream = match stream {
+            Some(s) if !audio.is_streamed() => {
+                self.discard(Garbage::Stream(s));
+                None
+            }
+            other => other,
+        };
+        let frames = audio.frames();
         let end = p.end_frame.unwrap_or(frames).min(frames);
         let start = if p.start_frame < end {
             p.start_frame
@@ -493,7 +582,7 @@ impl Mixer {
         };
         if frames == 0 || start >= end {
             self.emit(EngineEvent::PlayIgnored { cart });
-            self.discard(buffer);
+            self.discard_play(audio, stream);
             return;
         }
 
@@ -504,7 +593,7 @@ impl Mixer {
         match p.retrigger {
             Retrigger::Ignore if playing => {
                 self.emit(EngineEvent::PlayIgnored { cart });
-                self.discard(buffer);
+                self.discard_play(audio, stream);
                 return;
             }
             Retrigger::ToggleStop if playing => {
@@ -517,7 +606,7 @@ impl Mixer {
                     v.env
                         .release(v.fade_out.frames.max(self.kill_ramp), v.fade_out.curve);
                 }
-                self.discard(buffer);
+                self.discard_play(audio, stream);
                 return;
             }
             Retrigger::Restart => {
@@ -566,12 +655,22 @@ impl Mixer {
         let id = VoiceId(self.next_voice_id);
         self.next_voice_id += 1;
         self.seq += 1;
-        let (pl, pr) = pan_gains(p.pan, buffer.channels());
+        let (pl, pr) = pan_gains(p.pan, audio.channels());
+        // De-click: a start on a non-silent sample (e.g. an In point mid-waveform)
+        // gets a 1.5 ms ramp unless the cart already fades in. A start the disk has
+        // not reached yet counts as non-silent.
+        let mut first = [0.0; MAX_CHANNELS];
+        let n = (audio.channels() as usize).min(MAX_CHANNELS);
+        let loud =
+            !audio.memory_frame(start, &mut first) || first[..n].iter().any(|x| x.abs() > 1e-3);
         let v = &mut self.voices[slot];
         v.active = true;
         v.cart = cart;
         v.id = id;
-        v.buffer = Some(buffer);
+        v.audio = Some(audio);
+        v.stream = stream;
+        v.heir_of = None;
+        v.starved = false;
         v.pos = start;
         v.frac = 0.0;
         v.rate = Ramp::new(p.speed.clamp(0.0, MAX_SPEED));
@@ -583,13 +682,8 @@ impl Mixer {
         v.gain = Ramp::new(p.gain.max(0.0));
         v.pan_l = Ramp::new(pl);
         v.pan_r = Ramp::new(pr);
-        // De-click: a start on a non-silent sample (e.g. an In point mid-waveform)
-        // gets a 1.5 ms ramp unless the cart already fades in.
+        v.follow_jump();
         let declick = self.declick;
-        let loud = v
-            .buffer
-            .as_ref()
-            .is_some_and(|b| b.frame(start).iter().any(|x| x.abs() > 1e-3));
         let fade_in = if declick > 0 && loud && p.fade_in.frames < declick {
             Fade {
                 frames: declick,
@@ -628,17 +722,35 @@ impl Mixer {
         else {
             return;
         };
-        let mut copy = self.voices[old].clone();
-        let target = frame.clamp(copy.start, copy.end.saturating_sub(1).max(copy.start));
         let ramp = self.declick.max(self.kill_ramp);
         let kill = self.kill_ramp;
+        let target = {
+            let v = &self.voices[old];
+            frame.clamp(v.start, v.end.saturating_sub(1).max(v.start))
+        };
+        // A slot for the copy; never the old voice, which still owns the stream.
+        let slot = match self.voices.iter().position(|v| !v.active) {
+            Some(s) => s,
+            None => match self.steal_except(Some(old)) {
+                Some(s) => s,
+                None => {
+                    // A pool of one voice: jump in place.
+                    let v = &mut self.voices[old];
+                    v.pos = target;
+                    v.frac = 0.0;
+                    v.env = Envelope::start(Fade {
+                        frames: ramp,
+                        curve: FadeCurve::Linear,
+                    });
+                    v.follow_jump();
+                    return;
+                }
+            },
+        };
+        let mut copy = self.voices[old].seek_copy();
         let v = &mut self.voices[old];
         v.pending_reason = EndReason::Restarted;
         v.env.release(kill, FadeCurve::Linear);
-        let slot = match self.voices.iter().position(|v| !v.active) {
-            Some(s) => s,
-            None => self.steal(),
-        };
         let id = VoiceId(self.next_voice_id);
         self.next_voice_id += 1;
         self.seq += 1;
@@ -653,6 +765,7 @@ impl Mixer {
             frames: ramp,
             curve: FadeCurve::Linear,
         });
+        // The slot is free (or was just emptied by a steal), so nothing is dropped.
         self.voices[slot] = copy;
         self.emit(EngineEvent::VoiceStarted { cart, voice: id });
     }
@@ -660,9 +773,17 @@ impl Mixer {
     /// Frees a slot by ending the least valuable voice: one already stopping (quietest
     /// first), otherwise the oldest.
     fn steal(&mut self) -> usize {
-        let mut best = 0;
+        self.steal_except(None).expect("a voice to steal")
+    }
+
+    /// Like [`Self::steal`], sparing voice `keep`; `None` if it is the only one.
+    fn steal_except(&mut self, keep: Option<usize>) -> Option<usize> {
+        let mut best = None;
         let mut best_key = (u8::MAX, f32::MAX, u64::MAX);
         for (i, v) in self.voices.iter().enumerate() {
+            if Some(i) == keep {
+                continue;
+            }
             let key = if v.stopping() {
                 (0, v.env.level, v.started_seq)
             } else if !v.looping {
@@ -674,17 +795,19 @@ impl Mixer {
                 || (key.0 == best_key.0
                     && (key.1 < best_key.1 || (key.1 == best_key.1 && key.2 < best_key.2)))
             {
-                best = i;
+                best = Some(i);
                 best_key = key;
             }
         }
+        let best = best?;
         self.status.voices_stolen.fetch_add(1, Relaxed);
         self.finish(best, EndReason::Stolen);
-        best
+        Some(best)
     }
 
     fn render_block(&mut self, out: &mut [f32], frames: usize) {
         let ch = self.channels;
+        let (mut underruns, mut underrun_frames, mut wait_frames) = (0u64, 0u64, 0u64);
         for idx in 0..self.voices.len() {
             if !self.voices[idx].active {
                 continue;
@@ -692,15 +815,61 @@ impl Mixer {
             let mut finished: Option<EndReason> = None;
             {
                 let v = &mut self.voices[idx];
-                let Some(buf) = v.buffer.as_ref() else {
-                    // Invariant: active voices always hold a buffer.
+                let Some(audio) = v.audio.take() else {
+                    // Invariant: active voices always hold audio.
                     v.active = false;
                     continue;
                 };
+                let n = (audio.channels() as usize).min(MAX_CHANNELS);
                 // 5.1 output with a 5.1 (or wider) source: channel for channel.
-                let direct = v.out_w >= 6 && buf.channels() >= 6;
+                let direct = v.out_w >= 6 && n >= 6;
+                let mut a = [0.0f32; MAX_CHANNELS];
+                let mut b = [0.0f32; MAX_CHANNELS];
                 for i in 0..frames {
-                    if direct {
+                    let heir = v.heir_of.is_some();
+                    match fetch(&audio, &mut v.stream, heir, v.pos, &mut a, true) {
+                        Fetch::Ok => v.starved = false,
+                        Fetch::Wait { starved } => {
+                            // Silence, holding the place (and the fade) until data comes;
+                            // a voice that is stopping still fades out and ends.
+                            if starved {
+                                underrun_frames += 1;
+                                if !v.starved {
+                                    v.starved = true;
+                                    underruns += 1;
+                                }
+                            } else {
+                                wait_frames += 1;
+                            }
+                            if v.stopping() && v.env.next().1 {
+                                finished = Some(v.pending_reason);
+                                break;
+                            }
+                            continue;
+                        }
+                        Fetch::End => {
+                            // The file ends early (shorter than stated, or unreadable):
+                            // as at the Out point.
+                            if v.looping && !v.stopping() && v.pos > v.start {
+                                v.pos = v.start;
+                                v.frac = 0.0;
+                                if let Some(s) = v.stream.as_mut() {
+                                    let from = audio.stream_from(v.pos);
+                                    s.request(from, from > v.pos);
+                                }
+                                continue;
+                            }
+                            finished = Some(if v.stopping() {
+                                v.pending_reason
+                            } else {
+                                EndReason::Completed
+                            });
+                            break;
+                        }
+                    }
+                    // Linear interpolation towards the next frame (speed ≠ 1).
+                    let f = v.frac as f32;
+                    if f > 0.0 {
                         let next = if v.pos + 1 < v.end {
                             v.pos + 1
                         } else if v.looping {
@@ -708,72 +877,47 @@ impl Mixer {
                         } else {
                             v.pos
                         };
-                        let (a, b) = (buf.frame(v.pos), buf.frame(next));
-                        let f = v.frac as f32;
-                        let (env, done) = v.env.next();
-                        let g = v.gain.next() * env;
+                        if next == v.pos
+                            || fetch(&audio, &mut v.stream, heir, next, &mut b, false) != Fetch::Ok
+                        {
+                            b = a;
+                        }
+                    }
+                    let (env, done) = v.env.next();
+                    let g = v.gain.next() * env;
+                    if direct {
                         // Keep the pan ramps moving; balance does not apply to 5.1.
                         v.pan_l.next();
                         v.pan_r.next();
                         let o = &mut out[i * ch + v.out_off..i * ch + v.out_off + 6];
                         for (c, s) in o.iter_mut().enumerate() {
-                            let (xa, xb) = (a.get(c), b.get(c));
-                            let x = xa + (xb - xa) * f;
+                            let x = if f > 0.0 {
+                                a[c] + (b[c] - a[c]) * f
+                            } else {
+                                a[c]
+                            };
                             *s += x * g;
                         }
-                        v.peak_l = v.peak_l.max((a.get(0) * g).abs());
-                        v.peak_r = v.peak_r.max((a.get(1) * g).abs());
-                        if done {
-                            finished = Some(v.pending_reason);
-                            break;
-                        }
-                        v.frac += v.rate.next() as f64;
-                        let step = v.frac as usize;
-                        v.frac -= step as f64;
-                        v.pos += step;
-                        if v.pos >= v.end {
-                            // A loop that is fading out plays to its Out point and ends.
-                            if v.looping && !v.env.stopping() {
-                                let len = (v.end - v.start).max(1);
-                                v.pos = v.start + (v.pos - v.end) % len;
-                            } else {
-                                finished = Some(if v.env.stopping() {
-                                    v.pending_reason
-                                } else {
-                                    EndReason::Completed
-                                });
-                                break;
-                            }
-                        }
-                        continue;
-                    }
-                    let (mut l, mut r) = source_lr(buf.frame(v.pos));
-                    if v.frac > 0.0 {
-                        // Linear interpolation towards the next frame (speed ≠ 1).
-                        let next = if v.pos + 1 < v.end {
-                            v.pos + 1
-                        } else if v.looping {
-                            v.start
-                        } else {
-                            v.pos
-                        };
-                        let (l2, r2) = source_lr(buf.frame(next));
-                        let f = v.frac as f32;
-                        l += (l2 - l) * f;
-                        r += (r2 - r) * f;
-                    }
-                    let (env, done) = v.env.next();
-                    let g = v.gain.next() * env;
-                    let (ol, or) = (l * g * v.pan_l.next(), r * g * v.pan_r.next());
-                    let o = &mut out[i * ch + v.out_off..i * ch + v.out_off + v.out_w];
-                    if v.out_w == 1 {
-                        o[0] += 0.5 * (ol + or);
+                        v.peak_l = v.peak_l.max((a[0] * g).abs());
+                        v.peak_r = v.peak_r.max((a[1] * g).abs());
                     } else {
-                        o[0] += ol;
-                        o[1] += or;
+                        let (mut l, mut r) = source_lr(&a, n);
+                        if f > 0.0 {
+                            let (l2, r2) = source_lr(&b, n);
+                            l += (l2 - l) * f;
+                            r += (r2 - r) * f;
+                        }
+                        let (ol, or) = (l * g * v.pan_l.next(), r * g * v.pan_r.next());
+                        let o = &mut out[i * ch + v.out_off..i * ch + v.out_off + v.out_w];
+                        if v.out_w == 1 {
+                            o[0] += 0.5 * (ol + or);
+                        } else {
+                            o[0] += ol;
+                            o[1] += or;
+                        }
+                        v.peak_l = v.peak_l.max(ol.abs());
+                        v.peak_r = v.peak_r.max(or.abs());
                     }
-                    v.peak_l = v.peak_l.max(ol.abs());
-                    v.peak_r = v.peak_r.max(or.abs());
                     if done {
                         finished = Some(v.pending_reason);
                         break;
@@ -787,6 +931,10 @@ impl Mixer {
                         if v.looping && !v.env.stopping() {
                             let len = (v.end - v.start).max(1);
                             v.pos = v.start + (v.pos - v.end) % len;
+                            if let Some(s) = v.stream.as_mut() {
+                                let from = audio.stream_from(v.pos);
+                                s.request(from, from > v.pos);
+                            }
                         } else {
                             finished = Some(if v.env.stopping() {
                                 v.pending_reason
@@ -797,6 +945,7 @@ impl Mixer {
                         }
                     }
                 }
+                v.audio = Some(audio);
             }
             if let Some(reason) = finished {
                 self.finish(idx, reason);
@@ -837,6 +986,14 @@ impl Mixer {
             peak_r = peak_r.max(o[if ch > 1 { 1 } else { 0 }].abs());
         }
         let st = &self.status;
+        if underrun_frames > 0 {
+            st.stream_underruns.fetch_add(underruns, Relaxed);
+            st.stream_underrun_frames
+                .fetch_add(underrun_frames, Relaxed);
+        }
+        if wait_frames > 0 {
+            st.stream_wait_frames.fetch_add(wait_frames, Relaxed);
+        }
         st.peak_l.fetch_max(peak_l.to_bits(), Relaxed);
         st.peak_r.fetch_max(peak_r.to_bits(), Relaxed);
         if limited {
@@ -850,9 +1007,32 @@ impl Mixer {
             return;
         }
         v.active = false;
+        let inherit = v.heir_of.take();
         let (cart, id) = (v.cart, v.id);
-        if let Some(buf) = v.buffer.take() {
-            self.discard(buf);
+        let stream = v.stream.take();
+        if let Some(audio) = v.audio.take() {
+            self.discard(Garbage::Audio(audio));
+        }
+        if let Some(s) = stream {
+            // A seek's copy takes the stream over; otherwise it is released.
+            match self
+                .voices
+                .iter_mut()
+                .find(|w| w.active && w.heir_of == Some(id))
+            {
+                Some(w) => {
+                    w.stream = Some(s);
+                    w.heir_of = None;
+                    w.follow_jump();
+                }
+                None => self.discard(Garbage::Stream(s)),
+            }
+        } else if inherit.is_some() {
+            // Ended before its own stream arrived (quick seeks): whoever waits for it
+            // now waits for the stream's holder instead.
+            for w in self.voices.iter_mut().filter(|w| w.heir_of == Some(id)) {
+                w.heir_of = inherit;
+            }
         }
         self.emit(EngineEvent::VoiceEnded {
             cart,
@@ -861,8 +1041,16 @@ impl Mixer {
         });
     }
 
-    /// Moves a buffer off the audio thread without freeing it here.
-    fn discard(&mut self, buf: Arc<SampleBuffer>) {
+    /// Releases a Play that did not start.
+    fn discard_play(&mut self, audio: Arc<Playable>, stream: Option<Box<VoiceStream>>) {
+        self.discard(Garbage::Audio(audio));
+        if let Some(s) = stream {
+            self.discard(Garbage::Stream(s));
+        }
+    }
+
+    /// Moves audio or a stream off the audio thread without freeing it here.
+    fn discard(&mut self, buf: Garbage) {
         if let Err(rtrb::PushError::Full(buf)) = self.garbage.push(buf) {
             if let Some(slot) = self.parked.iter_mut().find(|s| s.is_none()) {
                 *slot = Some(buf);

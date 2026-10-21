@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use crate::buffer::SampleBuffer;
 use crate::command::{EngineCommand, EngineEvent};
 use crate::mixer::Mixer;
+use crate::playable::Playable;
 use crate::status::EngineStatus;
+use crate::stream::VoiceStream;
 
 /// Engine sizing.
 #[derive(Clone, Copy, Debug)]
@@ -47,12 +48,19 @@ impl std::fmt::Display for CommandQueueFull {
 
 impl std::error::Error for CommandQueueFull {}
 
+/// Something the audio thread no longer needs, released on the control side.
+#[allow(dead_code)] // held only to be dropped
+pub(crate) enum Garbage {
+    Audio(Arc<Playable>),
+    Stream(Box<VoiceStream>),
+}
+
 /// Control-side end of the engine: send commands, receive events, release buffers.
 /// `Send` but not `Sync`: own it from one thread (or behind a mutex).
 pub struct EngineHandle {
     commands: rtrb::Producer<EngineCommand>,
     events: rtrb::Consumer<EngineEvent>,
-    garbage: rtrb::Consumer<Arc<SampleBuffer>>,
+    garbage: rtrb::Consumer<Garbage>,
     status: Arc<EngineStatus>,
 }
 
@@ -72,7 +80,8 @@ impl EngineHandle {
         self.collect_garbage();
     }
 
-    /// Drops buffers retired by the audio thread (on this, non-real-time, thread).
+    /// Drops audio and streams retired by the audio thread (on this, non-real-time,
+    /// thread).
     pub fn collect_garbage(&mut self) -> usize {
         let mut n = 0;
         while let Ok(buf) = self.garbage.pop() {
@@ -95,7 +104,7 @@ impl Engine {
     pub fn new(config: EngineConfig) -> (EngineHandle, Mixer) {
         let (cmd_tx, cmd_rx) = rtrb::RingBuffer::new(config.command_capacity);
         let (ev_tx, ev_rx) = rtrb::RingBuffer::new(config.event_capacity);
-        let garbage_cap = config.voices * 2 + config.command_capacity;
+        let garbage_cap = config.voices * 4 + config.command_capacity * 2;
         let (gb_tx, gb_rx) = rtrb::RingBuffer::new(garbage_cap);
         let status = Arc::new(EngineStatus::new(
             config.sample_rate,

@@ -939,7 +939,7 @@ fn asset_cache_refuses_audio_beyond_its_budget() {
     let mut roomy = AssetCache::with_budget(1_000_000_000);
     roomy.rearm_all(&project, None, SR);
     settle(&mut roomy);
-    assert!(roomy.state(id).and_then(AssetState::buffer).is_some());
+    assert!(roomy.state(id).and_then(AssetState::audio).is_some());
     assert!(roomy.memory().0 > 0, "prepared audio is counted");
 }
 
@@ -984,4 +984,91 @@ fn converting_to_wav_keeps_the_trimmed_duration() {
     let rt = c.runtime()[&a];
     assert!((rt.duration_s - 0.1).abs() < 0.001, "{}", rt.duration_s);
     assert_eq!(state(&c, a), CartState::Playing);
+}
+
+#[test]
+fn long_files_stream_with_a_head_at_each_in_point() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("long.wav");
+    // 40 s of a 16-bit stereo tone: long enough to stream.
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: SR,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(&path, spec).unwrap();
+    for n in 0..SR as usize * 40 {
+        let s = ((n as f32 * 440.0 / SR as f32 * std::f32::consts::TAU).sin() * 16_000.0) as i16;
+        w.write_sample(s).unwrap();
+        w.write_sample(s).unwrap();
+    }
+    w.finalize().unwrap();
+
+    let (mut c, mut m) = setup();
+    let cart = c.assign_file(0, 0, 0, &path).unwrap();
+    wait_ready(&mut c);
+    let asset = c.project().cart(cart).unwrap().asset.unwrap();
+    let audio = c
+        .asset_state(asset)
+        .and_then(AssetState::audio)
+        .unwrap()
+        .clone();
+    assert!(audio.is_streamed());
+    // One 2 s head of 16-bit stereo, not 40 s of audio.
+    assert_eq!(c.audio_memory().0, 2 * SR as u64 * 4);
+    assert!((c.runtime()[&cart].duration_s - 40.0).abs() < 0.01);
+
+    // A new In point gets its own head soon after the edit.
+    c.edit_cart(cart, |x| {
+        x.trim = Some(Trim {
+            in_frames: SR as u64 * 10,
+            out_frames: SR as u64 * 30,
+        })
+    });
+    let t = Instant::now();
+    loop {
+        c.tick();
+        let audio = c.asset_state(asset).and_then(AssetState::audio).unwrap();
+        if audio.heads().iter().any(|h| h.start == SR as usize * 10) {
+            break;
+        }
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "no head at the new In"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(c.audio_memory().0, 2 * 2 * SR as u64 * 4);
+
+    // Plays from the head, then from the disk, without underruns.
+    c.trigger(cart, TriggerSource::Ui, None);
+    let mut loud_late = false;
+    for i in 0..(3 * SR as usize / 1024) {
+        std::thread::sleep(Duration::from_millis(2));
+        let out = run(&mut c, &mut m, 1024);
+        if i * 1024 > SR as usize * 5 / 2 {
+            // A −6 dBFS tone under the default −10 dB master.
+            loud_late |= out.iter().any(|x| x.abs() > 0.14);
+        }
+    }
+    assert!(loud_late, "audible past the head");
+    assert_eq!(state(&c, cart), CartState::Playing);
+    let d = c.engine().unwrap().status().diagnostics();
+    assert_eq!(d.stream_underruns, 0);
+
+    // The waveform overview is computed in the background.
+    let t = Instant::now();
+    let o = loop {
+        c.tick();
+        if let Some(o) = c.asset_overview(asset) {
+            break o;
+        }
+        assert!(t.elapsed() < Duration::from_secs(10), "no overview");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!((o.duration_s - 40.0).abs() < 1e-6);
+    let (a, b) = o.audio_bounds().unwrap();
+    assert!(a < 0.01 && (b - 40.0).abs() < 0.01, "{a} {b}");
+    assert!(o.max.iter().all(|x| *x > 0.4));
 }

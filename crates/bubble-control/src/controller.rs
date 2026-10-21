@@ -11,8 +11,8 @@ use std::time::SystemTime;
 
 use bubble_engine::loader::SourceInfo;
 use bubble_engine::{
-    CartKey, EndReason, EngineCommand, EngineEvent, EngineHandle, Fade, FadeCurve, PlayParams,
-    StopOthers, StopTarget, VoicePhase, VoiceView, db_to_gain,
+    CartKey, EndReason, EngineCommand, EngineEvent, EngineHandle, Fade, FadeCurve, Overview,
+    PlayParams, StopOthers, StopTarget, Streamer, VoicePhase, VoiceView, db_to_gain,
 };
 use bubble_project::{
     Action, AssetMeta, Binding, BindingSource, Cart, Control, Curve, DuplicatePolicy,
@@ -131,6 +131,8 @@ pub struct Controller {
     /// Output letter (index) → where it plays.
     routes: Vec<Route>,
     assets: AssetCache,
+    /// Disk reader for streamed assets (shared by every output device).
+    streamer: Streamer,
     keys: HashMap<Uuid, CartKey>,
     by_key: HashMap<u32, Uuid>,
     next_key: u32,
@@ -212,6 +214,7 @@ impl Controller {
             engines: Vec::new(),
             routes: Vec::new(),
             assets: AssetCache::new(),
+            streamer: Streamer::new(),
             keys: HashMap::new(),
             by_key: HashMap::new(),
             next_key: 1,
@@ -425,7 +428,10 @@ impl Controller {
         let n = self.engines.len();
         let mut ok = true;
         for i in 0..n {
-            ok &= self.send_to(i, cmd.clone());
+            match cmd.try_clone() {
+                Some(c) => ok &= self.send_to(i, c),
+                None => return false,
+            }
         }
         ok
     }
@@ -446,6 +452,7 @@ impl Controller {
     /// Housekeeping, call regularly (e.g. every UI frame): finishes asset loads,
     /// processes engine events (logging, play-next), releases retired buffers.
     pub fn tick(&mut self) {
+        self.assets.refresh_heads(&self.project);
         for (asset, info) in self.assets.poll() {
             if let (Some(info), Some(a)) = (info, self.project.asset_mut(asset)) {
                 let meta = a.meta.get_or_insert_with(AssetMeta::default);
@@ -491,6 +498,12 @@ impl Controller {
         self.assets.memory()
     }
 
+    /// The waveform overview of an asset; `None` while it is computed in the
+    /// background (ask again later) or when the asset is not ready.
+    pub fn asset_overview(&mut self, asset: Uuid) -> Option<std::sync::Arc<Overview>> {
+        self.assets.overview(asset)
+    }
+
     /// Number of assets still being prepared.
     pub fn assets_pending(&self) -> usize {
         self.assets.pending()
@@ -522,7 +535,7 @@ impl Controller {
             if let Some(a) = c.asset {
                 match self.assets.state(a) {
                     Some(AssetState::Ready {
-                        buffer,
+                        audio,
                         changed,
                         source,
                         ..
@@ -530,7 +543,7 @@ impl Controller {
                         rt.state = CartState::Ready;
                         rt.changed = *changed;
                         // Playable length: trimmed range at the preset speed.
-                        let full = buffer.duration_secs() as f32;
+                        let full = audio.duration_secs() as f32;
                         let src = source.sample_rate.max(1) as f32;
                         let len = match c.trim {
                             Some(t) => (t.out_frames.saturating_sub(t.in_frames)) as f32 / src,
@@ -663,6 +676,9 @@ impl Controller {
         let Some((page_idx, _, _)) = self.project.cart_position(draft.id) else {
             return false;
         };
+        if let (Some(a), Some(t)) = (draft.asset, draft.trim) {
+            self.assets.want_head(a, t.in_frames);
+        }
         self.trigger_cart(draft.clone(), page_idx, TriggerSource::Ui, None)
     }
 
@@ -700,14 +716,14 @@ impl Controller {
             return false;
         }
         let Some(AssetState::Ready {
-            buffer,
+            audio,
             source: info,
             ..
         }) = self.assets.state(asset)
         else {
             return false;
         };
-        let buffer = buffer.clone();
+        let audio = audio.clone();
         let route = self.route_for(&c);
         let mut params = self.play_params(&c, page_idx, *info, velocity);
         params.output_offset = route.offset;
@@ -740,11 +756,21 @@ impl Controller {
                 );
             }
         }
+        // A streamed file's disk reader starts now, before the engine sees the Play;
+        // the voice begins from the head in memory either way.
+        let end = params.end_frame.unwrap_or(usize::MAX).min(audio.frames());
+        let start = if params.start_frame < end {
+            params.start_frame
+        } else {
+            0
+        };
+        let stream = self.streamer.open(&audio, start);
         if self.send_to(
             route.engine,
             EngineCommand::Play {
                 cart: key,
-                buffer,
+                audio,
+                stream,
                 params,
             },
         ) {
@@ -978,6 +1004,12 @@ impl Controller {
     pub fn set_live_trim(&mut self, cart: Uuid, in_s: f64, out_s: f64) {
         let key = self.key(cart);
         let rate = self.rate() as f64;
+        if let Some(a) = self.project.cart(cart).and_then(|c| c.asset)
+            && let Some(AssetState::Ready { source, .. }) = self.assets.state(a)
+        {
+            let at = (in_s.max(0.0) * source.sample_rate as f64).round() as u64;
+            self.assets.want_head(a, at);
+        }
         let start = (in_s.max(0.0) * rate).round() as usize;
         let end = (out_s.max(0.0) * rate).round() as usize;
         self.send(EngineCommand::SetRegion {

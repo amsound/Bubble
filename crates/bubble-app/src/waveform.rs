@@ -1,57 +1,8 @@
 //! Waveform overview and non-destructive trim editing. Only the project's trim
 //! points change; audio files are never modified.
 
-use bubble_engine::SampleBuffer;
+use bubble_engine::Overview;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
-
-/// Min/max envelope of the (mono-summed) signal in fixed-size buckets.
-pub struct Peaks {
-    pub min: Vec<f32>,
-    pub max: Vec<f32>,
-    pub duration_s: f64,
-}
-
-const MAX_BUCKETS: usize = 16_384;
-
-pub fn compute_peaks(buf: &SampleBuffer) -> Peaks {
-    let frames = buf.frames().max(1);
-    let buckets = frames.min(MAX_BUCKETS);
-    let per = frames as f64 / buckets as f64; // frames per bucket
-    let ch = buf.channels() as usize;
-    let mut min = vec![0.0f32; buckets];
-    let mut max = vec![0.0f32; buckets];
-    for b in 0..buckets {
-        let start = (b as f64 * per) as usize;
-        let end = (((b + 1) as f64 * per) as usize).min(frames).max(start + 1);
-        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
-        for f in start..end {
-            // Show the channel with the largest excursion so stereo content is never hidden.
-            for c in 0..ch {
-                let s = buf.sample(f * ch + c);
-                lo = lo.min(s);
-                hi = hi.max(s);
-            }
-        }
-        min[b] = lo;
-        max[b] = hi;
-    }
-    Peaks {
-        min,
-        max,
-        duration_s: frames as f64 / buf.sample_rate() as f64,
-    }
-}
-
-/// First and last time (seconds) where the signal exceeds `threshold_db`.
-pub fn find_audio_bounds(buf: &SampleBuffer, threshold_db: f32) -> Option<(f64, f64)> {
-    let thr = 10f32.powf(threshold_db / 20.0);
-    let ch = buf.channels() as usize;
-    let loud = |i: &usize| buf.sample(*i).abs() >= thr;
-    let first = (0..buf.len()).find(loud)? / ch;
-    let last = (0..buf.len()).rev().find(loud)? / ch;
-    let rate = buf.sample_rate() as f64;
-    Some((first as f64 / rate, (last + 1) as f64 / rate))
-}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Drag {
@@ -100,7 +51,7 @@ pub struct TrimEdit<'a> {
 
 pub fn waveform_ui(
     ui: &mut egui::Ui,
-    peaks: &Peaks,
+    peaks: &Overview,
     view: &mut WaveView,
     edit: TrimEdit<'_>,
     height: f32,
@@ -398,27 +349,6 @@ fn fmt_secs(t: f64, step: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn peaks_and_bounds() {
-        // 1 s of silence, 1 s at 0.5, 1 s of silence (mono, 1 kHz rate for brevity).
-        let mut v = vec![0.0f32; 1000];
-        v.extend(std::iter::repeat_n(0.5, 1000));
-        v.extend(std::iter::repeat_n(0.0, 1000));
-        let buf = SampleBuffer::from_interleaved(1000, 1, v);
-        let p = compute_peaks(&buf);
-        assert_eq!(p.min.len(), 3000);
-        assert!((p.duration_s - 3.0).abs() < 1e-9);
-        let (a, b) = find_audio_bounds(&buf, -40.0).unwrap();
-        assert!((a - 1.0).abs() < 1e-9 && (b - 2.0).abs() < 1e-9, "{a} {b}");
-        assert!(
-            find_audio_bounds(
-                &SampleBuffer::from_interleaved(1000, 1, vec![0.0; 10]),
-                -40.0
-            )
-            .is_none()
-        );
-    }
 
     #[test]
     fn ruler_steps_are_round() {

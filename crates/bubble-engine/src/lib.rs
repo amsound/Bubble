@@ -5,15 +5,20 @@
 //!   or rendered offline in tests.
 //! * Commands ([`EngineCommand`]) and events ([`EngineEvent`]) travel through wait-free
 //!   SPSC rings; display state is exposed through atomics ([`EngineStatus`]).
-//! * Audio is prepared off the audio thread by [`loader`].
+//! * Audio is prepared off the audio thread by [`loader`]; long files are streamed
+//!   from disk by [`stream`].
 
 pub mod buffer;
 pub mod command;
+mod decode;
 pub mod device;
 pub mod engine;
 pub mod loader;
 pub mod mixer;
+pub mod overview;
+pub mod playable;
 pub mod status;
+pub mod stream;
 
 pub use buffer::SampleBuffer;
 pub use command::{
@@ -22,7 +27,10 @@ pub use command::{
 };
 pub use engine::{CommandQueueFull, Engine, EngineConfig, EngineHandle};
 pub use mixer::{MAX_BLOCK, Mixer};
+pub use overview::Overview;
+pub use playable::Playable;
 pub use status::{Diagnostics, EngineStatus, VoicePhase, VoiceView};
+pub use stream::{Streamer, VoiceStream};
 
 /// Converts decibels to linear gain (−inf for very low values).
 pub fn db_to_gain(db: f32) -> f32 {

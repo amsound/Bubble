@@ -21,3 +21,4 @@ windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] 
 
 [dev-dependencies]
 tempfile.workspace = true
+hound.workspace = true

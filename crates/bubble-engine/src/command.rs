@@ -6,7 +6,8 @@
 
 use std::sync::Arc;
 
-use crate::buffer::SampleBuffer;
+use crate::playable::Playable;
+use crate::stream::VoiceStream;
 
 /// Identifies a cart (or any other playable slot) to the engine. The control
 /// layer maps its own stable ids onto these small integers.
@@ -136,11 +137,15 @@ pub enum StopTarget {
 }
 
 /// Command to the real-time mixer.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum EngineCommand {
     Play {
         cart: CartKey,
-        buffer: Arc<SampleBuffer>,
+        audio: Arc<Playable>,
+        /// The disk stream for a streamed `audio` (from [`crate::Streamer::open`]);
+        /// `None` for audio held in memory. Without one, a streamed voice plays its
+        /// head and ends.
+        stream: Option<Box<VoiceStream>>,
         params: PlayParams,
     },
     /// Stop with the given fade, or each voice's own fade-out when `None`.
@@ -166,7 +171,9 @@ pub enum EngineCommand {
     /// Move a cart's playing voice to `frame` (buffer frames, kept within its In and
     /// Out). The old position fades out over ~2 ms while a copy of the voice fades in
     /// at the new one, so the jump does not click; gain, speed (including paused),
-    /// pan and looping carry over.
+    /// pan and looping carry over. A streamed voice hands its disk stream to the copy
+    /// once the old position has faded; a target outside the pre-roll heads starts
+    /// when the disk reader has caught up (a few ms).
     Seek { cart: CartKey, frame: usize },
     /// Change a cart's playing In and Out (buffer frames), e.g. while trimming. A
     /// voice already past the new Out loops to In or ends, as it would at Out.
@@ -179,6 +186,65 @@ pub enum EngineCommand {
     SetMaster { gain: f32 },
     /// Enable/disable the output safety limiter.
     SetLimiter { enabled: bool },
+}
+
+impl EngineCommand {
+    /// A copy for another engine. `None` for a Play with a stream, which only one
+    /// voice can own.
+    pub fn try_clone(&self) -> Option<EngineCommand> {
+        use EngineCommand::*;
+        Some(match self {
+            Play {
+                cart,
+                audio,
+                stream: None,
+                params,
+            } => Play {
+                cart: *cart,
+                audio: audio.clone(),
+                stream: None,
+                params: *params,
+            },
+            Play { .. } => return None,
+            Stop { target, fade } => Stop {
+                target: *target,
+                fade: *fade,
+            },
+            Kill { target } => Kill { target: *target },
+            SetGain { cart, gain } => SetGain {
+                cart: *cart,
+                gain: *gain,
+            },
+            SetPan { cart, pan } => SetPan {
+                cart: *cart,
+                pan: *pan,
+            },
+            SetSpeed {
+                cart,
+                speed,
+                ramp_frames,
+            } => SetSpeed {
+                cart: *cart,
+                speed: *speed,
+                ramp_frames: *ramp_frames,
+            },
+            SetLoop { cart, looping } => SetLoop {
+                cart: *cart,
+                looping: *looping,
+            },
+            Seek { cart, frame } => Seek {
+                cart: *cart,
+                frame: *frame,
+            },
+            SetRegion { cart, start, end } => SetRegion {
+                cart: *cart,
+                start: *start,
+                end: *end,
+            },
+            SetMaster { gain } => SetMaster { gain: *gain },
+            SetLimiter { enabled } => SetLimiter { enabled: *enabled },
+        })
+    }
 }
 
 /// Why a voice ended.
