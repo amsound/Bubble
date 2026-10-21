@@ -7,7 +7,7 @@
 //! rendering (decision D-06).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -25,6 +25,7 @@ use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Sense, Vec2};
 use uuid::Uuid;
 
 mod audio_out;
+mod cloud;
 mod convert;
 mod crash;
 mod outputs_ui;
@@ -221,16 +222,29 @@ pub struct BubbleApp {
     window_moved: Option<Instant>,
     /// A session or SpotOn file named on the command line, opened on the first frame.
     open_at_start: Option<PathBuf>,
+    /// Requests from later launches (see `crate::instance`).
+    requests: std::sync::mpsc::Receiver<crate::instance::Request>,
     /// When the open session started loading its audio (logged once it is ready).
     loading_since: Option<Instant>,
     /// Most audio files seen waiting at once, for the "n of total" progress.
     loading_total: usize,
+    /// The last autosave or preferences save failed (shown until one succeeds).
+    autosave_problem: Option<String>,
+    prefs_problem: Option<String>,
+    /// The open session is in a cloud-synced folder (status line), and when it was
+    /// last checked; the fuller alert is shown once per opened session.
+    cloud_status: Option<String>,
+    cloud_checked: Option<Instant>,
+    cloud_alerted: bool,
     first_frame_logged: bool,
     /// Set when the user chose to quit without saving.
     discard_on_exit: bool,
     attr_choice: AttrSet,
     wave_view: WaveView,
     devices: Vec<OutputDeviceInfo>,
+    /// A device scan running on a helper thread (enumeration can take seconds on
+    /// Windows with Bluetooth or virtual devices).
+    devices_scan: Option<std::sync::mpsc::Receiver<Vec<OutputDeviceInfo>>>,
     midi_ports: Vec<String>,
     fonts: FontState,
     font_names: Vec<&'static str>,
@@ -317,8 +331,17 @@ impl BubbleApp {
             started: Instant::now(),
             window_moved: None,
             open_at_start: None,
+            requests: {
+                let r = repaint.clone();
+                crate::instance::watch(move || r())
+            },
             loading_since: None,
             loading_total: 0,
+            autosave_problem: None,
+            prefs_problem: None,
+            cloud_status: None,
+            cloud_checked: None,
+            cloud_alerted: false,
             first_frame_logged: false,
             session_id: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -326,7 +349,8 @@ impl BubbleApp {
             discard_on_exit: false,
             attr_choice: AttrSet::ALL,
             wave_view: WaveView::default(),
-            devices: list_output_devices().unwrap_or_default(),
+            devices: Vec::new(),
+            devices_scan: None,
             midi_ports: available_ports(),
             fonts: FontState::default(),
             font_names: crate::fonts::available(),
@@ -361,6 +385,7 @@ impl BubbleApp {
             crate::menu::NativeMenu::set_wakeup(move || r());
         }
         crash::install(app.ctrl.clone(), app.session_id);
+        app.scan_devices();
         app.open_audio();
         for a in &app.audio {
             crate::log::info(&format!(
@@ -422,7 +447,11 @@ impl BubbleApp {
         }
         let accent = Color32::from_rgb(0x2F, 0x6B, 0xFF);
         egui::Panel::top("progress")
-            .frame(egui::Frame::new().fill(accent).inner_margin(egui::Margin::symmetric(12, 6)))
+            .frame(
+                egui::Frame::new()
+                    .fill(accent)
+                    .inner_margin(egui::Margin::symmetric(12, 6)),
+            )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new().color(Color32::WHITE));
@@ -444,6 +473,72 @@ impl BubbleApp {
                 });
             });
         ui.ctx().request_repaint_after(Duration::from_millis(100));
+    }
+
+    /// Lists the output devices on a helper thread; the result arrives on a later frame.
+    fn scan_devices(&mut self) {
+        if self.devices_scan.is_some() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repaint = self.repaint.clone();
+        std::thread::Builder::new()
+            .name("bubble-devices".into())
+            .spawn(move || {
+                let _ = tx.send(list_output_devices().unwrap_or_default());
+                repaint();
+            })
+            .expect("spawn device scan");
+        self.devices_scan = Some(rx);
+    }
+
+    /// Warns when the open session lives in a cloud-synced folder, and clearly when
+    /// any of its audio is online-only (checked on open and every minute).
+    fn check_cloud(&mut self) {
+        if self.opening.is_some()
+            || self
+                .cloud_checked
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(60))
+        {
+            return;
+        }
+        self.cloud_checked = Some(Instant::now());
+        let (path, audio) = {
+            let c = self.lock();
+            let audio: Vec<PathBuf> = c.asset_files().into_iter().map(|(_, p)| p).collect();
+            (c.path().map(Path::to_path_buf), audio)
+        };
+        let Some(path) = path else {
+            self.cloud_status = None;
+            return;
+        };
+        let found = cloud::check(&path, &audio);
+        let status = found.as_ref().map(|c| c.status.clone());
+        if status != self.cloud_status
+            && let Some(s) = &status
+        {
+            crate::log::info(s);
+        }
+        self.cloud_status = status;
+        if let Some(alert) = found.and_then(|c| c.alert)
+            && !self.cloud_alerted
+        {
+            self.cloud_alerted = true;
+            self.dialogs.error = Some(alert);
+        }
+    }
+
+    /// Saves preferences; a failure is logged and shown in the status bar until a
+    /// later save succeeds.
+    fn save_prefs(&mut self) {
+        match self.prefs.save() {
+            Ok(()) => self.prefs_problem = None,
+            Err(e) => {
+                let msg = format!("Preferences could not be saved: {e}");
+                crate::log::info(&msg);
+                self.prefs_problem = Some(msg);
+            }
+        }
     }
 
     /// Keeps the main window's place in preferences (saved a second after it stops
@@ -492,7 +587,7 @@ impl BubbleApp {
             .is_some_and(|t| t.elapsed() >= Duration::from_secs(1))
         {
             self.window_moved = None;
-            let _ = self.prefs.save();
+            self.save_prefs();
         } else if self.window_moved.is_some() {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
@@ -884,7 +979,7 @@ impl BubbleApp {
             }
         }
         if reopen_prefs {
-            let _ = self.prefs.save();
+            self.save_prefs();
         }
     }
 
@@ -920,13 +1015,15 @@ impl BubbleApp {
                     project.assets.len()
                 ));
                 self.loading_since = Some(Instant::now());
+                self.cloud_checked = None;
+                self.cloud_alerted = false;
                 self.lock().replace_project(project, Some(path.clone()));
                 self.selected = None;
                 self.saved_at = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
                 self.want_collect = true;
                 self.want_wav_check(true);
                 self.prefs.add_recent(path);
-                let _ = self.prefs.save();
+                self.save_prefs();
                 self.find_recoverable();
             }
             // A last project that no longer exists is not worth an error at start-up.
@@ -960,7 +1057,14 @@ impl BubbleApp {
         };
         drop(c);
         if let Some(t) = target {
-            let _ = bubble_project::io::write_atomic(&t, json.as_bytes(), false);
+            match bubble_project::io::write_atomic(&t, json.as_bytes(), false) {
+                Ok(()) => self.autosave_problem = None,
+                Err(e) => {
+                    let msg = format!("Autosave failed ({}): {e}", t.display());
+                    crate::log::info(&msg);
+                    self.autosave_problem = Some(msg);
+                }
+            }
         }
     }
 
@@ -1509,7 +1613,7 @@ impl eframe::App for BubbleApp {
     /// logout) that bypasses the unsaved-changes prompt.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if self.window_moved.is_some() {
-            let _ = self.prefs.save();
+            self.save_prefs();
         }
         if self.discard_on_exit {
             self.remove_autosave();
@@ -1532,7 +1636,14 @@ impl eframe::App for BubbleApp {
             crate::log::info("first frame drawn");
         }
         self.watch_audio(&ctx);
+        if let Some(rx) = &self.devices_scan
+            && let Ok(list) = rx.try_recv()
+        {
+            self.devices = list;
+            self.devices_scan = None;
+        }
         self.poll_open();
+        self.check_cloud();
         let snap = self.snapshot();
         if snap.pending == 0
             && let Some(t) = self.loading_since.take()
@@ -1548,6 +1659,16 @@ impl eframe::App for BubbleApp {
         let mut intents = Vec::new();
         if let Some(p) = self.open_at_start.take() {
             self.open_any(p, &snap, &mut intents);
+        }
+        // Later launches hand over here: come to the front, and open their file.
+        let requests: Vec<crate::instance::Request> = self.requests.try_iter().collect();
+        for r in requests {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            crate::log::info(&format!("another launch asked to show Bubble ({r:?})"));
+            if let Some(p) = r {
+                self.open_any(p, &snap, &mut intents);
+            }
         }
         self.fonts
             .apply(&ctx, snap.project.settings.display.font.as_deref());
@@ -1616,7 +1737,7 @@ impl eframe::App for BubbleApp {
         self.had_focus = focused;
 
         self.apply(intents);
-        self.files.launch();
+        self.files.launch(frame);
         self.autosave();
 
         let playing = snap
@@ -2356,12 +2477,12 @@ impl BubbleApp {
             }
             Cmd::SampleRate(r) => {
                 self.prefs.sample_rate = r;
-                let _ = self.prefs.save();
+                self.save_prefs();
                 self.open_audio();
             }
             Cmd::BufferFrames(b) => {
                 self.prefs.buffer_frames = b;
-                let _ = self.prefs.save();
+                self.save_prefs();
                 self.open_audio();
             }
             Cmd::MidiEnabled => {
@@ -2415,18 +2536,18 @@ impl BubbleApp {
             }
             Cmd::BarSize(b) => {
                 self.prefs.bar_size = b.min(2);
-                let _ = self.prefs.save();
+                self.save_prefs();
             }
             Cmd::Appearance(a) => {
                 self.prefs.appearance = a;
                 ctx.set_theme(a);
-                let _ = self.prefs.save();
+                self.save_prefs();
             }
             Cmd::Zoom(z) => {
                 let f = z as f32 / 100.0;
                 ctx.set_zoom_factor(f);
                 self.prefs.ui_scale = Some(f);
-                let _ = self.prefs.save();
+                self.save_prefs();
             }
         }
         if settings != snap.project.settings {
@@ -2435,7 +2556,7 @@ impl BubbleApp {
     }
 
     fn reopen_midi(&mut self) {
-        let _ = self.prefs.save();
+        self.save_prefs();
         self.midi = MidiInputs::empty();
         self.open_midi();
     }
@@ -2565,6 +2686,17 @@ impl BubbleApp {
         }
         if !snap.missing.is_empty() {
             status.push((format!("{} missing file(s)", snap.missing.len()), warn));
+        }
+        if let Some(c) = &self.cloud_status {
+            status.push((c.clone(), warn));
+        }
+        // Never let a failing autosave or preferences save go unnoticed.
+        for p in self
+            .autosave_problem
+            .iter()
+            .chain(self.prefs_problem.iter())
+        {
+            status.push((p.clone(), Color32::from_rgb(0xE5, 0x39, 0x35)));
         }
         if self.midi.active_recently(150) {
             status.push(("● MIDI".into(), Color32::from_rgb(0xE5, 0x39, 0x35)));

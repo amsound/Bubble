@@ -46,7 +46,7 @@ const CELL: f32 = 46.0;
 
 impl BubbleApp {
     pub(super) fn open_outputs_window(&mut self) {
-        self.devices = bubble_engine::device::list_output_devices().unwrap_or_default();
+        self.scan_devices();
         if self.dialogs.outputs.is_none() {
             self.dialogs.outputs = Some(OutputsDraft {
                 list: self.prefs.effective_outputs(),
@@ -84,11 +84,16 @@ impl BubbleApp {
         let errors = self.output_errors.clone();
         let mut apply = false;
         let mut rescan = false;
+        let title = if self.devices_scan.is_some() {
+            "Outputs (looking for audio devices…)"
+        } else {
+            "Outputs"
+        };
         let (open, f) = native_window(
             ctx,
             WindowSpec {
                 key: "outputs",
-                title: "Outputs",
+                title,
                 size: [880.0, 560.0],
                 min_size: [640.0, 380.0],
                 on_top: false,
@@ -275,7 +280,7 @@ impl BubbleApp {
         );
         self.child_focus |= f;
         if rescan {
-            self.devices = bubble_engine::device::list_output_devices().unwrap_or_default();
+            self.scan_devices();
         }
         if apply {
             // Letters are positions in this list, so removing or reordering outputs
@@ -288,7 +293,7 @@ impl BubbleApp {
             }
             self.prefs.outputs = draft.list.clone();
             self.prefs.outputs_custom_order = draft.custom_order;
-            let _ = self.prefs.save();
+            self.save_prefs();
             self.open_audio();
         }
         if open {

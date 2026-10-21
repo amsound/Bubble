@@ -21,7 +21,7 @@ Shortcuts are shown for macOS; on Windows use Ctrl for ⌘ and Alt for ⌥.
 
 | Action | How |
 |---|---|
-| Start | File → New Session… (⌘N): a name and a location (default ~/Documents/Bubble). Creates `Name/Name.bubble` and `Name/Audio/`. |
+| Start | File → New Session… (⌘N): a name and a location (default the Bubble folder in your home folder, which cloud services do not sync). Creates `Name/Name.bubble` and `Name/Audio/`. |
 | Open anything | File → Open… (⌘O) takes Bubble sessions, SpotOn sessions (`.dta`) and packages (`.pkg`). With a session open, a SpotOn file can be added to it (its pages are appended, its audio copied into Audio/) or opened as a new session. |
 | Add audio | Drop files on a cell (they land on the cell under the pointer), double-click an empty cell, or right-click → Assign. Every file is copied into the session's Audio folder first, so a session is always one self-contained folder. |
 | Save | ⌘S; File → Save Session As… makes a new session folder with copies of its audio. The window title shows the session and when it was last saved. |

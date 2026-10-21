@@ -56,10 +56,12 @@ pub(super) struct Job {
     pub rx: Receiver<JobResult>,
 }
 
-/// `~/Documents/Bubble` (or the home folder) when no location was chosen yet.
+/// `~/Bubble` when no location was chosen yet: the home folder itself is not synced
+/// by OneDrive or iCloud by default, unlike Documents and Desktop, and Bubble streams
+/// long files from disk, so they must stay on this computer.
 fn default_root() -> PathBuf {
     directories::UserDirs::new()
-        .and_then(|u| u.document_dir().map(|d| d.join("Bubble")))
+        .map(|u| u.home_dir().join("Bubble"))
         .unwrap_or_else(|| PathBuf::from("Bubble"))
 }
 
@@ -404,7 +406,7 @@ impl BubbleApp {
     /// The chosen folder from the dialog's "Choose…".
     pub(super) fn set_session_location(&mut self, dir: PathBuf) {
         self.prefs.session_root = Some(dir.clone());
-        let _ = self.prefs.save();
+        self.save_prefs();
         if let Some(ns) = &mut self.dialogs.new_session {
             ns.location = dir;
         }

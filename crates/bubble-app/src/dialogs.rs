@@ -69,7 +69,9 @@ impl FileDialogs {
     }
 
     /// Shows the next queued dialog (one at a time). Call from the UI thread.
-    pub fn launch(&mut self) {
+    /// `parent` owns the dialog, so Windows shows it in front of Bubble rather than
+    /// behind a (maximised) main window.
+    pub fn launch(&mut self, parent: &eframe::Frame) {
         if self.queue.is_empty() || self.is_open() {
             self.queue.clear();
             return;
@@ -82,6 +84,7 @@ impl FileDialogs {
         let fut: Fut = match &purpose {
             Purpose::Assign { many: true, .. } => {
                 let f = rfd::AsyncFileDialog::new()
+                    .set_parent(parent)
                     .add_filter("Audio", AUDIO_EXTS)
                     .pick_files();
                 Box::pin(async move {
@@ -94,6 +97,7 @@ impl FileDialogs {
             }
             Purpose::Assign { many: false, .. } | Purpose::Relink(_) => {
                 let f = rfd::AsyncFileDialog::new()
+                    .set_parent(parent)
                     .add_filter("Audio", AUDIO_EXTS)
                     .pick_file();
                 Box::pin(async move {
@@ -105,6 +109,7 @@ impl FileDialogs {
             }
             Purpose::Open => {
                 let f = rfd::AsyncFileDialog::new()
+                    .set_parent(parent)
                     .add_filter("Bubble session or SpotOn session/package", OPEN_EXTS)
                     .pick_file();
                 Box::pin(async move {
@@ -116,6 +121,7 @@ impl FileDialogs {
             }
             Purpose::ChooseFolder => {
                 let f = rfd::AsyncFileDialog::new()
+                    .set_parent(parent)
                     .set_title("Where to keep sessions")
                     .pick_folder();
                 Box::pin(async move {

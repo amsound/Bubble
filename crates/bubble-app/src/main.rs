@@ -6,6 +6,7 @@
 mod app;
 mod dialogs;
 mod fonts;
+mod instance;
 mod log;
 mod logo;
 mod menu;
@@ -30,8 +31,23 @@ fn main() -> eframe::Result {
         default_hook(info);
     }));
 
+    // One Bubble at a time: a second launch hands its file to the running copy.
+    let launch_file = std::env::args_os()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .find(|p| p.is_file());
+    if let instance::Role::Handed = instance::claim(launch_file.as_deref()) {
+        log::info(&format!(
+            "another copy is running; asked it to show itself{}",
+            launch_file.map_or(String::new(), |p| format!(" and open {}", p.display()))
+        ));
+        return Ok(());
+    }
+
     // The main window opens where it was last closed.
-    let place = prefs::Prefs::load().window.filter(|w| w.usable());
+    let place = prefs::Prefs::load()
+        .window
+        .filter(|w| w.usable() && on_a_screen(w));
     log::info(&format!("preferences loaded; window place {place:?}"));
     let mut viewport = eframe::egui::ViewportBuilder::default()
         .with_title("Bubble")
@@ -100,6 +116,7 @@ fn failed_to_start(tried: eframe::Renderer, e: &eframe::Error) {
             _ => "glow",
         };
         log::info(&format!("relaunching with the {other} renderer"));
+        instance::release();
         if std::process::Command::new(exe)
             .args(std::env::args_os().skip(1))
             .env("BUBBLE_RENDERER", other)
@@ -122,4 +139,29 @@ fn failed_to_start(tried: eframe::Renderer, e: &eframe::Error) {
              Details are in:\n{log}"
         ))
         .show();
+}
+
+/// Whether the saved window place still shows its title bar on a connected screen
+/// (a second monitor may have been unplugged since). macOS moves windows back onto a
+/// screen itself; on Windows a window could otherwise open where nobody can see it.
+#[cfg(windows)]
+fn on_a_screen(w: &prefs::WindowPlace) -> bool {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromPoint};
+    // The place is in logical points and the monitor's scale is not known before the
+    // window exists, so try the common scale factors: a point on the title bar that
+    // lands on any monitor at any of them is good enough.
+    [1.0f32, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].iter().any(|s| {
+        let pt = POINT {
+            x: ((w.x + 60.0) * s) as i32,
+            y: ((w.y + 12.0) * s) as i32,
+        };
+        // SAFETY: plain value arguments; returns a handle or null.
+        !unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONULL) }.is_null()
+    })
+}
+
+#[cfg(not(windows))]
+fn on_a_screen(_w: &prefs::WindowPlace) -> bool {
+    true
 }

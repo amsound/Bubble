@@ -158,10 +158,30 @@ pub fn write_atomic(path: &Path, bytes: &[u8], keep_backup: bool) -> std::io::Re
     if keep_backup && path.exists() {
         fs::copy(path, backup_path(path))?;
     }
-    tmp.persist(path).map_err(|e| e.error)?;
+    // On Windows, antivirus, OneDrive or the search indexer often hold the target for a
+    // moment, so replacing it fails with "Access is denied". Retry for about a second
+    // before giving up; the temporary file stays intact between attempts.
+    let mut attempt = 0;
+    loop {
+        match tmp.persist(path) {
+            Ok(_) => break,
+            Err(e)
+                if attempt < REPLACE_RETRIES
+                    && e.error.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                tmp = e.file;
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(e.error),
+        }
+    }
     sync_dir(&dir);
     Ok(())
 }
+
+/// Attempts to replace a file another program is holding (100 ms apart).
+const REPLACE_RETRIES: u32 = 10;
 
 #[cfg(unix)]
 fn sync_dir(dir: &Path) {

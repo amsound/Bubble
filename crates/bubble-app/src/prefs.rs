@@ -106,7 +106,7 @@ pub struct Prefs {
     pub sample_rate: u32,
     /// The outputs were reordered by hand (otherwise device/channel order).
     pub outputs_custom_order: bool,
-    /// Folder new sessions are created in (default ~/Documents/Bubble).
+    /// Folder new sessions are created in (default ~/Bubble).
     pub session_root: Option<PathBuf>,
     /// Light, dark, or follow the system.
     pub appearance: Appearance,
