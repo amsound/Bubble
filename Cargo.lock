@@ -1029,13 +1029,16 @@ name = "bubble-slint"
 version = "0.1.0"
 dependencies = [
  "allsorts",
+ "arboard",
  "bubble-control",
  "bubble-core",
  "bubble-project",
+ "dispatch2",
  "mouse_position",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "raw-window-handle",
  "resvg 0.45.1",
  "rfd",
  "slint",

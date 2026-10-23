@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use bubble_control::{AttrSet, CartState as Cs, InputEvent, MouseButton, display_label};
+use bubble_control::{CartState as Cs, InputEvent, MouseButton};
 use bubble_core::app::{AfterCreate, Core};
 use bubble_core::dialogs::{AUDIO_EXTS, OPEN_EXTS, Purpose};
 use bubble_core::menu::{Cmd, MenuState};
@@ -27,6 +27,7 @@ use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use uuid::Uuid;
 
+use crate::alerts::{Alert, Alerts};
 use crate::model::{self, Selection};
 use crate::{
     BusyRow, DialogButton, DialogInfo, DialogRow, MainWindow, PageTab, PopupRow, StatusItem,
@@ -62,6 +63,8 @@ enum Popup {
     RemovePage(usize),
     /// Shown but not available here yet.
     NotHere,
+    /// A quick edit pop-up's choice ("output", "fade" or "group", and its index).
+    Choice(&'static str, usize),
 }
 
 /// A context-menu entry: what it does, its text, and whether it is enabled.
@@ -77,9 +80,15 @@ enum Dialog {
     ImportChoice,
     NewSession,
     ConvertOffer,
-    PasteAttrs,
     Relink,
     DeletePage,
+}
+
+impl Dialog {
+    /// Shown as the system's own alert (the rest are still drawn by Bubble).
+    fn native(self) -> bool {
+        !matches!(self, Dialog::NewSession | Dialog::ConvertOffer)
+    }
 }
 
 pub struct App {
@@ -110,12 +119,13 @@ pub struct App {
     qe_gen: i32,
     renaming: Option<usize>,
     dialog: Option<Dialog>,
+    /// The native alert on screen, and which prompt it asks.
+    alerts: Alerts,
+    alert_for: Option<Dialog>,
     dialog_sig: String,
     dialog_gen: i32,
     confirm_close: bool,
     allow_close: bool,
-    paste_attrs: bool,
-    attr_choice: AttrSet,
     relink: bool,
     /// Delete Page… asked for this page; the dialog confirms.
     delete_page: Option<usize>,
@@ -146,6 +156,19 @@ impl std::ops::Deref for App {
 impl std::ops::DerefMut for App {
     fn deref_mut(&mut self) -> &mut Core {
         &mut self.core
+    }
+}
+
+/// A problem message as an alert's bold headline and the detail under it: its first
+/// line, or what comes before the first ": " when it is all one line.
+fn headline(msg: &str) -> (String, String) {
+    let msg = msg.trim();
+    if let Some((head, rest)) = msg.split_once('\n') {
+        return (head.trim().to_string(), rest.trim().to_string());
+    }
+    match msg.split_once(": ") {
+        Some((head, rest)) if head.len() <= 80 => (format!("{head}."), rest.to_string()),
+        _ => (msg.to_string(), String::new()),
     }
 }
 
@@ -425,9 +448,8 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         };
         a.qe_edit(i, move |c| c.gain_db = db);
     });
-    on!(ui, app, on_qe_choice, |a, i, field, idx| {
-        a.qe_choice(field.as_str(), idx, i);
-        a.qe_refresh();
+    on!(ui, app, on_qe_choice_menu, |a, _i, field, x, y| {
+        a.choice_menu(field.as_str(), x, y);
     });
     on!(ui, app, on_qe_flag, |a, i, field, on| {
         let field = field.to_string();
@@ -448,17 +470,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     });
     on!(ui, app, on_dialog_row_action, |a, i, row, action| {
         a.dialog_row(row as usize, action as usize, i);
-    });
-    on!(ui, app, on_dialog_row_check, |a, _i, row, on| {
-        let c = &mut a.attr_choice;
-        match row {
-            0 => c.gain = on,
-            1 => c.pan = on,
-            2 => c.fades = on,
-            3 => c.colour = on,
-            4 => c.looping = on,
-            _ => c.behaviour = on,
-        }
     });
     on!(ui, app, on_dialog_name_edited, |a, _i, text| {
         if let Some(ns) = &mut a.core.prompts.new_session {
@@ -605,12 +616,12 @@ impl App {
             qe_gen: 0,
             renaming: None,
             dialog: None,
+            alerts: Alerts::new(),
+            alert_for: None,
             dialog_sig: String::new(),
             dialog_gen: 0,
             confirm_close: false,
             allow_close: false,
-            paste_attrs: false,
-            attr_choice: AttrSet::ALL,
             relink: false,
             delete_page: None,
             place: Default::default(),
@@ -690,6 +701,11 @@ impl App {
         self.core.poll_job(&mut intents);
         self.core.collect_when_idle();
         self.core.file_results(&snap, &mut intents);
+        if let Some(i) = self.alerts.poll()
+            && let Some(d) = self.alert_for.take()
+        {
+            self.alert_answer(d, i, &mut intents);
+        }
         if !intents.is_empty() {
             self.apply_intents(intents);
             snap = self.core.snapshot();
@@ -1088,6 +1104,7 @@ impl App {
                             text.into()
                         },
                         enabled: enabled && !separator,
+                        checked: false,
                     }
                 })
                 .collect();
@@ -1100,18 +1117,54 @@ impl App {
         ui.set_popup_sub(rows(sub, &mut all));
         ui.set_popup_tail(rows(tail, &mut all));
         self.popup = all;
+        self.open_popup(&ui, x, y);
+    }
+
+    /// A quick edit pop-up button's choices as a native menu below it, the current
+    /// one checked.
+    fn choice_menu(&mut self, field: &str, x: f32, y: f32) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        let qe = ui.get_qe();
+        let (field, list, current): (&'static str, _, _) = match field {
+            "output" => ("output", qe.outputs, qe.output),
+            "fade" => ("fade", qe.fades, qe.fade),
+            _ => ("group", qe.groups, qe.group),
+        };
+        self.popup = (0..list.row_count())
+            .map(|i| Popup::Choice(field, i))
+            .collect();
+        let rows: Vec<PopupRow> = list
+            .iter()
+            .enumerate()
+            .map(|(i, text)| PopupRow {
+                id: i as i32,
+                text,
+                enabled: true,
+                checked: i as i32 == current,
+            })
+            .collect();
+        ui.set_popup_rows(ModelRc::new(VecModel::from(rows)));
+        ui.set_popup_sub_title("".into());
+        ui.set_popup_sub(ModelRc::default());
+        ui.set_popup_tail(ModelRc::default());
+        self.open_popup(&ui, x, y);
+    }
+
+    fn open_popup(&self, ui: &MainWindow, x: f32, y: f32) {
         ui.set_popup_x(x);
         ui.set_popup_y(y);
         // The system menu takes the mouse until it closes, so the button that opened
         // it is never released in the window, and the next click would go to the tab
-        // or cell that opened it. End that press first, then open the menu.
+        // or cell that opened it. End that press first, then open the menu, outside
+        // this handler: its tracking loop runs Slint's timers, which must not happen
+        // inside one (a timer opened menus before; with a cart playing that panicked).
         ui.window()
             .dispatch_event(slint::platform::WindowEvent::PointerReleased {
                 position: slint::LogicalPosition::new(x, y),
                 button: slint::platform::PointerEventButton::Right,
             });
         let w = self.ui.clone();
-        slint::Timer::single_shot(Duration::ZERO, move || {
+        window::on_main(move || {
             if let Some(ui) = w.upgrade() {
                 ui.invoke_open_popup();
             }
@@ -1124,6 +1177,10 @@ impl App {
         };
         match p {
             Popup::Separator | Popup::NotHere => {}
+            Popup::Choice(field, i) => {
+                self.qe_choice(field, i as i32, intents);
+                self.qe_refresh();
+            }
             Popup::Assign(page, row, col) => self.files.request(Purpose::Assign {
                 page,
                 row,
@@ -1306,7 +1363,7 @@ impl App {
                 Cmd::Paste => Some("paste"),
                 Cmd::Undo => Some("undo"),
                 Cmd::Redo => Some("redo"),
-                Cmd::PasteAttributes | Cmd::DuplicateCart | Cmd::ClearCart => Some(""),
+                Cmd::PasteAttributes(_) | Cmd::DuplicateCart | Cmd::ClearCart => Some(""),
                 _ => None,
             };
             if let Some(t) = text {
@@ -1364,7 +1421,11 @@ impl App {
                     intents.push(Intent::Paste(p, r, c, clip));
                 }
             }
-            Cmd::PasteAttributes => self.paste_attrs = self.clipboard.is_some() && sel.is_some(),
+            Cmd::PasteAttributes(what) => {
+                if let (Some(clip), Some(sel)) = (self.clipboard.clone(), sel) {
+                    intents.push(Intent::PasteAttrs(clip.cart, vec![sel], what.set()));
+                }
+            }
             Cmd::ClearCart => {
                 if let Some((p, r, c)) = sel.and_then(|id| snap.project.cart_position(id)) {
                     intents.push(Intent::ClearCell(p, r, c));
@@ -1636,8 +1697,6 @@ impl App {
             Some(Dialog::NewSession)
         } else if p.convert_offer.is_some() {
             Some(Dialog::ConvertOffer)
-        } else if self.paste_attrs {
-            Some(Dialog::PasteAttrs)
         } else if self.delete_page.is_some() {
             Some(Dialog::DeletePage)
         } else if self.relink {
@@ -1734,36 +1793,6 @@ impl App {
                 .into();
                 info.buttons = strings(&["Convert", "Not Now"]);
             }
-            Dialog::PasteAttrs => {
-                let from = self
-                    .clipboard
-                    .as_ref()
-                    .map(|c| display_label(&c.cart, &snap.project))
-                    .unwrap_or_default();
-                let a = &self.attr_choice;
-                info.title = "Paste Attributes".into();
-                info.body =
-                    format!("Copy from \u{201c}{from}\u{201d} to the selected cart:").into();
-                info.rows = rows(
-                    [
-                        ("Gain and mute", a.gain),
-                        ("Pan", a.pan),
-                        ("Fades", a.fades),
-                        ("Colour", a.colour),
-                        ("Loop", a.looping),
-                        ("Retrigger, stop-others, group, hold-to-play", a.behaviour),
-                    ]
-                    .into_iter()
-                    .map(|(t, on)| DialogRow {
-                        text: t.into(),
-                        check: true,
-                        checked: on,
-                        ..Default::default()
-                    })
-                    .collect(),
-                );
-                info.buttons = strings(&["Paste", "Cancel"]);
-            }
             Dialog::DeletePage => {
                 let page = self.delete_page.unwrap_or(0);
                 let name_ = snap
@@ -1806,8 +1835,27 @@ impl App {
     }
 
     fn show_dialog(&mut self, ui: &MainWindow, snap: &Snapshot) {
+        // A session set to Convert to WAV converts without asking (chosen with it).
+        if let Some(files) = self.core.prompts.convert_offer.take() {
+            self.core.start_conversion(files);
+        }
         let d = self.current_dialog();
         self.dialog = d;
+        // The system's own alert; one at a time, never over a file dialog.
+        if let Some(d) = d.filter(|d| d.native()) {
+            if !self.dialog_sig.is_empty() {
+                self.dialog_sig.clear();
+                ui.set_dialog_gen(ModelRc::default());
+                self.not_typing();
+            }
+            if !self.alerts.is_open() && !self.core.files.is_open() {
+                let alert = self.native_alert(d, snap);
+                self.alert_for = Some(d);
+                self.alerts
+                    .show(alert, ui.window(), self.core.repaint.clone());
+            }
+            return;
+        }
         let Some(d) = d else {
             if !self.dialog_sig.is_empty() {
                 self.dialog_sig.clear();
@@ -1865,6 +1913,168 @@ impl App {
             ui.set_dialog(info);
             self.dialog_gen += 1;
             ui.set_dialog_gen(ModelRc::new(VecModel::from(vec![self.dialog_gen])));
+        }
+    }
+
+    /// The prompt as a native alert. Buttons keep `dialog_button`'s order: the system
+    /// puts Cancel last itself (NSAlert, TaskDialog).
+    fn native_alert(&self, d: Dialog, snap: &Snapshot) -> Alert {
+        let p = &self.core.prompts;
+        let session = || {
+            snap.path
+                .as_deref()
+                .and_then(|p| p.file_stem())
+                .map_or("Untitled".to_string(), |n| n.to_string_lossy().to_string())
+        };
+        let buttons = |v: &[String]| v.to_vec();
+        match d {
+            Dialog::Error => {
+                let (title, info) = headline(p.error.as_deref().unwrap_or_default());
+                Alert {
+                    title,
+                    info,
+                    buttons: buttons(&["OK".into(), name("Copy Details", "Copy details")]),
+                    error: true,
+                    ..Default::default()
+                }
+            }
+            Dialog::ConfirmClose | Dialog::ConfirmDiscard => Alert {
+                title: if cfg!(target_os = "macos") {
+                    format!(
+                        "Do you want to save the changes you made to \u{201c}{}\u{201d}?",
+                        session()
+                    )
+                } else {
+                    format!("Do you want to save changes to {}?", session())
+                },
+                info: name(
+                    "Your changes will be lost if you don\u{2019}t save them.",
+                    "",
+                ),
+                buttons: buttons(&[
+                    "Save".into(),
+                    "Cancel".into(),
+                    name("Don\u{2019}t Save", "Don\u{2019}t save"),
+                ]),
+                ..Default::default()
+            },
+            Dialog::Recover => {
+                let (file, project) = p.recover.first().cloned().unwrap_or_default();
+                let n = project
+                    .as_deref()
+                    .unwrap_or(file.as_path())
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                Alert {
+                    title: format!("Restore unsaved changes to \u{201c}{n}\u{201d}?"),
+                    info: "Bubble closed before they were saved. Restoring doesn\u{2019}t change \
+                           the session file until you save."
+                        .into(),
+                    buttons: buttons(&[
+                        "Restore".into(),
+                        name("Discard Changes", "Discard changes"),
+                    ]),
+                    destructive: Some(1),
+                    ..Default::default()
+                }
+            }
+            Dialog::ImportChoice => {
+                let n = p
+                    .import_choice
+                    .as_deref()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                Alert {
+                    title: format!("Import \u{201c}{n}\u{201d}?"),
+                    info: "Add its carts to the open session, or start a new session from it."
+                        .into(),
+                    buttons: buttons(&[
+                        name("Add to This Session", "Add to this session"),
+                        "Cancel".into(),
+                        name("New Session\u{2026}", "Start a new session\u{2026}"),
+                    ]),
+                    links: true,
+                    ..Default::default()
+                }
+            }
+            Dialog::DeletePage => {
+                let page = self.delete_page.unwrap_or(0);
+                let n = snap
+                    .project
+                    .pages
+                    .get(page)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                Alert {
+                    title: format!("Delete the page \u{201c}{n}\u{201d}?"),
+                    info: "Its carts are deleted with it. You can undo this.".into(),
+                    buttons: buttons(&["Delete".into(), "Cancel".into()]),
+                    destructive: Some(0),
+                    ..Default::default()
+                }
+            }
+            Dialog::Relink => {
+                let names: Vec<String> = snap
+                    .missing
+                    .iter()
+                    .filter_map(|a| snap.project.asset(*a))
+                    .map(|a| {
+                        let f = std::path::Path::new(&a.path)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| a.path.clone());
+                        format!("\u{201c}{f}\u{201d}")
+                    })
+                    .collect();
+                let n = names.len();
+                let list = match n {
+                    0 => String::new(),
+                    1 => names[0].clone(),
+                    2 => format!("{} and {}", names[0], names[1]),
+                    _ => format!("{}, {} and {} more", names[0], names[1], n - 2),
+                };
+                Alert {
+                    title: if n == 1 {
+                        "1 audio file is missing.".into()
+                    } else {
+                        format!("{n} audio files are missing.")
+                    },
+                    info: format!(
+                        "{list}. Locate one and Bubble also finds others that moved with it."
+                    ),
+                    buttons: buttons(&[name("Locate\u{2026}", "Locate\u{2026}"), "Later".into()]),
+                    ..Default::default()
+                }
+            }
+            _ => Alert::default(),
+        }
+    }
+
+    /// A native alert was answered: the same as pressing that button in the prompt.
+    fn alert_answer(&mut self, d: Dialog, i: usize, intents: &mut Vec<Intent>) {
+        self.dialog = Some(d);
+        match d {
+            Dialog::Error => {
+                if i == 1
+                    && let Some(text) = &self.core.prompts.error
+                    && let Ok(mut c) = arboard::Clipboard::new()
+                {
+                    let _ = c.set_text(text.clone());
+                }
+                self.core.prompts.error = None;
+            }
+            Dialog::Recover => self.dialog_row(0, i, intents),
+            Dialog::Relink => {
+                let snap = self.core.snapshot();
+                match snap.missing.first() {
+                    // The alert comes back after the Open panel while files are missing.
+                    Some(a) if i == 0 => self.core.files.request(Purpose::Relink(*a)),
+                    _ => self.relink = false,
+                }
+            }
+            _ => self.dialog_button(i, intents),
         }
     }
 
@@ -1929,14 +2139,6 @@ impl App {
                 self.core.start_conversion(files);
             }
             (Dialog::ConvertOffer, _) => p.convert_offer = None,
-            (Dialog::PasteAttrs, i) => {
-                if i == 0
-                    && let (Some(clip), Some(sel)) = (self.core.clipboard.clone(), self.selected)
-                {
-                    intents.push(Intent::PasteAttrs(clip.cart, vec![sel], self.attr_choice));
-                }
-                self.paste_attrs = false;
-            }
             (Dialog::Relink, _) => self.relink = false,
             (Dialog::DeletePage, i) => {
                 if let Some(p) = self.delete_page.take()

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bubble_control::{
-    AssetState, AttrSet, CartState, InputEvent, LogKind, MouseButton, describe, display_label,
+    AssetState, CartState, InputEvent, LogKind, MouseButton, describe, display_label,
 };
 use bubble_engine::Overview;
 use bubble_project::{
@@ -55,7 +55,6 @@ struct Dialogs {
     diagnostics: bool,
     /// Cart whose Audio Setup (waveform/trim) window is open.
     audio_setup: Option<Uuid>,
-    paste_attrs: bool,
     /// Outputs window draft (open while `Some`).
     outputs: Option<outputs_ui::OutputsDraft>,
     reassign: Option<outputs_ui::ReassignDraft>,
@@ -84,7 +83,6 @@ pub struct BubbleApp {
     /// The main window moved or resized; saved to preferences once it settles.
     window_moved: Option<Instant>,
     first_frame_logged: bool,
-    attr_choice: AttrSet,
     wave_view: WaveView,
     fonts: FontState,
     font_names: Vec<&'static str>,
@@ -153,7 +151,6 @@ impl BubbleApp {
             allow_close: false,
             window_moved: None,
             first_frame_logged: false,
-            attr_choice: AttrSet::ALL,
             wave_view: WaveView::default(),
             fonts: FontState::default(),
             font_names: crate::fonts::available(),
@@ -1214,7 +1211,11 @@ impl BubbleApp {
                     intents.push(Intent::Paste(p, r, c, clip));
                 }
             }
-            Cmd::PasteAttributes => self.dialogs.paste_attrs = self.clipboard.is_some(),
+            Cmd::PasteAttributes(what) => {
+                if let (Some(clip), Some(sel)) = (self.clipboard.clone(), sel) {
+                    intents.push(Intent::PasteAttrs(clip.cart, vec![sel], what.set()));
+                }
+            }
             Cmd::ClearCart => {
                 if let Some((p, r, c)) = sel.and_then(|id| snap.project.cart_position(id)) {
                     intents.push(Intent::ClearCell(p, r, c));
@@ -2339,42 +2340,6 @@ impl BubbleApp {
                 if project.is_none() {
                     let _ = std::fs::remove_file(file);
                 }
-            }
-        }
-
-        if self.dialogs.paste_attrs {
-            let mut apply = false;
-            let mut cancel = false;
-            let resp = egui::Modal::new(egui::Id::unique("paste-attrs")).show(ctx, |ui| {
-                ui.heading("Paste Attributes");
-                let from = self
-                    .clipboard
-                    .as_ref()
-                    .map(|c| display_label(&c.cart, &snap.project))
-                    .unwrap_or_default();
-                ui.label(format!(
-                    "Copy from \u{201c}{from}\u{201d} to the selected cart:"
-                ));
-                let a = &mut self.attr_choice;
-                ui.checkbox(&mut a.gain, "Gain and mute");
-                ui.checkbox(&mut a.pan, "Pan");
-                ui.checkbox(&mut a.fades, "Fades");
-                ui.checkbox(&mut a.colour, "Colour");
-                ui.checkbox(&mut a.looping, "Loop");
-                ui.checkbox(
-                    &mut a.behaviour,
-                    "Retrigger, stop-others, group, hold-to-play",
-                );
-                crate::native::dialog_bar(ui, |ui| {
-                    apply = ui.add(crate::native::primary("Paste")).clicked();
-                    cancel = ui.add(crate::native::secondary("Cancel")).clicked();
-                });
-            });
-            if apply && let (Some(clip), Some(sel)) = (self.clipboard.clone(), self.selected) {
-                intents.push(Intent::PasteAttrs(clip.cart, vec![sel], self.attr_choice));
-            }
-            if apply || cancel || resp.should_close() {
-                self.dialogs.paste_attrs = false;
             }
         }
 

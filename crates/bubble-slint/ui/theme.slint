@@ -131,12 +131,12 @@ export component Panel inherits Rectangle {
 // A flat, system-like push button (Slint's own Mac style draws gradients). Mac: 24 px,
 // translucent grey, the main button solid blue. Windows 11: 32 px, outlined, the main
 // button in the accent colour with dark text.
-// A pop-up button: the current choice and a chevron; a click opens the choices as a
-// native menu (NSMenu / Win32), the current one checked.
+// A pop-up button: the current choice and a chevron. A click asks for the choices
+// (`open`, with where the menu goes in the window), shown as a native menu.
 export component PopButton inherits Rectangle {
     in property <[string]> model;
     in property <int> current-index;
-    callback selected(int);
+    callback open(length, length);
     property <bool> mac: Theme.mac;
     height: mac ? 22px : 32px;
     horizontal-stretch: 1;
@@ -169,22 +169,8 @@ export component PopButton inherits Rectangle {
         }
     }
     ta := TouchArea {
-        // On release, so the menu never leaves this area pressed.
         clicked => {
-            menu.show({ x: 0, y: root.height + 3px });
-        }
-    }
-    menu := ContextMenuArea {
-        enabled: false;
-        Menu {
-            for item[i] in root.model: MenuItem {
-                title: item;
-                checkable: true;
-                checked: i == root.current-index;
-                activated => {
-                    root.selected(i);
-                }
-            }
+            root.open(root.absolute-position.x, root.absolute-position.y + root.height + 3px);
         }
     }
 }

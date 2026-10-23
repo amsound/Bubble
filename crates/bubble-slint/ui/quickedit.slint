@@ -173,7 +173,8 @@ export component QuickEditPanel inherits Panel {
     callback hex(string);
     callback gain(float);
     // "output", "fade" or "group", and the chosen index.
-    callback choice(string, int);
+    // "output", "fade" or "group": open its choices at (x, y) in the window.
+    callback choice-menu(string, length, length);
     // "loop", "next" or "stop-all".
     callback flag(string, bool);
     // "done", "learn", "replace", "copy", "paste", "delete" or "gain-reset".
@@ -376,8 +377,8 @@ export component QuickEditPanel inherits Panel {
                     y: (parent.height - self.height) / 2;
                     model: qe.outputs;
                     current-index: qe.output;
-                    selected(i) => {
-                        root.choice("output", i);
+                    open(x, y) => {
+                        root.choice-menu("output", x, y);
                     }
                 }
             }
@@ -388,8 +389,8 @@ export component QuickEditPanel inherits Panel {
                     y: (parent.height - self.height) / 2;
                     model: qe.fades;
                     current-index: qe.fade;
-                    selected(i) => {
-                        root.choice("fade", i);
+                    open(x, y) => {
+                        root.choice-menu("fade", x, y);
                     }
                 }
             }
@@ -400,8 +401,8 @@ export component QuickEditPanel inherits Panel {
                     y: (parent.height - self.height) / 2;
                     model: qe.groups;
                     current-index: qe.group;
-                    selected(i) => {
-                        root.choice("group", i);
+                    open(x, y) => {
+                        root.choice-menu("group", x, y);
                     }
                 }
             }

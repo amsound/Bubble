@@ -45,6 +45,12 @@ fn main() {
         .collect();
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("icon-256.rgba"), rgba).expect("write icon");
+    // The same icon as a PNG, for native alerts (alerts.rs).
+    std::fs::write(
+        out.join("icon-256.png"),
+        pixmap.encode_png().expect("encode icon"),
+    )
+    .expect("write icon");
 
     if std::env::var("TARGET")
         .unwrap_or_default()
@@ -53,6 +59,17 @@ fn main() {
         windows_icon(&tree, &out);
     }
 }
+
+const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>
+"#;
 
 /// Embeds `bubble.ico` (16–256 px, PNG entries) as the .exe icon. Cosmetic, so never
 /// fatal: without a resource compiler the .exe builds with the default icon.
@@ -81,10 +98,17 @@ fn windows_icon(tree: &usvg::Tree, out: &Path) {
     for png in &pngs {
         ico.extend_from_slice(png);
     }
-    // The .rc names the icon by a bare file name and is compiled in OUT_DIR, which
-    // avoids escaping an absolute path inside the resource script.
+    // The .rc names the icon (and the manifest) by bare file names and is compiled in
+    // OUT_DIR, which avoids escaping an absolute path inside the resource script. The
+    // manifest asks for Common Controls 6, which has the native TaskDialog alerts
+    // (alerts.rs falls back to the plain message box without it).
     if std::fs::write(out.join("bubble.ico"), &ico).is_err()
-        || std::fs::write(out.join("icon.rc"), "1 ICON \"bubble.ico\"\n").is_err()
+        || std::fs::write(out.join("bubble.manifest"), MANIFEST).is_err()
+        || std::fs::write(
+            out.join("icon.rc"),
+            "1 ICON \"bubble.ico\"\n1 24 \"bubble.manifest\"\n",
+        )
+        .is_err()
     {
         println!("cargo:warning=icon: could not write the resource files");
         return;

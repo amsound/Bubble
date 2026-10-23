@@ -284,3 +284,14 @@ pub fn has_touch_screen() -> bool {
 pub fn has_touch_screen() -> bool {
     false
 }
+
+/// Runs `f` on the UI thread once the current event handler has returned. Native
+/// menus and alerts run their own event loop; started inside a Slint timer or a winit
+/// handler, that loop re-enters them (a panic on macOS). On a Mac the main dispatch
+/// queue runs it outside both; elsewhere Slint's own queue.
+pub fn on_main(f: impl FnOnce() + Send + 'static) {
+    #[cfg(target_os = "macos")]
+    dispatch2::DispatchQueue::main().exec_async(f);
+    #[cfg(not(target_os = "macos"))]
+    let _ = slint::invoke_from_event_loop(f);
+}

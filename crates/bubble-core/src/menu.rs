@@ -7,11 +7,60 @@ use std::hash::{Hash, Hasher};
 
 use uuid::Uuid;
 
+use bubble_control::AttrSet;
+
 use crate::app::{Core, Snapshot};
 use crate::prefs::Appearance;
 
 /// Output level presets offered in the Session menu (dB).
 pub const OUTPUT_LEVELS: [i32; 7] = [0, -3, -6, -10, -12, -15, -20];
+
+/// What Edit ▸ Paste Attributes copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PasteAttr {
+    GainMute,
+    Pan,
+    Fades,
+    Colour,
+    Loop,
+    /// Retrigger, stop others, group and hold to play.
+    Behaviour,
+    All,
+}
+
+impl PasteAttr {
+    pub fn set(self) -> AttrSet {
+        let none = AttrSet {
+            gain: false,
+            pan: false,
+            fades: false,
+            colour: false,
+            looping: false,
+            behaviour: false,
+        };
+        match self {
+            PasteAttr::GainMute => AttrSet { gain: true, ..none },
+            PasteAttr::Pan => AttrSet { pan: true, ..none },
+            PasteAttr::Fades => AttrSet {
+                fades: true,
+                ..none
+            },
+            PasteAttr::Colour => AttrSet {
+                colour: true,
+                ..none
+            },
+            PasteAttr::Loop => AttrSet {
+                looping: true,
+                ..none
+            },
+            PasteAttr::Behaviour => AttrSet {
+                behaviour: true,
+                ..none
+            },
+            PasteAttr::All => AttrSet::ALL,
+        }
+    }
+}
 
 /// Everything a menu item can ask the app to do.
 #[derive(Clone, Debug, PartialEq, Hash)]
@@ -28,7 +77,8 @@ pub enum Cmd {
     Cut,
     Copy,
     Paste,
-    PasteAttributes,
+    /// Edit ▸ Paste Attributes ▸ …: from the copied cart to the selected one.
+    PasteAttributes(PasteAttr),
     ClearCart,
     AudioSetup,
     PlaySelected,
@@ -219,9 +269,28 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         Item::action("Paste Cart", Cmd::Paste)
             .accel("CmdOrCtrl+V")
             .enabled(core.clipboard.is_some() && st.paste_target.is_some()),
-        Item::action("Paste Attributes…", Cmd::PasteAttributes)
-            .accel("CmdOrCtrl+Shift+V")
-            .enabled(core.clipboard.is_some() && has_sel),
+        {
+            let can = core.clipboard.is_some() && has_sel;
+            let a = |label: &str, what: PasteAttr| {
+                Item::action(label, Cmd::PasteAttributes(what)).enabled(can)
+            };
+            Item::sub(
+                "Paste Attributes",
+                vec![
+                    a("Gain and Mute", PasteAttr::GainMute),
+                    a("Pan", PasteAttr::Pan),
+                    a("Fades", PasteAttr::Fades),
+                    a("Colour", PasteAttr::Colour),
+                    a("Loop", PasteAttr::Loop),
+                    a(
+                        "Behaviour (Retrigger, Stop Others, Group, Hold)",
+                        PasteAttr::Behaviour,
+                    ),
+                    Item::Separator,
+                    a("All Attributes", PasteAttr::All).accel("CmdOrCtrl+Shift+V"),
+                ],
+            )
+        },
         Item::action("Duplicate Cart", Cmd::DuplicateCart)
             .accel("CmdOrCtrl+D")
             .enabled(has_sel),

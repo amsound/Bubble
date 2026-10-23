@@ -11,6 +11,7 @@
 
 use bubble_core::{instance, log};
 
+mod alerts;
 mod app;
 mod fonts;
 mod keys;

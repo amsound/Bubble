@@ -49,6 +49,8 @@ export struct PopupRow {
     id: int,
     text: string,
     enabled: bool,
+    // A pop-up button's current choice.
+    checked: bool,
 }
 
 export component MainWindow inherits Window {
@@ -136,7 +138,8 @@ export component MainWindow inherits Window {
     callback qe-colour(int);
     callback qe-hex(string);
     callback qe-gain(float);
-    callback qe-choice(string, int);
+    // A quick edit pop-up button was clicked: its field and where its menu opens.
+    callback qe-choice-menu(string, length, length);
     callback qe-flag(string, bool);
     callback qe-action(string);
     callback dialog-button(int);
@@ -641,8 +644,8 @@ export component MainWindow inherits Window {
             gain(v) => {
                 root.qe-gain(v);
             }
-            choice(f, i) => {
-                root.qe-choice(f, i);
+            choice-menu(f, x, y) => {
+                root.qe-choice-menu(f, x, y);
             }
             flag(f, on) => {
                 root.qe-flag(f, on);
@@ -721,6 +724,8 @@ export component MainWindow inherits Window {
             for it in root.popup-rows: MenuItem {
                 title: it.text;
                 enabled: it.enabled;
+                checkable: it.checked;
+                checked: it.checked;
                 activated => {
                     root.popup-chosen(it.id);
                 }
