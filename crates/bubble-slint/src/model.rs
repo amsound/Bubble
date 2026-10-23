@@ -64,8 +64,8 @@ fn text_color(c: [u8; 3]) -> Color {
 pub struct Selection {
     pub cart: Option<Uuid>,
     pub empty: Option<(usize, u16, u16)>,
-    /// The cell audio is being copied into, and what to say there.
-    pub busy: Option<((usize, u16, u16), String)>,
+    /// The cell audio is being copied into.
+    pub copying: Option<(usize, u16, u16)>,
 }
 
 /// The current page: rows, columns, the cart in each cell, and its tiles.
@@ -90,19 +90,14 @@ pub fn page_view(core: &Core, snap: &Snapshot, sel: &Selection) -> PageView {
     for row in 0..page.rows {
         for col in 0..page.cols {
             let number = (row * page.cols + col + 1) as i32;
-            let busy: SharedString = sel
-                .busy
-                .as_ref()
-                .filter(|(at, _)| *at == (snap.page, row, col))
-                .map(|(_, t)| t.as_str().into())
-                .unwrap_or_default();
+            let copying = sel.copying == Some((snap.page, row, col));
             let Some(cell) = page.cell(row, col) else {
                 ids.push(None);
                 tiles.push(Tile {
                     number,
                     selected: sel.empty == Some((snap.page, row, col)),
                     state: CartState::Empty,
-                    busy,
+                    copying,
                     ..Default::default()
                 });
                 continue;
@@ -110,7 +105,7 @@ pub fn page_view(core: &Core, snap: &Snapshot, sel: &Selection) -> PageView {
             let cart = &cell.cart;
             ids.push(Some(cart.id));
             let mut t = tile(core, snap, cart, number, sel.cart == Some(cart.id));
-            t.busy = busy;
+            t.copying = copying;
             tiles.push(t);
         }
     }
@@ -122,6 +117,36 @@ pub fn page_view(core: &Core, snap: &Snapshot, sel: &Selection) -> PageView {
     }
 }
 
+/// Path commands (16 × 16 grid) for the tile's icon row; the same icons as the design.
+pub mod icon {
+    pub const LOOP: &str =
+        "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+    pub const IN: &str = "M6 3H4v10h2M8.5 8h5M11 5.5L13.5 8L11 10.5";
+    pub const OUT: &str = "M10 3h2v10h-2M2.5 8h5M5 5.5L2.5 8L5 10.5";
+    pub const IN_OUT: &str = "M5.5 3h-2v10h2M10.5 3h2v10h-2";
+    pub const STOP_ALL: &str = "M4.5 4.5h7v7h-7z";
+    pub const NEXT: &str = "M2.5 8h8M7.5 5l3 3-3 3M13 4v8";
+    pub const MUTE: &str = "M2 6h2.5L8 3v10L4.5 10H2zM10.5 6l4 4M14.5 6l-4 4";
+    pub const HOLD: &str = "M6 14V6.5a1.5 1.5 0 0 1 3 0V9h1.5a2 2 0 0 1 2 2v3";
+    pub const MIDI: &str = "M8 2a6 6 0 1 0 0.01 0zM5 8h1.2M7.4 5.5h1.2M9.8 8h1.2M6 10.6h1M9 10.6h1";
+    pub const CHANGED: &str = "M8 2.5l6 11H2zM8 6.5v3M8 11.2v.8";
+}
+
+/// One shared model per distinct icon row. Slint compares models by identity, so a
+/// new model each refresh would make every tile look changed and redraw.
+fn icon_model(icons: Vec<SharedString>) -> ModelRc<SharedString> {
+    thread_local! {
+        static CACHE: std::cell::RefCell<std::collections::HashMap<Vec<SharedString>, ModelRc<SharedString>>> =
+            Default::default();
+    }
+    CACHE.with(|c| {
+        c.borrow_mut()
+            .entry(icons.clone())
+            .or_insert_with(|| ModelRc::new(VecModel::from(icons)))
+            .clone()
+    })
+}
+
 fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) -> Tile {
     let rt = snap.runtime.get(&cart.id).copied().unwrap_or_default();
     let mut bg = parse_rgb(cart.color.as_deref()).unwrap_or(DEFAULT_CART_COLOR);
@@ -130,19 +155,78 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
     }
     let text = tile_text(cart, &snap.project, &rt);
     let rerouted = cart.control.is_none() && core.is_rerouted(&cart.output);
+    let control = cart.control.is_some();
+    // Key triggers on the keycap; a MIDI trigger is an icon in the row.
+    let (midi, keys): (Vec<_>, Vec<_>) = snap
+        .project
+        .bindings
+        .iter()
+        .filter(|b| b.targets.contains(&cart.id))
+        .partition(|b| matches!(b.source, bubble_project::BindingSource::Midi { .. }));
+    let keys: Vec<String> = keys
+        .iter()
+        .map(|b| bubble_control::describe(&b.source))
+        .collect();
+    let mut icons: Vec<SharedString> = Vec::new();
+    if !control {
+        match bubble_core::view::trim_flags(cart, &snap.project) {
+            (true, true) => icons.push(icon::IN_OUT.into()),
+            (true, false) => icons.push(icon::IN.into()),
+            (false, true) => icons.push(icon::OUT.into()),
+            _ => {}
+        }
+        if cart.looping {
+            icons.push(icon::LOOP.into());
+        }
+        if cart.on_play.stop != StopScope::None {
+            icons.push(icon::STOP_ALL.into());
+        }
+        if cart.play_next.is_some() {
+            icons.push(icon::NEXT.into());
+        }
+        if cart.muted {
+            icons.push(icon::MUTE.into());
+        }
+        if cart.hold_to_play {
+            icons.push(icon::HOLD.into());
+        }
+        if rt.changed {
+            icons.push(icon::CHANGED.into());
+        }
+    }
+    if !midi.is_empty() {
+        icons.push(icon::MIDI.into());
+    }
+    let playing = matches!(rt.state, Cs::Playing | Cs::Stopping);
+    let speed = if playing { rt.speed } else { cart.speed };
     Tile {
         has_cart: true,
         number,
-        label: display_label(cart, &snap.project).into(),
+        label: display_label(cart, &snap.project).replace('|', "\n").into(),
         bg: rgb(bg),
         fg: text_color(bg),
         group: group_label(cart, &snap.project).unwrap_or_default().into(),
-        triggers: trigger_names(cart, &snap.project).join("  ").into(),
-        output: text.output.into(),
+        triggers: keys.join("  ").into(),
+        output: if control {
+            String::new()
+        } else {
+            cart.output.clone()
+        }
+        .into(),
         rerouted,
-        // "⟲" has no glyph in the default fonts Slint finds; "↻" does.
-        flags: text.flags.join(" ").replace('⟲', "↻").into(),
-        time: text.time.into(),
+        icons: icon_model(icons),
+        speed: if !control && (speed - 1.0).abs() > 0.005 {
+            format!("×{speed:.2}")
+        } else {
+            String::new()
+        }
+        .into(),
+        time: if rt.state == Cs::Loading {
+            String::new()
+        } else {
+            text.time
+        }
+        .into(),
         // Quantised, so a tile is redrawn only when its bar visibly moves.
         progress: (rt.progress * 1000.0).round() / 1000.0,
         ending: !rt.looping && rt.remaining_s < snap.project.settings.ending_warning_s,
@@ -157,12 +241,13 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         },
         selected,
         learning: snap.learning.is_some_and(|l| l.cart == cart.id),
+        control,
         tip: core
             .reroute_text(&cart.output)
             .filter(|_| rerouted)
             .unwrap_or_default()
             .into(),
-        busy: Default::default(),
+        copying: false,
     }
 }
 
@@ -274,7 +359,7 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
     let rgb = parse_rgb(cart.color.as_deref()).unwrap_or(DEFAULT_CART_COLOR);
     let outputs = core.output_labels(&cart.output);
     let (fades, _, fade) = fade_choices(cart, snap.project.settings.default_fade_out_ms);
-    let mut groups = vec!["none".to_string()];
+    let mut groups = vec!["None".to_string()];
     groups.extend(
         snap.project
             .groups
@@ -289,20 +374,12 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
     QuickEdit {
         title: match control {
             Some(k) => format!("{} - Button {button}", k.name()),
-            None => format!("Quick edit - Button {button}"),
+            None => format!("Button {button}"),
         }
         .into(),
         control: control.is_some(),
         show_group: control.is_none() || control == Some(bubble_project::Control::StopGroup),
         label: cart.label.as_str().into(),
-        label_hint: display_label(
-            &Cart {
-                label: String::new(),
-                ..cart.clone()
-            },
-            &snap.project,
-        )
-        .into(),
         swatches: ModelRc::new(VecModel::from(
             SWATCHES.iter().map(|c| self::rgb(*c)).collect::<Vec<_>>(),
         )),
@@ -312,19 +389,17 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
             .map_or(-1, |i| i as i32),
         hex: cart.color.clone().unwrap_or_default().into(),
         gain: cart.gain_db,
-        speed: cart.speed.max(0.01).log2(),
         output: bubble_project::output_index(&cart.output).unwrap_or(0) as i32,
         outputs: strings(outputs),
         fades: strings(fades),
         fade: fade as i32,
         groups: strings(groups),
         group: group as i32,
-        triggers: trigger_names(cart, &snap.project).join(", ").into(),
+        hotkey: trigger_names(cart, &snap.project).join("  ").into(),
+        cart_color: self::rgb(rgb),
         looping: cart.looping,
-        hold: cart.hold_to_play,
-        muted: cart.muted,
         next: cart.play_next.is_some(),
-        stop_others: cart.on_play.stop != StopScope::None,
+        stop_all: cart.on_play.stop != StopScope::None,
         can_paste: core.clipboard.is_some(),
     }
 }

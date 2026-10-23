@@ -14,7 +14,7 @@ use crate::{MenuEntryData, MenuSlot, MenuTop};
 /// The title Slint gives separators inside its menu model (`i_slint_common::
 /// MENU_SEPARATOR_PLACEHOLDER_TITLE`). A Slint `MenuBar` cannot choose between an item
 /// and a separator per model row, so separators are items with this title.
-const SEPARATOR: &str = "\u{E001}⸺";
+pub const SEPARATOR: &str = "\u{E001}⸺";
 
 /// Slots per top-level menu in `ui/main.slint` (a run of items, then a submenu).
 const SLOTS: usize = 6;

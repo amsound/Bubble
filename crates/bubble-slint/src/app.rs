@@ -29,8 +29,8 @@ use uuid::Uuid;
 
 use crate::model::{self, Selection};
 use crate::{
-    DialogInfo, DialogRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile,
-    keys, menu, window,
+    BusyRow, DialogButton, DialogInfo, DialogRow, MainWindow, PageTab, PopupRow, StatusItem,
+    TextCommand, Theme, Tile, keys, menu, window,
 };
 
 /// How often the window refreshes while carts play (the clock and progress bars).
@@ -64,6 +64,9 @@ enum Popup {
     NotHere,
 }
 
+/// A context-menu entry: what it does, its text, and whether it is enabled.
+type PopupItem = (Popup, String, bool);
+
 /// The dialog on screen (one at a time, most urgent first).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Dialog {
@@ -76,6 +79,7 @@ enum Dialog {
     ConvertOffer,
     PasteAttrs,
     Relink,
+    DeletePage,
 }
 
 pub struct App {
@@ -93,6 +97,10 @@ pub struct App {
     tiles: Rc<VecModel<Tile>>,
     pages: Rc<VecModel<PageTab>>,
     status: Rc<VecModel<StatusItem>>,
+    busy: Rc<VecModel<BusyRow>>,
+    /// The busy rows when the popover was hidden with its ✕, and the rows now.
+    busy_hidden: String,
+    busy_key: String,
     menu_sig: u64,
     menu_cmds: Vec<Cmd>,
     shortcuts: menu::Shortcuts,
@@ -111,6 +119,8 @@ pub struct App {
     paste_attrs: bool,
     attr_choice: AttrSet,
     relink: bool,
+    /// Delete Page… asked for this page; the dialog confirms.
+    delete_page: Option<usize>,
     place: bubble_core::view::PlaceTracker,
     mods: ModifiersState,
     /// Files dragged over the window, and files dropped (handled together).
@@ -141,20 +151,21 @@ impl std::ops::DerefMut for App {
     }
 }
 
+/// A label in this platform's style: Title Case on a Mac, sentence case on Windows.
+fn name(mac: &str, other: &str) -> String {
+    if cfg!(target_os = "macos") {
+        mac
+    } else {
+        other
+    }
+    .to_string()
+}
+
 /// Opens the window and runs until it closes.
 pub fn run(renderer: &str) -> Result<(), slint::PlatformError> {
     let ui = MainWindow::new()?;
     ui.set_window_icon(window::icon());
-    ui.global::<Theme>().set_mono_font(
-        if cfg!(target_os = "macos") {
-            "Menlo"
-        } else if cfg!(windows) {
-            "Consolas"
-        } else {
-            "DejaVu Sans Mono"
-        }
-        .into(),
-    );
+    ui.global::<Theme>().set_mac(cfg!(target_os = "macos"));
 
     // Other threads (jobs, dialogs, device scans, MIDI) wake the window this way.
     let pending = Arc::new(AtomicBool::new(false));
@@ -372,6 +383,9 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_status_clicked, |a, _i| {
         a.relink = true;
     });
+    on!(ui, app, on_busy_hide, |a, _i| {
+        a.busy_hidden = a.busy_key.clone();
+    });
     on!(ui, app, on_popup_chosen, |a, i, idx| {
         a.popup_chosen(idx as usize, i);
     });
@@ -411,14 +425,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         };
         a.qe_edit(i, move |c| c.gain_db = db);
     });
-    on!(ui, app, on_qe_speed, |a, i, v| {
-        let speed = if v.abs() < 0.04 {
-            1.0
-        } else {
-            (2f32.powf(v) * 100.0).round() / 100.0
-        };
-        a.qe_edit(i, move |c| c.speed = speed.clamp(0.25, 4.0));
-    });
     on!(ui, app, on_qe_choice, |a, i, field, idx| {
         a.qe_choice(field.as_str(), idx, i);
     });
@@ -426,8 +432,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
         let field = field.to_string();
         a.qe_edit(i, move |c| match field.as_str() {
             "loop" => c.looping = on,
-            "hold" => c.hold_to_play = on,
-            "mute" => c.muted = on,
             "next" => c.play_next = on.then(|| "next_cell".to_string()),
             "stop-others" => c.on_play.stop = if on { StopScope::All } else { StopScope::None },
             _ => {}
@@ -554,13 +558,6 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
                     }
                 });
             }
-            WindowEvent::ScaleFactorChanged { .. } => {
-                // Slint takes the new system scale; put the interface size back on it.
-                let a2 = app.clone();
-                slint::Timer::single_shot(Duration::from_millis(50), move || {
-                    with(&a2, |a| a.apply_zoom());
-                });
-            }
             WindowEvent::Destroyed => {
                 // The system is quitting Bubble (e.g. ⌘Q from the app menu): keep
                 // unsaved work for recovery.
@@ -577,6 +574,8 @@ impl App {
         let tiles = Rc::new(VecModel::default());
         let pages = Rc::new(VecModel::default());
         let status = Rc::new(VecModel::default());
+        let busy = Rc::new(VecModel::default());
+        ui.set_busy(ModelRc::from(busy.clone()));
         ui.set_tiles(ModelRc::from(tiles.clone()));
         ui.set_pages(ModelRc::from(pages.clone()));
         ui.set_status(ModelRc::from(status.clone()));
@@ -592,6 +591,9 @@ impl App {
             tiles,
             pages,
             status,
+            busy,
+            busy_hidden: String::new(),
+            busy_key: String::new(),
             menu_sig: 0,
             menu_cmds: Vec::new(),
             shortcuts: menu::Shortcuts::new(&Default::default()),
@@ -609,6 +611,7 @@ impl App {
             paste_attrs: false,
             attr_choice: AttrSet::ALL,
             relink: false,
+            delete_page: None,
             place: Default::default(),
             mods: ModifiersState::empty(),
             drag_hover: false,
@@ -653,7 +656,6 @@ impl App {
                 ui.global::<Theme>().set_system_dark(dark);
             }
             window::set_title_bar_theme(&ui, self.prefs.appearance);
-            self.apply_zoom();
         }
         let audio_wake = self.core.watch_audio();
         self.core.poll_devices();
@@ -742,25 +744,10 @@ impl App {
             self.last_title = title;
         }
 
-        // What Bubble is busy with goes where it happens: audio being copied into a
-        // cell shows on that tile, audio being prepared shows "loading…" on its tiles
-        // (and a count in the status line); anything else (opening, importing,
-        // converting) in a strip over the top of the wall.
-        let busy = self.core.busy(snap);
-        let busy_cell = self
-            .core
-            .job
-            .as_ref()
-            .and_then(|j| j.cell)
-            .map(|c| (c, "Copying…".to_string()));
-        let (strip, info) = match (&busy, &self.core.job, &self.core.opening) {
-            (Some(b), Some(j), _) if j.cell.is_none() => (Some(b.clone()), None),
-            (Some(b), None, Some(_)) => (Some(b.clone()), None),
-            (Some(b), _, _) if snap.pending > 0 && busy_cell.is_none() => {
-                (None, Some(b.text.clone()))
-            }
-            _ => (None, None),
-        };
+        // One busy popover for everything Bubble is doing (opening, copying,
+        // importing, converting, loading audio); the tiles only get quiet cues.
+        let rows = self.busy_rows(snap);
+        let copying = self.core.job.as_ref().and_then(|j| j.cell);
 
         // Cart wall.
         let view = model::page_view(
@@ -769,7 +756,7 @@ impl App {
             &Selection {
                 cart: self.selected,
                 empty: self.cursor_empty,
-                busy: busy_cell,
+                copying,
             },
         );
         ui.set_rows(view.rows as i32);
@@ -800,14 +787,66 @@ impl App {
         ui.set_current_page(snap.page as i32);
         ui.set_renaming(self.renaming.map_or(-1, |i| i as i32));
         ui.set_bar_height(bar_height(self.prefs.bar_size));
-        sync(&self.status, model::status(&self.core, snap, info));
+        sync(&self.status, model::status(&self.core, snap, None));
         ui.set_status_clickable(!snap.missing.is_empty());
-        ui.set_busy_text(strip.as_ref().map_or("".into(), |b| b.text.as_str().into()));
-        ui.set_busy_progress(strip.and_then(|b| b.progress).unwrap_or(-1.0));
+        // Hidden by its ✕ until what Bubble is busy with changes.
+        let key = rows
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        if key.is_empty() {
+            self.busy_hidden.clear();
+        }
+        let shown = if key == self.busy_hidden {
+            Vec::new()
+        } else {
+            rows
+        };
+        self.busy_key = key;
+        sync(&self.busy, shown);
 
         self.show_menus(ui, snap);
         self.show_quick_edit(ui, snap);
         self.show_dialog(ui, snap);
+    }
+
+    /// What the busy popover lists: the running job or the session being opened, then
+    /// audio still loading (with a count).
+    fn busy_rows(&mut self, snap: &Snapshot) -> Vec<BusyRow> {
+        // Keeps the core's "n of total" count going.
+        let _ = self.core.busy(snap);
+        let mut rows = Vec::new();
+        if let Some((p, _, _)) = &self.core.opening {
+            rows.push(BusyRow {
+                text: format!("Opening {}…", bubble_core::app::session::file_name(p)).into(),
+                progress: -1.0,
+                ..Default::default()
+            });
+        }
+        if let Some(j) = &self.core.job {
+            let detail = j.cell.and_then(|(p, r, c)| {
+                let cols = snap.project.pages.get(p)?.cols;
+                Some(format!("to cell {}", r * cols + c + 1))
+            });
+            rows.push(BusyRow {
+                text: j.label.trim_end_matches('…').to_string().into(),
+                detail: detail.unwrap_or_default().into(),
+                copy: j.cell.is_some(),
+                progress: -1.0,
+            });
+        }
+        if snap.pending > 0 {
+            let total = self.core.loading_total.max(snap.pending).max(1);
+            let done = total - snap.pending.min(total);
+            rows.push(BusyRow {
+                text: "Loading audio".into(),
+                detail: format!("{done} of {total} files").into(),
+                progress: done as f32 / total as f32,
+                copy: false,
+            });
+        }
+        rows
     }
 
     fn selection(&self, snap: &Snapshot) -> Option<Uuid> {
@@ -947,7 +986,7 @@ impl App {
         let Some((p, r, c)) = self.cell_pos(idx) else {
             return;
         };
-        let snap_groups: Vec<(Uuid, String)> = {
+        let groups: Vec<(Uuid, String)> = {
             let ctrl = self.lock();
             ctrl.project()
                 .groups
@@ -957,101 +996,132 @@ impl App {
                 .collect()
         };
         use bubble_project::Control as K;
-        let mut items = vec![
+        let head = vec![
             (
                 Popup::Assign(p, r, c),
-                "Assign audio file(s)…".to_string(),
+                name("Assign Audio Files…", "Assign audio files…"),
                 true,
             ),
             (
                 Popup::PasteCart(p, r, c),
-                "Paste cart".to_string(),
+                name("Paste Cart", "Paste cart"),
                 self.clipboard.is_some(),
             ),
             (Popup::Separator, String::new(), false),
         ];
-        for (id, label) in snap_groups {
-            items.push((
-                Popup::Control(p, r, c, K::StopGroup, Some(id)),
-                format!("Control button: Stop Group {label}"),
-                true,
-            ));
+        let mut sub: Vec<PopupItem> = groups
+            .into_iter()
+            .map(|(id, label)| {
+                let text = format!("{}: {label}", name("Stop Group", "Stop group"));
+                (Popup::Control(p, r, c, K::StopGroup, Some(id)), text, true)
+            })
+            .collect();
+        if !sub.is_empty() {
+            sub.push((Popup::Separator, String::new(), false));
         }
-        items.push((
+        sub.push((
             Popup::Control(p, r, c, K::StopPage, None),
-            "Control button: Stop This Page".into(),
+            name("Stop Page", "Stop page"),
             true,
         ));
-        items.push((
+        sub.push((
             Popup::Control(p, r, c, K::StopAll, None),
-            "Control button: Stop All".into(),
+            name("Stop All", "Stop all"),
             true,
         ));
         let Some(ui) = self.ui.upgrade() else { return };
         let (x, y) = (ui.invoke_cell_x(idx) + 20.0, ui.invoke_cell_y(idx) + 20.0);
-        self.show_popup(items, x, y);
+        let sub_title = name("Add Control Button", "Add control button");
+        self.show_popup(head, Some((sub_title, sub)), Vec::new(), x, y);
     }
 
+    /// The page tab's menu: concise, one level, Delete last and set apart.
     fn page_menu(&mut self, page: usize, x: f32, y: f32) {
         let multi = self.lock().project().pages.len() > 1;
         let items = vec![
-            (Popup::Rename(page), "Rename".to_string(), true),
+            (Popup::Rename(page), name("Rename…", "Rename…"), true),
             (
                 Popup::NotHere,
-                "Page Settings… (not in this interface yet)".to_string(),
+                name(
+                    "Page Settings… (not in this interface yet)",
+                    "Page settings… (not in this interface yet)",
+                ),
                 false,
             ),
             (Popup::Separator, String::new(), false),
-            (Popup::CopyPage(page), "Copy Page".into(), true),
+            (Popup::CopyPage(page), name("Copy Page", "Copy page"), true),
             (
                 Popup::PastePage(page),
-                "Paste Page (replaces this page)".into(),
+                name("Paste Page (Replaces It)", "Paste page (replaces it)"),
                 self.page_clip.is_some(),
             ),
             (Popup::Separator, String::new(), false),
-            (Popup::StopPage(page), "Stop this page".into(), true),
-            (Popup::AddPage, "Add page".into(), true),
-            (Popup::RemovePage(page), "Remove page".into(), multi),
+            (Popup::StopPage(page), name("Stop Page", "Stop page"), true),
+            (Popup::AddPage, name("Add Page", "Add page"), true),
+            (Popup::Separator, String::new(), false),
+            (
+                Popup::RemovePage(page),
+                name("Delete Page…", "Delete page…"),
+                multi,
+            ),
         ];
-        // Above the bar, so it is not cut off at the bottom of the window.
-        let h: f32 = items
-            .iter()
-            .map(|(p, _, _)| {
-                if matches!(p, Popup::Separator) {
-                    9.0
-                } else {
-                    36.0
-                }
-            })
-            .sum::<f32>()
-            + 8.0;
-        self.show_popup(items, x, (y - h - 8.0).max(8.0));
+        self.show_popup(items, None, Vec::new(), x, y);
     }
 
-    fn show_popup(&mut self, items: Vec<(Popup, String, bool)>, x: f32, y: f32) {
+    /// Shows a native context menu at (x, y): `head`, then an optional submenu, then
+    /// `tail`.
+    fn show_popup(
+        &mut self,
+        head: Vec<PopupItem>,
+        sub: Option<(String, Vec<PopupItem>)>,
+        tail: Vec<PopupItem>,
+        x: f32,
+        y: f32,
+    ) {
         let Some(ui) = self.ui.upgrade() else { return };
-        let rows: Vec<PopupRow> = items
-            .iter()
-            .map(|(p, text, enabled)| PopupRow {
-                text: text.as_str().into(),
-                enabled: *enabled,
-                separator: matches!(p, Popup::Separator),
-            })
-            .collect();
-        self.popup = items.into_iter().map(|(p, _, _)| p).collect();
-        ui.set_popup_rows(ModelRc::new(VecModel::from(rows)));
-        ui.set_popup_x(
-            x.min(
-                ui.window()
-                    .size()
-                    .to_logical(ui.window().scale_factor())
-                    .width
-                    - 248.0,
-            )
-            .max(4.0),
-        );
+        self.popup.clear();
+        let rows = |items: Vec<PopupItem>, all: &mut Vec<Popup>| {
+            let rows: Vec<PopupRow> = items
+                .into_iter()
+                .map(|(p, text, enabled)| {
+                    let separator = matches!(p, Popup::Separator);
+                    all.push(p);
+                    PopupRow {
+                        id: all.len() as i32 - 1,
+                        text: if separator {
+                            menu::SEPARATOR.into()
+                        } else {
+                            text.into()
+                        },
+                        enabled: enabled && !separator,
+                    }
+                })
+                .collect();
+            ModelRc::new(VecModel::from(rows))
+        };
+        let mut all = Vec::new();
+        ui.set_popup_rows(rows(head, &mut all));
+        let (title, sub) = sub.unwrap_or_default();
+        ui.set_popup_sub_title(title.into());
+        ui.set_popup_sub(rows(sub, &mut all));
+        ui.set_popup_tail(rows(tail, &mut all));
+        self.popup = all;
+        ui.set_popup_x(x);
         ui.set_popup_y(y);
-        ui.invoke_open_popup();
+        // The system menu takes the mouse until it closes, so the button that opened
+        // it is never released in the window, and the next click would go to the tab
+        // or cell that opened it. End that press first, then open the menu.
+        ui.window()
+            .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                position: slint::LogicalPosition::new(x, y),
+                button: slint::platform::PointerEventButton::Right,
+            });
+        let w = self.ui.clone();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(ui) = w.upgrade() {
+                ui.invoke_open_popup();
+            }
+        });
     }
 
     fn popup_chosen(&mut self, idx: usize, intents: &mut Vec<Intent>) {
@@ -1084,7 +1154,7 @@ impl App {
             }
             Popup::StopPage(p) => intents.push(Intent::StopPage(p)),
             Popup::AddPage => intents.push(Intent::AddPage),
-            Popup::RemovePage(p) => intents.push(Intent::RemovePage(p)),
+            Popup::RemovePage(p) => self.delete_page = Some(p),
         }
     }
 
@@ -1360,11 +1430,6 @@ impl App {
                     }
                 }
             }
-            Cmd::Zoom(z) => {
-                self.prefs.ui_scale = Some(z as f32 / 100.0);
-                self.core.save_prefs();
-                self.apply_zoom();
-            }
             // Windows not in this interface yet (their menu items are disabled).
             Cmd::AudioSetup
             | Cmd::SpeedBar
@@ -1385,12 +1450,6 @@ impl App {
         self.core.request(a, &snap, intents);
     }
 
-    fn apply_zoom(&mut self) {
-        if let Some(ui) = self.ui.upgrade() {
-            window::apply_zoom(&ui, self.prefs.ui_scale.unwrap_or(1.0));
-        }
-    }
-
     // ---- quick edit ----
 
     fn open_quick_edit(&mut self, cart: Uuid, idx: i32) {
@@ -1398,8 +1457,25 @@ impl App {
         self.quick_edit = Some(cart);
         self.qe_cart = None;
         self.qe_seen = None;
-        ui.set_qe_x(ui.invoke_cell_x(idx) + 24.0);
-        ui.set_qe_y(ui.invoke_cell_y(idx) + 24.0);
+        // Beside the cart (right of it, or left when there is no room).
+        let width = ui
+            .window()
+            .size()
+            .to_logical(ui.window().scale_factor())
+            .width;
+        let (x, w) = (ui.invoke_cell_x(idx), ui.invoke_cell_w());
+        let panel = if cfg!(target_os = "macos") {
+            392.0
+        } else {
+            404.0
+        };
+        let right = x + w + 10.0;
+        let fits_right = right + panel <= width - 8.0;
+        ui.set_qe_x(if fits_right { right } else { x - panel - 10.0 });
+        ui.set_qe_arrow_left(fits_right);
+        let y = ui.invoke_cell_y(idx);
+        ui.set_qe_y(y);
+        ui.set_qe_point_y(y + ui.invoke_cell_h() / 2.0);
     }
 
     fn close_quick_edit(&mut self) {
@@ -1524,7 +1600,7 @@ impl App {
                 }
                 self.close_quick_edit();
             }
-            "clear" => {
+            "delete" => {
                 if let Some((p, r, c)) = at {
                     intents.push(Intent::ClearCell(p, r, c));
                     self.selected = None;
@@ -1533,10 +1609,6 @@ impl App {
             }
             "gain-reset" => {
                 self.qe_edit(intents, |c| c.gain_db = 0.0);
-                self.qe_refresh();
-            }
-            "speed-reset" => {
-                self.qe_edit(intents, |c| c.speed = 1.0);
                 self.qe_refresh();
             }
             _ => {}
@@ -1563,6 +1635,8 @@ impl App {
             Some(Dialog::ConvertOffer)
         } else if self.paste_attrs {
             Some(Dialog::PasteAttrs)
+        } else if self.delete_page.is_some() {
+            Some(Dialog::DeletePage)
         } else if self.relink {
             Some(Dialog::Relink)
         } else {
@@ -1687,6 +1761,18 @@ impl App {
                 );
                 info.buttons = strings(&["Paste", "Cancel"]);
             }
+            Dialog::DeletePage => {
+                let page = self.delete_page.unwrap_or(0);
+                let name_ = snap
+                    .project
+                    .pages
+                    .get(page)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                info.title = format!("Delete the page \u{201c}{name_}\u{201d}?").into();
+                info.body = "Its carts are removed with it. Undo brings them back.".into();
+                info.buttons = strings(&["Delete", "Cancel"]);
+            }
             Dialog::Relink => {
                 info.title = "Missing Files".into();
                 if snap.missing.is_empty() {
@@ -1728,6 +1814,22 @@ impl App {
             return;
         };
         let mut info = self.dialog_info(d, snap);
+        // Don't Save / Quit Without Saving / Discard: far left on a Mac.
+        let destructive = match d {
+            Dialog::ConfirmClose | Dialog::ConfirmDiscard => Some(2),
+            _ => None,
+        };
+        let (left, right) = button_order(
+            &info
+                .buttons
+                .iter()
+                .map(|b| b.to_string())
+                .collect::<Vec<_>>(),
+            destructive,
+            cfg!(target_os = "macos"),
+        );
+        info.left = ModelRc::new(VecModel::from(left));
+        info.right = ModelRc::new(VecModel::from(right));
         // Rebuilt only when what it shows changes (not while a name is typed).
         let name = std::mem::take(&mut info.name);
         let sig = format!(
@@ -1833,6 +1935,13 @@ impl App {
                 self.paste_attrs = false;
             }
             (Dialog::Relink, _) => self.relink = false,
+            (Dialog::DeletePage, i) => {
+                if let Some(p) = self.delete_page.take()
+                    && i == 0
+                {
+                    intents.push(Intent::RemovePage(p));
+                }
+            }
             (Dialog::Recover, _) => {}
         }
     }
@@ -1968,6 +2077,34 @@ impl App {
             self.core.write_autosave();
         }
     }
+}
+
+/// Dialog buttons in the platform's order. `buttons` lists the main button first and
+/// Cancel last. Windows: right-aligned in that order. Mac: the main button rightmost,
+/// Cancel to its left, and a destructive button (Don't Save) at the far left.
+fn button_order(
+    buttons: &[String],
+    destructive: Option<usize>,
+    mac: bool,
+) -> (Vec<DialogButton>, Vec<DialogButton>) {
+    let b = |i: usize| DialogButton {
+        text: buttons[i].as_str().into(),
+        index: i as i32,
+    };
+    if !mac {
+        return (Vec::new(), (0..buttons.len()).map(b).collect());
+    }
+    let left = destructive
+        .filter(|d| *d < buttons.len())
+        .map(b)
+        .into_iter()
+        .collect();
+    let right = (0..buttons.len())
+        .rev()
+        .filter(|i| Some(*i) != destructive)
+        .map(b)
+        .collect();
+    (left, right)
 }
 
 /// Replaces only the rows that changed (all of them if the length changed).

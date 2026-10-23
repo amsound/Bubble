@@ -1309,12 +1309,6 @@ impl BubbleApp {
                 ctx.set_theme(theme(a));
                 self.save_prefs();
             }
-            Cmd::Zoom(z) => {
-                let f = z as f32 / 100.0;
-                ctx.set_zoom_factor(f);
-                self.prefs.ui_scale = Some(f);
-                self.save_prefs();
-            }
             // Handled by `apply_common`.
             _ => {}
         }

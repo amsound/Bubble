@@ -19,7 +19,13 @@ fn render(tree: &usvg::Tree, n: u32) -> tiny_skia::Pixmap {
 }
 
 fn main() {
-    let config = slint_build::CompilerConfiguration::new().with_style("fluent".into());
+    // The standard widgets look native: cupertino on a Mac, fluent elsewhere.
+    let style = if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        "cupertino"
+    } else {
+        "fluent"
+    };
+    let config = slint_build::CompilerConfiguration::new().with_style(style.into());
     slint_build::compile_with_config("ui/main.slint", config).expect("Slint UI failed to compile");
 
     let svg = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/logo.svg");

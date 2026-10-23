@@ -1,13 +1,14 @@
-// One cart tile, laid out as the egui tile (crates/bubble-app/src/tile.rs):
+// One cart tile (design: "Bubble main window design" canvas, Tile component):
 //
 //   ┌──────────────────────────────────────┐
-//   │ 12  G1 Drums                [ F1 ]   │  number, exclusive group, triggers
+//   │ 12  G1 Drums                   F1    │  number, exclusive group, hotkey keycap
 //   │            Label text                │  typeface, size and alignment from Display
-//   │ Out A > ⟲ ×0.75 ■ →         -1:23    │  output, flags; time
-//   └▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀────────────────────┘  progress
+//   │ [A] ↻ ⇥ ×0.75                -1:23   │  output badge, icon row, speed; time
+//   └▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀────────────────────────┘  state border and progress: one shape
 //
 // Input is reported, not acted on: the app decides what a press does in each mode.
 
+import { Spinner } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export enum CartState { empty, loading, missing, error, ready, playing, stopping }
@@ -20,22 +21,28 @@ export struct Tile {
     bg: color,
     fg: color,
     group: string,
+    // The hotkey (or MIDI trigger) keycap text.
     triggers: string,
-    // "Out A"; empty for a control button.
+    // The output letter ("A"); empty for a control button.
     output: string,
     // The output is playing elsewhere or not set up here (amber badge).
     rerouted: bool,
-    flags: string,
+    // Path commands (16 × 16 grid) for the icon row: loop, trims, stop-all, next, …
+    icons: [string],
+    // "×0.75" when the speed is not 100%.
+    speed: string,
     time: string,
     progress: float,
     ending: bool,
     state: CartState,
     selected: bool,
     learning: bool,
+    // A control button (STOP GROUP, STOP PAGE, STOP ALL).
+    control: bool,
     // Shown after a moment's hover (why the output is rerouted).
     tip: string,
-    // Bubble is copying audio into this cell ("Copying…"); empty otherwise.
-    busy: string,
+    // Audio is being copied into this cell (the busy popover has the details).
+    copying: bool,
 }
 
 // How cart labels look (Session Settings ▸ Display).
@@ -73,221 +80,258 @@ export component TileView inherits Rectangle {
     property <bool> holding;
     property <bool> held;
     property <bool> playing: tile.state == CartState.playing || tile.state == CartState.stopping;
+    // The state colour: yellow playing, purple fading, red inside the ending warning.
+    property <color> state-color: tile.state == CartState.stopping ? Theme.fading : tile.ending ? Theme.ending : Theme.playing;
 
-    // Inside the 5 px playing border, so it never covers the number or the time.
-    property <length> pad: 9px;
-    property <length> top: 7px;
-    property <length> small: clamp(11px * style.small, 7px, 40px);
-    property <length> time-size: max(8px, clamp(self.height / 6, 11px, 22px) * style.small);
-    property <length> label-size: clamp(clamp(self.height / 5, 12px, 26px) * style.size, 6px, 120px);
-    // The bottom text row ends here; the progress track sits below it.
-    property <length> bottom-y: self.height - 15px;
-    property <length> top-h: max(small + 2px, chips.preferred-height);
+    // Inside the 4 px state border, so it never covers the number or the time.
+    property <length> pad: 10px;
+    property <length> top: 8px;
+    property <length> small: clamp(12px * style.small, 8px, 40px);
+    property <length> time-size: clamp(clamp(self.height / 7, 14px, 22px) * style.small, 8px, 60px);
+    property <length> label-size: clamp(clamp(self.height / 5, 13px, 26px) * style.size, 6px, 120px);
+    // The bottom row ends here; the progress band sits below it.
+    property <length> bottom-y: self.height - 17px;
+    property <length> top-h: max(small + 4px, chips.preferred-height);
 
-    border-radius: 6px;
+    border-radius: 8px;
     background: tile.has-cart ? tile.bg : Theme.empty-tile;
 
     // Empty cell in Edit mode: a "+" to show it can take audio.
-    if !tile.has-cart && edit-mode && tile.busy == "": Text {
+    if !tile.has-cart && edit-mode && !tile.copying: Text {
         text: "+";
-        font-size: 22px;
-        color: #5a5a5a;
+        font-size: 26px;
+        font-weight: 300;
+        color: Theme.empty-mark;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
-
-    // ---- top row: number + group (left), triggers (right) ----
-    chips := HorizontalLayout {
-        x: pad;
-        y: top;
-        width: root.width - 2 * pad;
-        height: self.preferred-height;
-        spacing: 6px;
-        visible: tile.has-cart;
-        Text {
-            text: tile.number;
-            font-family: Theme.mono-font;
-            font-size: small;
-            color: tile.fg.transparentize(30%);
-            vertical-alignment: center;
-        }
-        if tile.group != "": Rectangle {
-            border-radius: 3px;
-            background: tile.fg.transparentize(82%);
-            horizontal-stretch: 0;
-            min-width: group-text.preferred-width + 8px;
-            HorizontalLayout {
-                padding-left: 4px;
-                padding-right: 4px;
-                padding-top: 1px;
-                padding-bottom: 1px;
-                group-text := Text {
-                    text: tile.group;
-                    font-size: small;
-                    color: tile.fg;
-                    overflow: elide;
-                }
-            }
-        }
-        Rectangle {
-            horizontal-stretch: 1;
-        }
-        // A prominent "keycap", so the operator can read the hot key at a glance.
-        if tile.triggers != "": Rectangle {
-            border-radius: 3px;
-            background: tile.fg.transparentize(15%);
-            horizontal-stretch: 0;
-            HorizontalLayout {
-                padding-left: 4px;
-                padding-right: 4px;
-                padding-top: 1px;
-                padding-bottom: 1px;
-                Text {
-                    text: tile.triggers;
-                    font-family: Theme.mono-font;
-                    font-size: max(9px, small * 1.15);
-                    color: tile.bg;
-                }
-            }
+    // Audio arriving: an outline and a quiet icon; the busy popover has the words.
+    if tile.copying: Rectangle {
+        border-radius: 8px;
+        border-width: 2px;
+        border-color: Theme.accent.transparentize(15%);
+        Path {
+            width: 22px;
+            height: 22px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M8 2v7.5M5 6.5l3 3 3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2";
+            stroke: #8fb0ff;
+            stroke-width: 1.6px;
+            fill: transparent;
         }
     }
-    // The number of an empty cell (dim, like the egui tile's).
+    // The number of an empty cell.
     if !tile.has-cart: Text {
         x: pad;
         y: top;
         text: tile.number;
-        font-family: Theme.mono-font;
         font-size: small;
-        color: #ffffff40;
+        color: Theme.empty-mark;
     }
 
-    // ---- bottom row: output and flags (left), time (right) ----
-    bottom := HorizontalLayout {
-        x: pad;
-        width: root.width - 2 * pad;
-        height: self.preferred-height;
-        y: bottom-y - self.height;
-        spacing: 4px;
+    // A cart not ready yet (audio loading) or missing is dimmed; the rest is unchanged.
+    content := Rectangle {
         visible: tile.has-cart;
-        alignment: stretch;
-        // A rerouted output is a badge, so it is noticed before the cart is played.
-        if tile.rerouted && tile.output != "": Rectangle {
-            border-radius: 3px;
-            background: Theme.rerouted;
-            horizontal-stretch: 0;
-            min-width: badge.preferred-width + 8px;
-            badge := Text {
-                text: tile.output;
-                font-size: small * 1.15;
-                color: #000000;
-                horizontal-alignment: center;
+        opacity: tile.state == CartState.missing || tile.state == CartState.error ? 0.5 : tile.state == CartState.loading ? 0.55 : 1;
+
+        // ---- top row: number + group (left), hotkey keycap (right) ----
+        chips := HorizontalLayout {
+            x: pad;
+            y: top;
+            width: root.width - 2 * pad;
+            height: self.preferred-height;
+            spacing: 6px;
+            Text {
+                text: tile.number;
+                font-size: small;
+                color: tile.fg.transparentize(28%);
                 vertical-alignment: center;
             }
+            if tile.group != "": Rectangle {
+                border-radius: 4px;
+                background: tile.fg.transparentize(80%);
+                horizontal-stretch: 0;
+                min-width: group-text.preferred-width + 12px;
+                group-text := Text {
+                    text: tile.group;
+                    font-size: small * 0.92;
+                    color: tile.fg;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            // A prominent "keycap", so the operator can read the hotkey at a glance.
+            if tile.triggers != "": Rectangle {
+                border-radius: 4px;
+                background: tile.fg.transparentize(12%);
+                horizontal-stretch: 0;
+                min-width: key-text.preferred-width + 12px;
+                key-text := Text {
+                    text: tile.triggers;
+                    font-size: small;
+                    font-weight: 600;
+                    color: tile.bg;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
         }
+
+        // ---- bottom row: output badge, icon row, speed (left); time (right) ----
+        bottom := HorizontalLayout {
+            x: pad;
+            width: root.width - 2 * pad;
+            height: max(18px, self.preferred-height);
+            y: bottom-y - self.height;
+            spacing: 5px;
+            alignment: stretch;
+            if tile.output != "": Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: small + 4px;
+                min-width: max(self.height, out-text.preferred-width + 6px);
+                horizontal-stretch: 0;
+                border-radius: 4px;
+                background: tile.rerouted ? Theme.rerouted : tile.fg.transparentize(76%);
+                out-text := Text {
+                    text: tile.output;
+                    font-size: small * 0.92;
+                    font-weight: 700;
+                    color: tile.rerouted ? #000000 : tile.fg;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            for icon in tile.icons: Path {
+                y: (parent.height - self.height) / 2;
+                width: small + 2px;
+                height: small + 2px;
+                horizontal-stretch: 0;
+                viewbox-width: 16;
+                viewbox-height: 16;
+                commands: icon;
+                stroke: tile.fg.transparentize(10%);
+                stroke-width: 1.5px;
+                fill: transparent;
+            }
+            if tile.speed != "": Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: small + 4px;
+                min-width: speed-text.preferred-width + 10px;
+                horizontal-stretch: 0;
+                border-radius: 4px;
+                background: tile.fg.transparentize(80%);
+                speed-text := Text {
+                    text: tile.speed;
+                    font-size: small * 0.92;
+                    font-weight: 600;
+                    color: tile.fg;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            // Not ready yet: a small spinner (the busy popover says why).
+            if tile.state == CartState.loading: Spinner {
+                y: (parent.height - self.height) / 2;
+                width: small + 2px;
+                height: small + 2px;
+                indeterminate: true;
+            }
+            // MISSING / ERROR as a small tag; otherwise the time.
+            if tile.state == CartState.missing || tile.state == CartState.error: Rectangle {
+                y: (parent.height - self.height) / 2;
+                height: small + 6px;
+                min-width: tag.preferred-width + 12px;
+                horizontal-stretch: 0;
+                border-radius: 4px;
+                background: #00000059;
+                tag := Text {
+                    text: tile.state == CartState.missing ? "MISSING" : "ERROR";
+                    font-size: small * 0.92;
+                    font-weight: 700;
+                    letter-spacing: 0.6px;
+                    color: #ffb4a8;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            if tile.state != CartState.missing && tile.state != CartState.error: Text {
+                text: tile.time;
+                font-size: time-size;
+                font-weight: root.playing ? 700 : 500;
+                color: tile.fg;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+            }
+        }
+
+        // ---- label in the remaining area ("|" or Shift+Return is a line break) ----
         Text {
-            text: tile.rerouted || tile.output == "" ? tile.flags : (tile.flags == "" ? tile.output : tile.output + " " + tile.flags);
-            font-size: small * 1.15;
+            x: pad;
+            y: top + top-h + 2px;
+            width: root.width - 2 * pad;
+            height: max(0px, bottom.y - 2px - self.y);
+            text: tile.label;
+            font-family: style.font;
+            font-weight: tile.control ? 700 : max(style.weight, 600);
+            letter-spacing: tile.control ? 0.6px : 0px;
+            font-size: label-size;
             color: tile.fg;
-            overflow: elide;
-            vertical-alignment: TextVerticalAlignment.bottom;
-            horizontal-stretch: 1;
-        }
-        Text {
-            text: tile.time;
-            font-family: Theme.mono-font;
-            font-size: time-size;
-            font-weight: root.playing ? 700 : 400;
-            color: tile.fg;
-            horizontal-alignment: right;
-            vertical-alignment: TextVerticalAlignment.bottom;
-            horizontal-stretch: 0;
+            wrap: word-wrap;
+            overflow: clip;
+            horizontal-alignment: style.h-align == 0 ? TextHorizontalAlignment.left : style.h-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center;
+            vertical-alignment: style.v-align == 0 ? TextVerticalAlignment.top : style.v-align == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.center;
         }
     }
 
-    // ---- label in the remaining area ----
-    Text {
-        x: pad;
-        y: top + top-h + 2px;
-        width: root.width - 2 * pad;
-        height: max(0px, bottom.y - 2px - self.y);
-        visible: tile.has-cart && self.height > 4px;
-        text: tile.label;
-        font-family: style.font;
-        font-weight: style.weight;
-        font-size: label-size;
-        color: tile.fg;
-        wrap: word-wrap;
-        overflow: clip;
-        horizontal-alignment: style.h-align == 0 ? TextHorizontalAlignment.left : style.h-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center;
-        vertical-alignment: style.v-align == 0 ? TextVerticalAlignment.top : style.v-align == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.center;
-    }
-
-    // ---- copying audio in, or preparing it: what is happening, and a moving bar ----
-    if tile.busy != "": Text {
-        x: pad;
-        width: root.width - 2 * pad;
-        y: (root.height - self.height) / 2;
-        text: tile.busy;
-        font-size: max(12px, small * 1.3);
-        font-weight: 600;
-        color: tile.has-cart ? tile.fg : #ffffff;
-        horizontal-alignment: center;
-        wrap: word-wrap;
-    }
-    if tile.busy != "" || tile.state == CartState.loading: Rectangle {
-        x: 5px;
-        y: root.height - 13px;
-        width: root.width - 10px;
-        height: 8px;
-        border-radius: 2px;
-        background: #0000006e;
-        clip: true;
-        property <float> phase: mod(animation-tick() / 1400ms, 1);
-        Rectangle {
-            width: parent.width * 0.3;
-            x: (parent.width + self.width) * phase - self.width;
-            border-radius: 2px;
-            background: #ffffffb0;
-        }
-    }
-
-    // ---- state: steady yellow border while playing, purple while fading out ----
-    if tile.state == CartState.playing || tile.state == CartState.stopping: Rectangle {
-        border-radius: 6px;
-        border-width: 5px;
-        border-color: tile.state == CartState.playing ? Theme.playing : Theme.fading;
-    }
-    // Progress, inside the border so nothing covers it.
+    // ---- state: the border and the progress band are one shape ----
     if root.playing: Rectangle {
-        x: 5px;
-        y: root.height - 13px;
-        width: root.width - 10px;
+        border-radius: 8px;
+        border-width: 4px;
+        border-color: root.state-color;
+    }
+    // The band runs along the inside of the border's bottom edge, with its inner corners.
+    if root.playing: Rectangle {
+        x: 4px;
+        y: root.height - 12px;
+        width: root.width - 8px;
         height: 8px;
-        border-radius: 2px;
-        background: #0000006e;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+        background: root.state-color.transparentize(68%);
+        clip: true;
         Rectangle {
             x: 0;
             width: parent.width * clamp(tile.progress, 0, 1);
-            border-radius: 2px;
-            background: tile.ending ? #ff5030 : #40ff80;
+            background: root.state-color;
         }
     }
     if tile.selected && edit-mode: Rectangle {
-        x: -2px;
-        y: -2px;
-        width: root.width + 4px;
-        height: root.height + 4px;
-        border-radius: 8px;
+        x: -4px;
+        y: -4px;
+        width: root.width + 8px;
+        height: root.height + 8px;
+        border-radius: 11px;
         border-width: 2px;
         border-color: Theme.select;
     }
+    // Learning a trigger: a pulsing border until a key or MIDI message arrives.
     if tile.learning: Rectangle {
-        border-radius: 6px;
+        border-radius: 8px;
         border-width: 4px;
         border-color: Theme.learning;
+        opacity: 0.25 + 0.75 * abs(sin(animation-tick() / 1100ms * 180deg));
     }
     if drop-target: Rectangle {
-        border-radius: 6px;
+        border-radius: 8px;
         border-width: 3px;
         border-color: root.drop-color;
     }

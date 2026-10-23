@@ -11,7 +11,8 @@ export global Theme {
 
     out property <color> window-bg: dark ? #1b1d21 : #eceef1;
     out property <color> bar-bg: dark ? #24272c : #dde1e6;
-    out property <color> empty-tile: dark ? #363a40 : #2a2d31;
+    out property <color> empty-tile: dark ? #363a40 : #d5dae0;
+    out property <color> empty-mark: dark ? #6a7078 : #8a929c;
     out property <color> button: dark ? #3a3f46 : #c7cdd5;
     out property <color> button-hover: dark ? #454b53 : #d3d8de;
     out property <color> text: dark ? #e8e8e8 : #1c1f23;
@@ -30,13 +31,15 @@ export global Theme {
     out property <color> error: #e53935;
     out property <color> select: #80c0ff;
     out property <color> playing: #ffd82e;
+    out property <color> ending: #ff5a3c;
     out property <color> fading: #a855f7;
     out property <color> learning: #ff40ff;
     out property <color> drop: #ffff00;
     out property <color> rerouted: #ffb020;
 
-    // Monospaced and label typefaces (set per platform from Rust).
-    in-out property <string> mono-font;
+    // Running on macOS (set from Rust): Mac shapes and sizes, else Windows ones.
+    in-out property <bool> mac;
+    out property <color> popover: dark ? (mac ? #34373c : #2b2b2b) : (mac ? #f6f6f7 : #f9f9f9);
 }
 
 // Copy, cut, paste, undo, redo and select-all from the menus, for whichever text
@@ -118,4 +121,40 @@ export component Panel inherits Rectangle {
     drop-shadow-blur: 18px;
     drop-shadow-offset-y: 6px;
     drop-shadow-color: #00000070;
+}
+
+// A flat, system-like push button (Slint's own Mac style draws gradients). Mac: 24 px,
+// translucent grey, the main button solid blue. Windows 11: 32 px, outlined, the main
+// button in the accent colour with dark text.
+export component SysButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    // Red text on a red tint (Delete).
+    in property <bool> destructive;
+    callback clicked;
+    height: Theme.mac ? 24px : 32px;
+    min-width: label.preferred-width + (Theme.mac ? 22px : 24px);
+    horizontal-stretch: 0;
+    border-radius: Theme.mac ? 6px : 4px;
+    border-width: Theme.mac || primary ? 0px : 1px;
+    border-color: Theme.panel-border;
+    background: destructive ? (ta.has-hover ? #ff453a40 : #ff453a2e)
+        : primary ? (Theme.mac ? #0a84ff : #4cc2ff).darker(ta.pressed ? 15% : 0%)
+        : Theme.mac ? Theme.text.transparentize(ta.pressed ? 76% : ta.has-hover ? 82% : 87%)
+        : ta.has-hover ? Theme.hover : Theme.button;
+    opacity: enabled ? 1 : 0.45;
+    label := Text {
+        text: root.text;
+        font-size: Theme.mac ? 13px : 14px;
+        color: root.destructive ? #ff6961 : root.primary ? (Theme.mac ? #ffffff : #000000) : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
 }

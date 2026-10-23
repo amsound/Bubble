@@ -59,7 +59,6 @@ pub enum Cmd {
     ShowDiagnostics,
     /// Shows Bubble's log file (start-up and audio events) in the file manager.
     ShowLogs,
-    Zoom(u32),
     /// Global output attenuation preset in dB.
     OutputLevel(i32),
     ProjectSettings,
@@ -369,7 +368,6 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             ],
         ),
     ];
-    let zoom = (core.prefs.ui_scale.unwrap_or(1.0) * 100.0).round() as u32;
     let view = vec![
         Item::sub(
             "Page Bar Size",
@@ -379,13 +377,6 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
                 .map(|(i, n)| {
                     Item::action(n, Cmd::BarSize(i as u8)).check(core.prefs.bar_size == i as u8)
                 })
-                .collect(),
-        ),
-        Item::sub(
-            "Interface Size",
-            [75u32, 100, 125, 150, 200]
-                .into_iter()
-                .map(|z| Item::action(format!("{z}%"), Cmd::Zoom(z)).check(z == zoom))
                 .collect(),
         ),
         Item::sub(

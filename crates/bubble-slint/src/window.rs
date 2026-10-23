@@ -1,6 +1,6 @@
 //! The main window and the operating system, through Slint's winit accessor
 //! (`unstable-winit-030`): its place on screen, the title bar's light/dark theme,
-//! interface size, bringing it to the front, and where the pointer is during an OS
+//! bringing it to the front, and where the pointer is during an OS
 //! file drag.
 
 use bubble_core::prefs::{Appearance, WindowPlace};
@@ -10,7 +10,7 @@ use slint::winit_030::winit;
 
 use crate::MainWindow;
 
-/// The window's current place in logical points (not counting the interface size),
+/// The window's current place in logical points,
 /// or `None` while it is minimised or full screen.
 pub fn place(ui: &MainWindow) -> Option<WindowPlace> {
     ui.window()
@@ -94,18 +94,6 @@ pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
             Appearance::Dark => Some(winit::window::Theme::Dark),
         })
     });
-}
-
-/// View ▸ Interface Size: Slint's scale factor is the system's times `zoom`.
-pub fn apply_zoom(ui: &MainWindow, zoom: f32) {
-    let Some(os) = ui.window().with_winit_window(|w| w.scale_factor()) else {
-        return;
-    };
-    let scale_factor = (os as f32 * zoom).clamp(0.5, 6.0);
-    if (ui.window().scale_factor() - scale_factor).abs() > 1e-3 {
-        ui.window()
-            .dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged { scale_factor });
-    }
 }
 
 /// Another launch asked Bubble to show itself.

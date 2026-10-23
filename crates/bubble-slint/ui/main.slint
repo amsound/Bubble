@@ -1,4 +1,4 @@
-// Bubble's main window: menus, busy strip, cart wall, bottom bar, quick edit, popup
+// Bubble's main window: menus, busy popover, cart wall, bottom bar, quick edit, popup
 // menus and dialogs. State comes from Rust (`src/app.rs`); input goes back as
 // callbacks, and Rust decides what it does.
 
@@ -7,9 +7,9 @@ import { Theme, TextCommand, FlatButton, Panel } from "theme.slint";
 import { TileView, Tile, LabelStyle, CartState } from "tile.slint";
 import { BottomBar, PageTab, StatusItem } from "bar.slint";
 import { QuickEditPanel, QuickEdit } from "quickedit.slint";
-import { DialogView, DialogInfo, DialogRow } from "dialogs.slint";
+import { DialogView, DialogInfo, DialogRow, DialogButton } from "dialogs.slint";
 
-export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit, DialogInfo, DialogRow }
+export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit, DialogInfo, DialogRow, DialogButton }
 
 // A menu entry; a separator has the separator title (see `src/menu.rs`).
 export struct MenuEntryData {
@@ -34,10 +34,21 @@ export struct MenuTop {
     slots: [MenuSlot],
 }
 
+// A line in the busy popover.
+export struct BusyRow {
+    text: string,
+    detail: string,
+    // Audio is being copied in (download icon); otherwise a spinner.
+    copy: bool,
+    // 0…1, or -1 when unknown (a moving bar).
+    progress: float,
+}
+
+// A context-menu entry; a separator has the separator title (see `src/menu.rs`).
 export struct PopupRow {
+    id: int,
     text: string,
     enabled: bool,
-    separator: bool,
 }
 
 export component MainWindow inherits Window {
@@ -65,9 +76,7 @@ export component MainWindow inherits Window {
     in property <int> renaming: -1;
     in property <string> rename-text;
     in property <length> bar-height: 44px;
-    in property <string> busy-text;
-    // -1: no progress bar.
-    in property <float> busy-progress: -1;
+    in property <[BusyRow]> busy;
     // 0 none, 1 no session (New/Open), 2 an empty session (hints).
     in property <int> empty-card;
     // The cell files are dragged over (-1: none).
@@ -77,10 +86,16 @@ export component MainWindow inherits Window {
     in property <QuickEdit> qe;
     in property <length> qe-x;
     in property <length> qe-y;
+    // Where the quick-edit arrow points (the cart's middle), and on which side.
+    in property <length> qe-point-y;
+    in property <bool> qe-arrow-left: true;
     in property <[int]> dialog-gen;
     in property <DialogInfo> dialog;
     in property <bool> dialog-ok: true;
     in property <[PopupRow]> popup-rows;
+    in property <string> popup-sub-title;
+    in property <[PopupRow]> popup-sub;
+    in property <[PopupRow]> popup-tail;
     in property <length> popup-x;
     in property <length> popup-y;
     // Flipped to repaint the whole window (stale areas after a restore).
@@ -106,12 +121,12 @@ export component MainWindow inherits Window {
     callback stop-all();
     callback status-clicked();
     callback popup-chosen(int);
+    callback busy-hide();
     callback qe-close();
     callback qe-label(string);
     callback qe-colour(int);
     callback qe-hex(string);
     callback qe-gain(float);
-    callback qe-speed(float);
     callback qe-choice(string, int);
     callback qe-flag(string, bool);
     callback qe-action(string);
@@ -127,8 +142,6 @@ export component MainWindow inherits Window {
     // ---- layout ----
     property <length> gap: 6px;
     property <length> pad: 6px;
-    // The busy strip floats over the top of the wall: carts never move.
-    property <length> busy-h: busy-text == "" ? 0px : 34px;
     property <length> wall-top: pad;
     property <length> wall-w: self.width - 2 * pad;
     property <length> wall-h: self.height - bar-height - 2 * pad;
@@ -168,14 +181,20 @@ export component MainWindow inherits Window {
     public pure function cell-x(i: int) -> length {
         pad + mod(i, max(cols, 1)) * (tile-w + gap)
     }
+    public pure function cell-w() -> length {
+        tile-w
+    }
+    public pure function cell-h() -> length {
+        tile-h
+    }
     public pure function cell-y(i: int) -> length {
         wall-top + floor(i / max(cols, 1)) * (tile-h + gap)
     }
     public function open-popup() {
-        popup.show();
+        ctx.show({ x: root.popup-x, y: root.popup-y });
     }
     public function close-popup() {
-        popup.close();
+        ctx.close();
     }
     public function text-command(name: string) {
         TextCommand.name = name;
@@ -437,47 +456,107 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ---- busy strip ----
-    if busy-text != "": Rectangle {
-        x: 0;
-        y: 0;
-        width: root.width;
-        height: busy-h;
-        background: Theme.accent.transparentize(8%);
-        drop-shadow-blur: 8px;
-        drop-shadow-color: #00000060;
-        HorizontalLayout {
-            padding-left: 12px;
-            padding-right: 12px;
-            spacing: 10px;
-            Spinner {
-                indeterminate: true;
-                width: 20px;
-                height: 20px;
-                y: (parent.height - self.height) / 2;
-            }
-            Text {
-                text: root.busy-text;
-                color: #ffffff;
-                font-weight: 700;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            if root.busy-progress >= 0: Rectangle {
-                width: min(320px, root.width / 3);
-                height: 8px;
-                y: (parent.height - self.height) / 2;
-                border-radius: 4px;
-                background: #ffffff50;
-                Rectangle {
-                    x: 0;
-                    width: parent.width * clamp(root.busy-progress, 0, 1);
-                    border-radius: 4px;
-                    background: #ffffff;
+    // ---- busy popover: the one place for "Bubble is busy" ----
+    // Non-modal, top centre, over the wall: ready carts stay playable underneath and
+    // nothing moves. It goes when the work is done; ✕ hides it sooner.
+    if busy.length > 0: Rectangle {
+        width: min(460px, root.width - 24px);
+        height: busy-layout.preferred-height;
+        x: (root.width - self.width) / 2;
+        y: 10px;
+        border-radius: Theme.mac ? 12px : 8px;
+        background: Theme.popover;
+        border-width: 1px;
+        border-color: Theme.panel-border;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-color: #00000080;
+        TouchArea { }
+        busy-layout := VerticalLayout {
+            padding-left: 14px;
+            padding-right: 8px;
+            padding-top: 8px;
+            padding-bottom: 12px;
+            spacing: 8px;
+            for row[i] in busy: VerticalLayout {
+                spacing: 7px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    height: Theme.mac ? 22px : 32px;
+                    if !row.copy: Spinner {
+                        width: 14px;
+                        height: 14px;
+                        y: (parent.height - self.height) / 2;
+                        indeterminate: true;
+                    }
+                    if row.copy: Path {
+                        width: 14px;
+                        height: 14px;
+                        y: (parent.height - self.height) / 2;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        commands: "M8 2v7.5M5 6.5l3 3 3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2";
+                        stroke: #8fb0ff;
+                        stroke-width: 1.6px;
+                        fill: transparent;
+                    }
+                    Text {
+                        text: row.text;
+                        font-weight: i == 0 ? 700 : 400;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: row.detail;
+                        color: Theme.weak-text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                    // ✕ on the first row only.
+                    Rectangle {
+                        width: Theme.mac ? 22px : 32px;
+                        horizontal-stretch: 0;
+                        if i == 0: Rectangle {
+                            width: Theme.mac ? 20px : 32px;
+                            height: self.width;
+                            border-radius: Theme.mac ? 10px : 4px;
+                            background: hide-ta.has-hover ? Theme.hover : Theme.mac ? #ffffff1f : transparent;
+                            Path {
+                                width: 8px;
+                                height: 8px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                viewbox-width: 8;
+                                viewbox-height: 8;
+                                commands: "M0 0L8 8M8 0L0 8";
+                                stroke: Theme.weak-text;
+                                stroke-width: 1.4px;
+                                fill: transparent;
+                            }
+                            hide-ta := TouchArea {
+                                clicked => {
+                                    root.busy-hide();
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-            Rectangle {
-                horizontal-stretch: 1;
+                // Progress: a filled bar when it is known, a moving one otherwise.
+                Rectangle {
+                    height: 5px;
+                    border-radius: 3px;
+                    background: Theme.text.transparentize(85%);
+                    clip: true;
+                    property <float> phase: mod(animation-tick() / 1400ms, 1);
+                    Rectangle {
+                        x: row.progress >= 0 ? 0 : (parent.width * 1.35) * phase - parent.width * 0.35;
+                        width: row.progress >= 0 ? parent.width * clamp(row.progress, 0, 1) : parent.width * 0.35;
+                        border-radius: 3px;
+                        background: row.copy ? #8fb0ff : Theme.accent;
+                    }
+                }
             }
         }
     }
@@ -539,6 +618,8 @@ export component MainWindow inherits Window {
         QuickEditPanel {
             x: clamp(root.qe-x, 8px, max(8px, root.width - self.width - 8px));
             y: clamp(root.qe-y, 8px, max(8px, root.height - self.height - 8px));
+            arrow-left: root.qe-arrow-left;
+            arrow-y: root.qe-point-y - self.y;
             qe: root.qe;
             label(t) => {
                 root.qe-label(t);
@@ -551,9 +632,6 @@ export component MainWindow inherits Window {
             }
             gain(v) => {
                 root.qe-gain(v);
-            }
-            speed(v) => {
-                root.qe-speed(v);
             }
             choice(f, i) => {
                 root.qe-choice(f, i);
@@ -617,42 +695,34 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ---- popup menu (empty cells, page tabs) ----
-    popup := PopupWindow {
-        x: root.popup-x;
-        y: root.popup-y;
-        width: 240px;
-        close-policy: close-on-click-outside;
-        Panel {
-            drop-shadow-blur: 12px;
-            VerticalLayout {
-                padding: 4px;
-                for item[i] in root.popup-rows: Rectangle {
-                    height: item.separator ? 9px : 36px;
-                    border-radius: 4px;
-                    background: !item.separator && item.enabled && (mta.has-hover || mta.pressed) ? Theme.hover : transparent;
-                    if item.separator: Rectangle {
-                        x: 6px;
-                        width: parent.width - 12px;
-                        height: 1px;
-                        background: Theme.panel-border;
+    // ---- context menus (empty cells, page tabs): native NSMenu / Win32 menus ----
+    // Opened from Rust (right-click, Control-click or press-and-hold), so the area
+    // itself never opens one.
+    ctx := ContextMenuArea {
+        enabled: false;
+        Menu {
+            for it in root.popup-rows: MenuItem {
+                title: it.text;
+                enabled: it.enabled;
+                activated => {
+                    root.popup-chosen(it.id);
+                }
+            }
+            if root.popup-sub-title != "": Menu {
+                title: root.popup-sub-title;
+                for it in root.popup-sub: MenuItem {
+                    title: it.text;
+                    enabled: it.enabled;
+                    activated => {
+                        root.popup-chosen(it.id);
                     }
-                    if !item.separator: Text {
-                        x: 12px;
-                        width: parent.width - 20px;
-                        text: item.text;
-                        color: item.enabled ? Theme.text : Theme.weak-text;
-                        font-size: 14px;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-                    mta := TouchArea {
-                        enabled: item.enabled && !item.separator;
-                        clicked => {
-                            popup.close();
-                            root.popup-chosen(i);
-                        }
-                    }
+                }
+            }
+            for it in root.popup-tail: MenuItem {
+                title: it.text;
+                enabled: it.enabled;
+                activated => {
+                    root.popup-chosen(it.id);
                 }
             }
         }

@@ -3,7 +3,13 @@
 // One at a time; the window behind is shaded and takes no clicks.
 
 import { Button, CheckBox, ScrollView } from "std-widgets.slint";
-import { Theme, Field, Panel } from "theme.slint";
+import { Theme, Field, Panel, SysButton } from "theme.slint";
+
+export struct DialogButton {
+    text: string,
+    // Its index in `buttons`.
+    index: int,
+}
 
 export struct DialogRow {
     text: string,
@@ -29,7 +35,12 @@ export struct DialogInfo {
     error: string,
     // The first is the main (default) button.
     buttons: [string],
+    // The same buttons in this platform's order: `left` at the far left (a Mac's
+    // Don't Save), `right` right-aligned (main button last on a Mac, first on Windows).
+    left: [DialogButton],
+    right: [DialogButton],
 }
+
 
 export component DialogView inherits Panel {
     in property <DialogInfo> info;
@@ -162,17 +173,25 @@ export component DialogView inherits Panel {
             wrap: word-wrap;
         }
         HorizontalLayout {
-            alignment: end;
             spacing: 8px;
-            for b[i] in info.buttons: Button {
-                text: b;
-                primary: i == 0;
-                enabled: i != 0 || root.ok;
+            for b in info.left: SysButton {
+                text: b.text;
                 clicked => {
-                    if root.info.selectable && b == "Copy" {
+                    root.button(b.index);
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            for b in info.right: SysButton {
+                text: b.text;
+                primary: b.index == 0;
+                enabled: b.index != 0 || root.ok;
+                clicked => {
+                    if root.info.selectable && b.text == "Copy" {
                         root.copy-request += 1;
                     } else {
-                        root.button(i);
+                        root.button(b.index);
                     }
                 }
             }

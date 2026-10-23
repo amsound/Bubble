@@ -7,7 +7,7 @@ import { Theme, FlatButton, Field } from "theme.slint";
 
 export struct PageTab {
     name: string,
-    // Something on the page is playing (shown as "▶ name").
+    // Something on the page is playing (a yellow bar along the top).
     playing: bool,
 }
 
@@ -33,16 +33,27 @@ component Tab inherits Rectangle {
     property <bool> holding;
     property <bool> held;
     border-radius: 5px;
-    background: current ? Theme.current-tab : ta.has-hover ? Theme.button-hover : Theme.button;
+    // The page you are on is the one inverted (neutral) tab; a page with something
+    // playing has a yellow bar along its top. The name never moves.
+    background: current ? Theme.text : ta.has-hover ? Theme.button-hover : Theme.button;
+    clip: true;
     Text {
         x: 6px;
         width: parent.width - 12px;
-        text: page.playing ? "▶ " + page.name : page.name;
-        color: root.current ? #ffffff : Theme.text;
+        text: page.name;
+        color: root.current ? Theme.window-bg : Theme.text;
         font-size: root.font-size;
+        font-weight: root.current ? 700 : 400;
         horizontal-alignment: center;
         vertical-alignment: center;
         overflow: elide;
+    }
+    if page.playing: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: 5px;
+        background: Theme.playing;
     }
     Timer {
         interval: 500ms;
@@ -259,7 +270,7 @@ export component BottomBar inherits Rectangle {
         y: m;
         width: page-w;
         height: btn-h;
-        text: "■ STOP PAGE";
+        text: "■ PAGE STOP";
         font-size: text * 0.95;
         clicked => {
             root.stop-page();
@@ -270,7 +281,7 @@ export component BottomBar inherits Rectangle {
         y: m;
         width: stop-w;
         height: btn-h;
-        text: "■ STOP ALL";
+        text: "■ ALL STOP";
         fill: Theme.stop-all;
         text-color: #ffffff;
         font-size: text * 1.1;
