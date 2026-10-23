@@ -83,11 +83,15 @@ Done (main window):
       (shortcut shown after a tab, run by Bubble), in-window elsewhere. Windows still in
       egui are disabled and marked "not in this interface yet". While a text field has the
       keyboard, ⌘/Ctrl X C V Z act on the field.
-- [x] Prompts as in-window dialogs: error (selectable, Copy), recover, unsaved changes,
-      import choice, WAV conversion, New Session / Save As (Choose… folder), quit with
-      unsaved changes, Paste Attributes, Missing Files (Locate…), Delete Page. Centred in
-      the window and fading in. Buttons in each platform's order: on a Mac the main button
-      rightmost and Don't Save far left; on Windows the main button first.
+- [x] Prompts are the system's own alerts (design: "Bubble Native Alerts"): NSAlert on
+      macOS with Bubble's icon and destructive buttons in red; TaskDialog on Windows
+      (command links for Import; the plain message box if Common Controls 6 is missing).
+      Save changes (Quit, New, Open, Import), Delete Page, Recover (one session per
+      alert), Import, problems (bold headline, detail, Copy Details), Missing Files
+      (then the system Open panel headed "Locate “file”"). A session set to Convert to
+      WAV converts without asking. Paste Attributes is an Edit submenu (both interfaces).
+      Alerts and native menus open after the current handler returns (main dispatch
+      queue on macOS): a menu opened inside a Slint timer panicked with a cart playing.
 - [x] OS file drop onto a cell via the winit hook, targeted at the cell under the
       pointer (sessions and SpotOn files open/import; audio fills from that cell, or the
       first empty one), with a highlight while dragging.
@@ -134,7 +138,9 @@ Left:
 - [ ] macOS open-file events (double-click a session in Finder, F5) and Windows file
       types; logging out skips the unsaved-changes question (an autosave is kept and
       offered for recovery).
-- [ ] Test on Windows: touch on the Surface, the native Win32 menu (Alt access, dark
+- [ ] New Session / Save As as the system Save panel, with "Audio files: Keep as
+      imported / Convert to WAV" in it (still Bubble's own form, the last drawn dialog).
+- [ ] Test on Windows (TaskDialog alerts not yet seen on Windows): touch on the Surface, the native Win32 menu (Alt access, dark
       mode), 125/150/200% scale, the software renderer after minimise.
 - [ ] Hot-key labels from the current keyboard layout (I2).
 - [ ] From the design, not built yet: Alt-key access to the Windows menu bar (held back:

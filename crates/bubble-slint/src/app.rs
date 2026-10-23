@@ -2041,9 +2041,13 @@ impl App {
                     } else {
                         format!("{n} audio files are missing.")
                     },
-                    info: format!(
-                        "{list}. Locate one and Bubble also finds others that moved with it."
-                    ),
+                    info: if n == 1 {
+                        format!("{list} was moved, renamed or deleted.")
+                    } else {
+                        format!(
+                            "{list}. Locate one and Bubble also finds others that moved with it."
+                        )
+                    },
                     buttons: buttons(&[name("Locate\u{2026}", "Locate\u{2026}"), "Later".into()]),
                     ..Default::default()
                 }
@@ -2067,11 +2071,26 @@ impl App {
             }
             Dialog::Recover => self.dialog_row(0, i, intents),
             Dialog::Relink => {
+                // Locate… opens the Open panel for the first missing file; whatever is
+                // still missing after it stays in the status line (click to come back).
+                self.relink = false;
                 let snap = self.core.snapshot();
-                match snap.missing.first() {
-                    // The alert comes back after the Open panel while files are missing.
-                    Some(a) if i == 0 => self.core.files.request(Purpose::Relink(*a)),
-                    _ => self.relink = false,
+                if i == 0
+                    && let Some(a) = snap.missing.first()
+                {
+                    let file = snap
+                        .project
+                        .asset(*a)
+                        .map(|x| {
+                            std::path::Path::new(&x.path)
+                                .file_name()
+                                .map_or(x.path.clone(), |n| n.to_string_lossy().to_string())
+                        })
+                        .unwrap_or_default();
+                    self.core.files.request_titled(
+                        Purpose::Relink(*a),
+                        format!("Locate \u{201c}{file}\u{201d}"),
+                    );
                 }
             }
             _ => self.dialog_button(i, intents),

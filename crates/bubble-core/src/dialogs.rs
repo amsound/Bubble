@@ -41,6 +41,8 @@ pub const OPEN_EXTS: &[&str] = &["bubble", "dta", "pkg"];
 
 pub struct FileDialogs {
     queue: Vec<Purpose>,
+    /// The next dialog's heading (the message line of a Mac panel).
+    title: Option<String>,
     busy: Arc<Mutex<bool>>,
     tx: Sender<(Purpose, Vec<PathBuf>)>,
     rx: Receiver<(Purpose, Vec<PathBuf>)>,
@@ -52,6 +54,7 @@ impl FileDialogs {
         let (tx, rx) = channel();
         FileDialogs {
             queue: Vec::new(),
+            title: None,
             busy: Arc::new(Mutex::new(false)),
             tx,
             rx,
@@ -61,6 +64,12 @@ impl FileDialogs {
 
     /// Queues a dialog; it is shown at the end of the current frame.
     pub fn request(&mut self, p: Purpose) {
+        self.queue.push(p);
+    }
+
+    /// Queues a dialog with a heading, e.g. which file to locate.
+    pub fn request_titled(&mut self, p: Purpose, title: String) {
+        self.title = Some(title);
         self.queue.push(p);
     }
 
@@ -81,6 +90,7 @@ impl FileDialogs {
         }
         let purpose = self.queue.remove(0);
         self.queue.clear();
+        let title = self.title.take();
         *self.busy.lock().unwrap_or_else(|e| e.into_inner()) = true;
 
         type Fut = std::pin::Pin<Box<dyn Future<Output = Vec<PathBuf>> + Send>>;
@@ -99,10 +109,13 @@ impl FileDialogs {
                 })
             }
             Purpose::Assign { many: false, .. } | Purpose::Relink(_) => {
-                let f = rfd::AsyncFileDialog::new()
+                let mut d = rfd::AsyncFileDialog::new()
                     .set_parent(parent)
-                    .add_filter("Audio", AUDIO_EXTS)
-                    .pick_file();
+                    .add_filter("Audio", AUDIO_EXTS);
+                if let Some(t) = &title {
+                    d = d.set_title(t);
+                }
+                let f = d.pick_file();
                 Box::pin(async move {
                     f.await
                         .map(|h| h.path().to_path_buf())
