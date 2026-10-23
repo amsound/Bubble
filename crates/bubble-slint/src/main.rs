@@ -12,6 +12,7 @@
 use bubble_core::{instance, log};
 
 mod app;
+mod fonts;
 mod keys;
 mod menu;
 mod model;
@@ -46,6 +47,7 @@ fn main() {
         return;
     }
 
+    let ui_font = fonts::prepare();
     let renderer = renderer();
     log::info(&format!(
         "starting the Slint interface with the {renderer} renderer"
@@ -54,7 +56,7 @@ fn main() {
         .backend_name("winit".into())
         .renderer_name(renderer.into())
         .select()
-        .and_then(|()| app::run(renderer));
+        .and_then(|()| app::run(renderer, ui_font));
     match result {
         Ok(()) => log::info("exited normally"),
         Err(e) => {
@@ -69,6 +71,7 @@ fn main() {
 fn renderer() -> &'static str {
     match std::env::var("BUBBLE_RENDERER").as_deref() {
         Ok("software" | "sw") => "software",
+        Ok("skia") if cfg!(target_os = "macos") => "skia",
         _ => "femtovg",
     }
 }

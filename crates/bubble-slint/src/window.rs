@@ -79,13 +79,25 @@ pub fn keep_on_screen(ui: &MainWindow) {
 
 /// Whether the system uses a dark appearance (`None` before the window exists).
 pub fn system_dark(ui: &MainWindow) -> Option<bool> {
+    // macOS: the system setting itself, readable before the window exists and not
+    // affected by Bubble's own Light/Dark choice.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = ui;
+        use objc2_foundation::{NSString, NSUserDefaults};
+        let style = NSUserDefaults::standardUserDefaults()
+            .stringForKey(&NSString::from_str("AppleInterfaceStyle"));
+        Some(style.is_some_and(|s| s.to_string() == "Dark"))
+    }
+    #[cfg(not(target_os = "macos"))]
     ui.window()
         .with_winit_window(|w| w.theme())
         .flatten()
         .map(|t| t == winit::window::Theme::Dark)
 }
 
-/// The title bar follows Bubble's appearance, not only the system's (W4).
+/// The title bar (and on a Mac the app's menus, which macOS draws in the app's
+/// appearance) follow Bubble's appearance, not only the system's (W4).
 pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
     ui.window().with_winit_window(|w| {
         w.set_theme(match a {
@@ -94,6 +106,26 @@ pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
             Appearance::Dark => Some(winit::window::Theme::Dark),
         })
     });
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{
+            NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication,
+        };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        // SAFETY: AppKit's constant appearance names.
+        let name = unsafe {
+            match a {
+                Appearance::System => None,
+                Appearance::Light => Some(NSAppearanceNameAqua),
+                Appearance::Dark => Some(NSAppearanceNameDarkAqua),
+            }
+        };
+        let appearance = name.and_then(NSAppearance::appearanceNamed);
+        NSApplication::sharedApplication(mtm).setAppearance(appearance.as_deref());
+    }
 }
 
 /// Another launch asked Bubble to show itself.
@@ -135,4 +167,120 @@ pub fn icon() -> slint::Image {
     let rgba: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon-256.rgba"));
     let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(rgba, 256, 256);
     slint::Image::from_rgba8(buf)
+}
+
+/// Brings Slint's default macOS app menu in line with the Mac: Quit (⌘Q) closes the
+/// window, so it asks about unsaved changes like the close button does; a Settings…
+/// item (⌘,; disabled until the settings windows are in this interface); and a Window
+/// menu. Slint rebuilds the menu bar when the menus change, so this is checked on
+/// every refresh and only acts when its changes are missing.
+#[cfg(target_os = "macos")]
+pub fn patch_app_menu() {
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::{NSApplication, NSMenu, NSMenuItem};
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(main) = app.mainMenu() else { return };
+    let window = NSString::from_str("Window");
+    // Slint rebuilds its items when the menus change and our Window menu can end up
+    // first, where macOS would show it as the app menu: keep it last.
+    if let Some(item) = main.itemWithTitle(&window)
+        && main.indexOfItem(&item) != main.numberOfItems() - 1
+    {
+        main.removeItem(&item);
+        main.addItem(&item);
+    }
+    // The app menu is the one with Quit (⌘Q).
+    let has_quit = |m: &NSMenu| {
+        (0..m.numberOfItems()).any(|i| {
+            m.itemAtIndex(i).is_some_and(|it| {
+                it.keyEquivalent().to_string() == "q"
+                    && (it.action() == Some(sel!(terminate:))
+                        || it.action() == Some(sel!(performClose:)))
+            })
+        })
+    };
+    let Some((app_item, app_menu)) = (0..main.numberOfItems())
+        .filter_map(|i| main.itemAtIndex(i))
+        .filter_map(|it| it.submenu().map(|m| (it, m)))
+        .find(|(_, m)| has_quit(m))
+    else {
+        return;
+    };
+    // Slint titles it "App"; once the menu bar changes macOS shows that title.
+    let name = NSString::from_str("Bubble");
+    if app_item.title().to_string() != "Bubble" {
+        app_item.setTitle(&name);
+        app_menu.setTitle(&name);
+    }
+    for i in 0..app_menu.numberOfItems() {
+        if let Some(item) = app_menu.itemAtIndex(i)
+            && item.action() == Some(sel!(terminate:))
+        {
+            // SAFETY: performClose: is a standard NSWindow action, sent to the key
+            // window through the responder chain (nil target).
+            unsafe {
+                item.setAction(Some(sel!(performClose:)));
+                item.setTarget(None);
+            }
+        }
+    }
+    let settings = NSString::from_str("Settings…");
+    if app_menu.itemWithTitle(&settings).is_none() && app_menu.numberOfItems() >= 2 {
+        // An action nothing answers, so the menu shows the item greyed out (an item
+        // with no action is enabled).
+        // SAFETY: a plain selector; nothing in the responder chain implements it.
+        let item = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                mtm.alloc(),
+                &settings,
+                Some(sel!(bubbleSettingsNotYetHere:)),
+                &NSString::from_str(","),
+            )
+        };
+        app_menu.insertItem_atIndex(&item, 2);
+        app_menu.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), 3);
+    }
+    if main.itemWithTitle(&window).is_none() {
+        let menu = NSMenu::initWithTitle(mtm.alloc(), &window);
+        let add = |title: &str, action, key: &str| {
+            // SAFETY: standard NSWindow / NSApplication actions with a nil target.
+            unsafe {
+                menu.addItemWithTitle_action_keyEquivalent(
+                    &NSString::from_str(title),
+                    Some(action),
+                    &NSString::from_str(key),
+                )
+            }
+        };
+        add("Minimize", sel!(performMiniaturize:), "m");
+        add("Zoom", sel!(performZoom:), "");
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
+        add("Bring All to Front", sel!(arrangeInFront:), "");
+        let item = NSMenuItem::new(mtm);
+        item.setTitle(&window);
+        item.setSubmenu(Some(&menu));
+        main.addItem(&item);
+        app.setWindowsMenu(Some(&menu));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn patch_app_menu() {}
+
+/// Whether this computer has a touch screen (Windows tablets such as the Surface).
+#[cfg(windows)]
+pub fn has_touch_screen() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_MAXIMUMTOUCHES};
+    // SAFETY: a plain query with no pointers.
+    unsafe { GetSystemMetrics(SM_MAXIMUMTOUCHES) > 0 }
+}
+
+#[cfg(not(windows))]
+pub fn has_touch_screen() -> bool {
+    false
 }

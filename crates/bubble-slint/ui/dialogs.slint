@@ -2,8 +2,8 @@
 // with unsaved changes, paste attributes, relink), as dialogs inside the main window.
 // One at a time; the window behind is shaded and takes no clicks.
 
-import { Button, CheckBox, ScrollView } from "std-widgets.slint";
-import { Theme, Field, Panel, SysButton } from "theme.slint";
+import { CheckBox, ScrollView } from "std-widgets.slint";
+import { Theme, Field, SysButton } from "theme.slint";
 
 export struct DialogButton {
     text: string,
@@ -42,48 +42,41 @@ export struct DialogInfo {
 }
 
 
-export component DialogView inherits Panel {
+// The dialog's content, the same on both platforms (title and buttons are placed by
+// `DialogView` for each platform).
+component DialogBody inherits VerticalLayout {
     in property <DialogInfo> info;
-    // The main button may be pressed (e.g. a session name was typed).
-    in property <bool> ok: true;
-    callback button(int);
+    in property <int> copy-request;
     callback row-action(int, int);
     callback row-check(int, bool);
     callback name-edited(string);
     callback name-accepted();
     callback choose-folder();
+    spacing: 10px;
 
-    width: min(520px, max(380px, layout.preferred-width));
-    height: layout.preferred-height;
-
-    // "Copy" on an error copies its text (handled here: no round trip to Rust).
-    property <int> copy-request;
-
-    TouchArea { }
-
-    layout := VerticalLayout {
-        padding: 18px;
-        spacing: 10px;
-        Text {
-            text: info.title;
-            font-size: 17px;
-            font-weight: 700;
-            color: Theme.text;
-            wrap: word-wrap;
-        }
-        if info.body != "" && !info.selectable: Text {
-            text: info.body;
-            color: Theme.text;
-            wrap: word-wrap;
-        }
-        // Selectable and copyable, so the exact message can be passed on.
-        if info.selectable: ScrollView {
-            max-height: 320px;
-            preferred-height: min(320px, body-text.preferred-height + 4px);
+    if info.body != "" && !info.selectable: Text {
+        text: info.body;
+        font-size: Theme.mac ? 12px : 14px;
+        color: Theme.weak-text;
+        wrap: word-wrap;
+    }
+    // An error: selectable and copyable, so the exact message can be passed on.
+    if info.selectable: Rectangle {
+        border-radius: Theme.mac ? 6px : 4px;
+        background: Theme.mac ? #00000040 : Theme.window-bg;
+        min-height: min(320px, body-text.preferred-height + 16px);
+        max-height: 320px;
+        ScrollView {
+            x: 10px;
+            y: 8px;
+            width: parent.width - 20px;
+            height: parent.height - 16px;
             body-text := TextInput {
                 text: info.body;
                 read-only: true;
                 wrap: word-wrap;
+                font-family: Theme.mac ? "Menlo" : "Consolas";
+                font-size: 12px;
                 color: Theme.text;
                 selection-background-color: Theme.accent;
                 width: parent.visible-width;
@@ -95,82 +88,170 @@ export component DialogView inherits Panel {
                 }
             }
         }
-        if info.has-name: HorizontalLayout {
-            spacing: 10px;
-            Text {
-                text: "Name";
-                color: Theme.weak-text;
-                vertical-alignment: center;
-                width: 64px;
-            }
-            Field {
-                text: info.name;
-                init => {
-                    self.focus();
-                }
-                edited(t) => {
-                    root.name-edited(t);
-                }
-                accepted => {
-                    root.name-accepted();
-                }
-            }
-        }
-        if info.has-name: HorizontalLayout {
-            spacing: 10px;
-            Text {
-                text: "Location";
-                color: Theme.weak-text;
-                vertical-alignment: center;
-                width: 64px;
-            }
-            Text {
-                text: info.location;
-                color: Theme.weak-text;
-                vertical-alignment: center;
-                overflow: elide;
-                horizontal-stretch: 1;
-            }
-            Button {
-                text: "Choose…";
-                clicked => {
-                    root.choose-folder();
-                }
-            }
-        }
-        if info.error != "": Text {
-            text: info.error;
-            color: Theme.error;
-            wrap: word-wrap;
-        }
-        for r[i] in info.rows: HorizontalLayout {
-            spacing: 8px;
-            if r.check: CheckBox {
-                text: r.text;
-                checked: r.checked;
-                toggled => {
-                    root.row-check(i, self.checked);
-                }
-            }
-            if !r.check: Text {
-                text: r.text;
-                color: Theme.text;
-                vertical-alignment: center;
-                overflow: elide;
-                horizontal-stretch: 1;
-            }
-            for a[j] in r.actions: Button {
-                text: a;
-                clicked => {
-                    root.row-action(i, j);
-                }
-            }
-        }
-        if info.note != "": Text {
-            text: info.note;
-            font-size: 11px;
+    }
+    if info.has-name: HorizontalLayout {
+        spacing: 10px;
+        Text {
+            text: "Name";
             color: Theme.weak-text;
-            wrap: word-wrap;
+            vertical-alignment: center;
+            width: 64px;
+        }
+        Field {
+            text: info.name;
+            init => {
+                self.focus();
+            }
+            edited(t) => {
+                root.name-edited(t);
+            }
+            accepted => {
+                root.name-accepted();
+            }
+        }
+    }
+    if info.has-name: HorizontalLayout {
+        spacing: 10px;
+        Text {
+            text: "Location";
+            color: Theme.weak-text;
+            vertical-alignment: center;
+            width: 64px;
+        }
+        Text {
+            text: info.location;
+            color: Theme.weak-text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        SysButton {
+            y: (parent.height - self.height) / 2;
+            text: "Choose…";
+            clicked => {
+                root.choose-folder();
+            }
+        }
+    }
+    if info.error != "": Text {
+        text: info.error;
+        color: Theme.error;
+        wrap: word-wrap;
+    }
+    for r[i] in info.rows: HorizontalLayout {
+        spacing: 8px;
+        if r.check: CheckBox {
+            text: r.text;
+            checked: r.checked;
+            toggled => {
+                root.row-check(i, self.checked);
+            }
+        }
+        if !r.check: Text {
+            text: r.text;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        for a[j] in r.actions: SysButton {
+            y: (parent.height - self.height) / 2;
+            text: a;
+            clicked => {
+                root.row-action(i, j);
+            }
+        }
+    }
+    if info.note != "": Text {
+        text: info.note;
+        font-size: 11px;
+        color: Theme.weak-text;
+        wrap: word-wrap;
+    }
+}
+
+// macOS: an alert floating in the window, with the app icon; the main button
+// rightmost. Windows 11: a content dialog with a large title and a footer band of
+// equal buttons, the main button first.
+export component DialogView inherits Rectangle {
+    in property <DialogInfo> info;
+    in property <image> icon;
+    // The main button may be pressed (e.g. a session name was typed).
+    in property <bool> ok: true;
+    callback button(int);
+    callback row-action(int, int);
+    callback row-check(int, bool);
+    callback name-edited(string);
+    callback name-accepted();
+    callback choose-folder();
+
+    // "Copy" on an error copies its text (handled here: no round trip to Rust).
+    property <int> copy-request;
+    // Set once it exists: the dialog fades in, centred in the window.
+    out property <bool> shown;
+    init => {
+        self.shown = true;
+    }
+    opacity: shown ? 1 : 0;
+    animate opacity {
+        duration: 150ms;
+        easing: ease-out;
+    }
+
+    width: Theme.mac ? 440px : 460px;
+    height: inner.preferred-height;
+    background: Theme.sheet;
+    border-radius: Theme.mac ? 12px : 8px;
+    border-width: 1px;
+    border-color: Theme.panel-border;
+    clip: true;
+    drop-shadow-blur: 30px;
+    drop-shadow-offset-y: 12px;
+    drop-shadow-color: #00000090;
+
+    TouchArea { }
+
+    inner := VerticalLayout {
+    if Theme.mac: VerticalLayout {
+        padding: 20px;
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 14px;
+            Image {
+                source: root.icon;
+                width: 48px;
+                height: 48px;
+                y: 0;
+            }
+            VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: info.title;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+                DialogBody {
+                    info: root.info;
+                    copy-request: root.copy-request;
+                    row-action(i, j) => {
+                        root.row-action(i, j);
+                    }
+                    row-check(i, on) => {
+                        root.row-check(i, on);
+                    }
+                    name-edited(t) => {
+                        root.name-edited(t);
+                    }
+                    name-accepted => {
+                        root.name-accepted();
+                    }
+                    choose-folder => {
+                        root.choose-folder();
+                    }
+                }
+            }
         }
         HorizontalLayout {
             spacing: 8px;
@@ -196,5 +277,63 @@ export component DialogView inherits Panel {
                 }
             }
         }
+    }
+
+    if !Theme.mac: VerticalLayout {
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+            Text {
+                text: info.title;
+                font-size: 20px;
+                font-weight: 600;
+                color: Theme.text;
+                wrap: word-wrap;
+            }
+            DialogBody {
+                info: root.info;
+                copy-request: root.copy-request;
+                row-action(i, j) => {
+                    root.row-action(i, j);
+                }
+                row-check(i, on) => {
+                    root.row-check(i, on);
+                }
+                name-edited(t) => {
+                    root.name-edited(t);
+                }
+                name-accepted => {
+                    root.name-accepted();
+                }
+                choose-folder => {
+                    root.choose-folder();
+                }
+            }
+        }
+        if info.right.length > 0: Rectangle {
+            background: Theme.dialog-footer;
+            border-width: 0px;
+            HorizontalLayout {
+                padding: 20px;
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 8px;
+                for b in info.right: SysButton {
+                    horizontal-stretch: 1;
+                    height: 36px;
+                    text: b.text;
+                    primary: b.index == 0;
+                    enabled: b.index != 0 || root.ok;
+                    clicked => {
+                        if root.info.selectable && b.text == "Copy" {
+                            root.copy-request += 1;
+                        } else {
+                            root.button(b.index);
+                        }
+                    }
+                }
+            }
+        }
+    }
     }
 }

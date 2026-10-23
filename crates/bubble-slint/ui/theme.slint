@@ -39,6 +39,11 @@ export global Theme {
 
     // Running on macOS (set from Rust): Mac shapes and sizes, else Windows ones.
     in-out property <bool> mac;
+    // The window's default font family (fonts.rs).
+    in-out property <string> ui-font;
+    // Dialog surfaces: a Mac sheet, a Windows content dialog and its footer band.
+    out property <color> sheet: dark ? (mac ? #3a3d44 : #2b2b2b) : (mac ? #ececec : #ffffff);
+    out property <color> dialog-footer: dark ? #202020 : #f3f3f3;
     out property <color> popover: dark ? (mac ? #34373c : #2b2b2b) : (mac ? #f6f6f7 : #f9f9f9);
 }
 
@@ -126,6 +131,64 @@ export component Panel inherits Rectangle {
 // A flat, system-like push button (Slint's own Mac style draws gradients). Mac: 24 px,
 // translucent grey, the main button solid blue. Windows 11: 32 px, outlined, the main
 // button in the accent colour with dark text.
+// A pop-up button: the current choice and a chevron; a click opens the choices as a
+// native menu (NSMenu / Win32), the current one checked.
+export component PopButton inherits Rectangle {
+    in property <[string]> model;
+    in property <int> current-index;
+    callback selected(int);
+    property <bool> mac: Theme.mac;
+    height: mac ? 22px : 32px;
+    horizontal-stretch: 1;
+    border-radius: mac ? 5px : 4px;
+    background: ta.pressed ? Theme.text.transparentize(mac ? 78% : 86%) : mac ? Theme.text.transparentize(88%) : Theme.button;
+    border-width: mac ? 0px : 1px;
+    border-color: Theme.panel-border;
+    HorizontalLayout {
+        padding-left: mac ? 9px : 11px;
+        padding-right: mac ? 7px : 11px;
+        spacing: 8px;
+        Text {
+            text: root.model[root.current-index];
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Path {
+            width: mac ? 9px : 12px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: mac ? 9 : 12;
+            viewbox-height: 12;
+            // Mac: the up/down chevron of a pop-up button; Windows: a drop-down chevron.
+            commands: mac ? "M1.5 4.5L4.5 1.5L7.5 4.5M1.5 7.5L4.5 10.5L7.5 7.5" : "M2 4L6 8L10 4";
+            stroke: Theme.text.transparentize(25%);
+            stroke-width: 1.3px;
+            fill: transparent;
+        }
+    }
+    ta := TouchArea {
+        // On release, so the menu never leaves this area pressed.
+        clicked => {
+            menu.show({ x: 0, y: root.height + 3px });
+        }
+    }
+    menu := ContextMenuArea {
+        enabled: false;
+        Menu {
+            for item[i] in root.model: MenuItem {
+                title: item;
+                checkable: true;
+                checked: i == root.current-index;
+                activated => {
+                    root.selected(i);
+                }
+            }
+        }
+    }
+}
+
 export component SysButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary;

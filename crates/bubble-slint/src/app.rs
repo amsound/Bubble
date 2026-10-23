@@ -98,9 +98,6 @@ pub struct App {
     pages: Rc<VecModel<PageTab>>,
     status: Rc<VecModel<StatusItem>>,
     busy: Rc<VecModel<BusyRow>>,
-    /// The busy rows when the popover was hidden with its ✕, and the rows now.
-    busy_hidden: String,
-    busy_key: String,
     menu_sig: u64,
     menu_cmds: Vec<Cmd>,
     shortcuts: menu::Shortcuts,
@@ -109,6 +106,7 @@ pub struct App {
     quick_edit: Option<Uuid>,
     qe_cart: Option<Cart>,
     qe_seen: Option<Cart>,
+    qe_soft: bool,
     qe_gen: i32,
     renaming: Option<usize>,
     dialog: Option<Dialog>,
@@ -162,10 +160,11 @@ fn name(mac: &str, other: &str) -> String {
 }
 
 /// Opens the window and runs until it closes.
-pub fn run(renderer: &str) -> Result<(), slint::PlatformError> {
+pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     let ui = MainWindow::new()?;
     ui.set_window_icon(window::icon());
     ui.global::<Theme>().set_mac(cfg!(target_os = "macos"));
+    ui.global::<Theme>().set_ui_font(ui_font.into());
 
     // Other threads (jobs, dialogs, device scans, MIDI) wake the window this way.
     let pending = Arc::new(AtomicBool::new(false));
@@ -183,7 +182,11 @@ pub fn run(renderer: &str) -> Result<(), slint::PlatformError> {
             }
         })
     };
-    let core = Core::new(repaint);
+    let mut core = Core::new(repaint);
+    // First run on a touch screen: the Medium page bar, sized for fingers.
+    if core.prefs.window.is_none() && core.prefs.bar_size == 0 && window::has_touch_screen() {
+        core.prefs.bar_size = 1;
+    }
     window::restore_place(&ui, core.prefs.window);
     ui.global::<Theme>()
         .set_appearance(appearance_index(core.prefs.appearance));
@@ -383,9 +386,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_status_clicked, |a, _i| {
         a.relink = true;
     });
-    on!(ui, app, on_busy_hide, |a, _i| {
-        a.busy_hidden = a.busy_key.clone();
-    });
     on!(ui, app, on_popup_chosen, |a, i, idx| {
         a.popup_chosen(idx as usize, i);
     });
@@ -427,15 +427,17 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     });
     on!(ui, app, on_qe_choice, |a, i, field, idx| {
         a.qe_choice(field.as_str(), idx, i);
+        a.qe_refresh();
     });
     on!(ui, app, on_qe_flag, |a, i, field, on| {
         let field = field.to_string();
         a.qe_edit(i, move |c| match field.as_str() {
             "loop" => c.looping = on,
             "next" => c.play_next = on.then(|| "next_cell".to_string()),
-            "stop-others" => c.on_play.stop = if on { StopScope::All } else { StopScope::None },
+            "stop-all" => c.on_play.stop = if on { StopScope::All } else { StopScope::None },
             _ => {}
         });
+        a.qe_refresh();
     });
     on!(ui, app, on_qe_action, |a, i, action| {
         a.qe_action(action.as_str(), i);
@@ -592,8 +594,6 @@ impl App {
             pages,
             status,
             busy,
-            busy_hidden: String::new(),
-            busy_key: String::new(),
             menu_sig: 0,
             menu_cmds: Vec::new(),
             shortcuts: menu::Shortcuts::new(&Default::default()),
@@ -601,6 +601,7 @@ impl App {
             quick_edit: None,
             qe_cart: None,
             qe_seen: None,
+            qe_soft: false,
             qe_gen: 0,
             renaming: None,
             dialog: None,
@@ -656,6 +657,12 @@ impl App {
                 ui.global::<Theme>().set_system_dark(dark);
             }
             window::set_title_bar_theme(&ui, self.prefs.appearance);
+        }
+        if cfg!(target_os = "macos")
+            && let Some(dark) = window::system_dark(&ui)
+            && ui.global::<Theme>().get_system_dark() != dark
+        {
+            ui.global::<Theme>().set_system_dark(dark);
         }
         let audio_wake = self.core.watch_audio();
         self.core.poll_devices();
@@ -789,24 +796,10 @@ impl App {
         ui.set_bar_height(bar_height(self.prefs.bar_size));
         sync(&self.status, model::status(&self.core, snap, None));
         ui.set_status_clickable(!snap.missing.is_empty());
-        // Hidden by its ✕ until what Bubble is busy with changes.
-        let key = rows
-            .iter()
-            .map(|r| r.text.as_str())
-            .collect::<Vec<_>>()
-            .join("|");
-        if key.is_empty() {
-            self.busy_hidden.clear();
-        }
-        let shown = if key == self.busy_hidden {
-            Vec::new()
-        } else {
-            rows
-        };
-        self.busy_key = key;
-        sync(&self.busy, shown);
+        sync(&self.busy, rows);
 
         self.show_menus(ui, snap);
+        window::patch_app_menu();
         self.show_quick_edit(ui, snap);
         self.show_dialog(ui, snap);
     }
@@ -840,7 +833,7 @@ impl App {
             let total = self.core.loading_total.max(snap.pending).max(1);
             let done = total - snap.pending.min(total);
             rows.push(BusyRow {
-                text: "Loading audio".into(),
+                text: "Loading audio…".into(),
                 detail: format!("{done} of {total} files").into(),
                 progress: done as f32 / total as f32,
                 copy: false,
@@ -1030,7 +1023,8 @@ impl App {
             true,
         ));
         let Some(ui) = self.ui.upgrade() else { return };
-        let (x, y) = (ui.invoke_cell_x(idx) + 20.0, ui.invoke_cell_y(idx) + 20.0);
+        // At the pointer (or the press-and-hold point).
+        let (x, y) = (ui.get_press_x(), ui.get_press_y());
         let sub_title = name("Add Control Button", "Add control button");
         self.show_popup(head, Some((sub_title, sub)), Vec::new(), x, y);
     }
@@ -1457,6 +1451,7 @@ impl App {
         self.quick_edit = Some(cart);
         self.qe_cart = None;
         self.qe_seen = None;
+        self.qe_soft = false;
         // Beside the cart (right of it, or left when there is no room).
         let width = ui
             .window()
@@ -1482,6 +1477,7 @@ impl App {
         self.quick_edit = None;
         self.qe_cart = None;
         self.qe_seen = None;
+        self.qe_soft = false;
         self.not_typing();
     }
 
@@ -1495,9 +1491,10 @@ impl App {
 
     /// Shows the panel again from the cart's current settings (after a change made
     /// outside the panel's own fields, e.g. a reset or undo).
+    /// Show the panel's own edit (a colour, a toggle) once it lands, without rebuilding
+    /// the panel, so it does not fade in again.
     fn qe_refresh(&mut self) {
-        self.qe_cart = None;
-        self.qe_seen = None;
+        self.qe_soft = true;
     }
 
     fn show_quick_edit(&mut self, ui: &MainWindow, snap: &Snapshot) {
@@ -1512,6 +1509,12 @@ impl App {
             }
             return;
         };
+        if self.qe_soft && self.qe_cart.as_ref() == Some(&cart) {
+            self.qe_soft = false;
+            self.qe_seen = Some(cart.clone());
+            ui.set_qe(model::quick_edit(&self.core, snap, &cart));
+            return;
+        }
         // Rebuild the panel only when the cart changed from outside it, so typing in
         // it is never interrupted.
         if self.qe_seen.as_ref() == Some(&cart) {

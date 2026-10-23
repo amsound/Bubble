@@ -61,6 +61,10 @@ export component MainWindow inherits Window {
     min-width: 640px;
     min-height: 420px;
     background: Theme.window-bg;
+    // Slint's default falls to the generic sans-serif (Helvetica, Arial) before the
+    // system face: the window names the system UI font, or (macOS) leaves it to the
+    // San Francisco Text instances put first in the chain (fonts.rs).
+    default-font-family: Theme.ui-font;
 
     // ---- state from Rust ----
     in property <[MenuTop]> menus;
@@ -77,6 +81,9 @@ export component MainWindow inherits Window {
     in property <string> rename-text;
     in property <length> bar-height: 44px;
     in property <[BusyRow]> busy;
+    // Where the busy popover was dragged to, from top centre.
+    property <length> busy-dx;
+    property <length> busy-dy;
     // 0 none, 1 no session (New/Open), 2 an empty session (hints).
     in property <int> empty-card;
     // The cell files are dragged over (-1: none).
@@ -97,6 +104,9 @@ export component MainWindow inherits Window {
     in property <[PopupRow]> popup-sub;
     in property <[PopupRow]> popup-tail;
     in property <length> popup-x;
+    // The last press on a cell (window coordinates), where its menu opens.
+    out property <length> press-x;
+    out property <length> press-y;
     in property <length> popup-y;
     // Flipped to repaint the whole window (stale areas after a restore).
     in property <int> redraw-nonce;
@@ -121,7 +131,6 @@ export component MainWindow inherits Window {
     callback stop-all();
     callback status-clicked();
     callback popup-chosen(int);
-    callback busy-hide();
     callback qe-close();
     callback qe-label(string);
     callback qe-colour(int);
@@ -351,6 +360,8 @@ export component MainWindow inherits Window {
         drop-target: i == root.drop-index || (root.drag-from >= 0 && i == root.drag-to && i != root.drag-from);
         drop-color: root.drag-from >= 0 ? Theme.select : Theme.drop;
         down(right, touch, shift, alt, ctrl) => {
+            root.press-x = self.x + self.press-x;
+            root.press-y = self.y + self.press-y;
             if !right && root.edit-mode && t.has-cart && (shift || alt) {
                 root.drag-from = i;
                 root.drag-to = i;
@@ -458,12 +469,21 @@ export component MainWindow inherits Window {
 
     // ---- busy popover: the one place for "Bubble is busy" ----
     // Non-modal, top centre, over the wall: ready carts stay playable underneath and
-    // nothing moves. It goes when the work is done; ✕ hides it sooner.
+    // nothing moves. It goes when the work is done; drag it anywhere out of the way.
     if busy.length > 0: Rectangle {
+        property <bool> shown;
+        init => {
+            self.shown = true;
+        }
+        opacity: self.shown ? 1 : 0;
+        animate opacity {
+            duration: 160ms;
+            easing: ease-out;
+        }
         width: min(460px, root.width - 24px);
         height: busy-layout.preferred-height;
-        x: (root.width - self.width) / 2;
-        y: 10px;
+        x: clamp((root.width - self.width) / 2 + root.busy-dx, 0px, max(0px, root.width - self.width));
+        y: clamp(10px + root.busy-dy, 0px, max(0px, root.height - self.height));
         border-radius: Theme.mac ? 12px : 8px;
         background: Theme.popover;
         border-width: 1px;
@@ -471,10 +491,19 @@ export component MainWindow inherits Window {
         drop-shadow-blur: 24px;
         drop-shadow-offset-y: 8px;
         drop-shadow-color: #00000080;
-        TouchArea { }
+        // Dragged by any part of it (the place is kept for next time).
+        TouchArea {
+            mouse-cursor: self.pressed ? grabbing : grab;
+            moved => {
+                if self.pressed {
+                    root.busy-dx += self.mouse-x - self.pressed-x;
+                    root.busy-dy += self.mouse-y - self.pressed-y;
+                }
+            }
+        }
         busy-layout := VerticalLayout {
             padding-left: 14px;
-            padding-right: 8px;
+            padding-right: 14px;
             padding-top: 8px;
             padding-bottom: 12px;
             spacing: 8px;
@@ -513,34 +542,6 @@ export component MainWindow inherits Window {
                         color: Theme.weak-text;
                         vertical-alignment: center;
                         horizontal-stretch: 0;
-                    }
-                    // ✕ on the first row only.
-                    Rectangle {
-                        width: Theme.mac ? 22px : 32px;
-                        horizontal-stretch: 0;
-                        if i == 0: Rectangle {
-                            width: Theme.mac ? 20px : 32px;
-                            height: self.width;
-                            border-radius: Theme.mac ? 10px : 4px;
-                            background: hide-ta.has-hover ? Theme.hover : Theme.mac ? #ffffff1f : transparent;
-                            Path {
-                                width: 8px;
-                                height: 8px;
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
-                                viewbox-width: 8;
-                                viewbox-height: 8;
-                                commands: "M0 0L8 8M8 0L0 8";
-                                stroke: Theme.weak-text;
-                                stroke-width: 1.4px;
-                                fill: transparent;
-                            }
-                            hide-ta := TouchArea {
-                                clicked => {
-                                    root.busy-hide();
-                                }
-                            }
-                        }
                     }
                 }
                 // Progress: a filled bar when it is known, a moving one otherwise.
@@ -607,11 +608,18 @@ export component MainWindow inherits Window {
 
     // ---- quick edit ----
     for g in qe-gen: Rectangle {
-        // A click outside closes it, and does nothing else.
+        // A click outside closes it, and does nothing else; a right-click (or
+        // Control-click) on another cell goes on to open that cell's quick edit or menu.
         TouchArea {
             pointer-event(e) => {
                 if e.kind == PointerEventKind.down {
                     root.qe-close();
+                    let i = root.cell-at(self.mouse-x, self.mouse-y);
+                    if i >= 0 && (e.button == PointerEventButton.right || (Theme.mac && e.modifiers.control)) {
+                        root.press-x = self.mouse-x;
+                        root.press-y = self.mouse-y;
+                        root.cell-down(i, e.button == PointerEventButton.right, false, e.modifiers.shift, e.modifiers.alt, e.modifiers.control);
+                    }
                 }
             }
         }
@@ -667,11 +675,20 @@ export component MainWindow inherits Window {
 
     // ---- dialogs ----
     for g in dialog-gen: Rectangle {
-        background: Theme.shade;
+        property <bool> shown;
+        init => {
+            self.shown = true;
+        }
+        background: self.shown ? Theme.shade : transparent;
+        animate background {
+            duration: 150ms;
+        }
         TouchArea { }
         DialogView {
             x: (root.width - self.width) / 2;
+            // Floats a little above the middle of the window, fading in.
             y: max(12px, (root.height - self.height) / 3);
+            icon: root.window-icon;
             info: root.dialog;
             ok: root.dialog-ok;
             button(i) => {

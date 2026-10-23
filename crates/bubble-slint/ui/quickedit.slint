@@ -1,8 +1,8 @@
 // Quick edit: the common cart settings in a popover inside the main window, beside the
 // cart (design: "Quick edit: options as toggle buttons"). Opened by right-click,
-// press-and-hold or Return in Edit mode; closed by Done, Esc or a click outside it.
+// press-and-hold or Return in Edit mode; closed by Close, Esc or a click outside it.
 //
-//   Button 8                         [Cart Setup…] [Done]
+//   Button 8                         [Cart Setup…] [Close]
 //   Label   [Morning⏎News          ]
 //   Colour  ● ● ● ● ● ● ● ● ● ● | ◍
 //   Gain    ───────●──────   +1.5 dB
@@ -13,8 +13,8 @@
 //   [↻ Loop] [⇥ Play Next] [■ Stop All]
 //   [Copy] [Paste] [Replace File…]        [Delete]
 
-import { Slider, ComboBox } from "std-widgets.slint";
-import { Theme, TextCommand, Field, Panel, SysButton } from "theme.slint";
+import { Slider } from "std-widgets.slint";
+import { Theme, TextCommand, Field, Panel, SysButton, PopButton } from "theme.slint";
 
 export struct QuickEdit {
     title: string,
@@ -49,7 +49,8 @@ component LabelField inherits Rectangle {
     in-out property <string> text <=> input.text;
     callback edited(string);
     property <int> seq: TextCommand.seq;
-    height: 52px;
+    // One line, growing as the label wraps or gains lines.
+    height: max(Theme.mac ? 22px : 32px, input.preferred-height + (Theme.mac ? 6px : 12px));
     border-radius: Theme.mac ? 5px : 4px;
     background: Theme.mac ? Theme.text.transparentize(90%) : Theme.window-bg;
     border-width: input.has-focus ? 2px : (Theme.mac ? 0px : 1px);
@@ -57,9 +58,9 @@ component LabelField inherits Rectangle {
     clip: true;
     input := TextInput {
         x: 8px;
-        y: 5px;
+        y: Theme.mac ? 3px : 6px;
         width: parent.width - 16px;
-        height: parent.height - 10px;
+        height: parent.height - (Theme.mac ? 6px : 12px);
         single-line: false;
         wrap: word-wrap;
         font-size: Theme.mac ? 13px : 14px;
@@ -91,11 +92,16 @@ component LabelField inherits Rectangle {
 component FieldRow inherits HorizontalLayout {
     in property <string> label;
     spacing: 10px;
+    // Mac grouped-form rows carry their own inset; Windows rows sit on the flyout.
+    padding-left: Theme.mac ? 10px : 0px;
+    padding-right: Theme.mac ? 10px : 0px;
+    padding-top: Theme.mac ? 6px : 0px;
+    padding-bottom: Theme.mac ? 6px : 0px;
     Text {
         text: root.label;
-        color: Theme.weak-text;
         width: Theme.mac ? 64px : 72px;
         vertical-alignment: center;
+        color: Theme.mac ? Theme.text.transparentize(22%) : Theme.weak-text;
     }
     @children
 }
@@ -103,7 +109,11 @@ component FieldRow inherits HorizontalLayout {
 // A thin rule between rows of a group (Mac grouped form).
 component Rule inherits Rectangle {
     height: 1px;
-    background: Theme.text.transparentize(91%);
+    Rectangle {
+        x: 10px;
+        width: parent.width - 10px;
+        background: Theme.text.transparentize(92%);
+    }
 }
 
 // A Mac grouped-form box; on Windows the rows sit straight on the flyout.
@@ -111,8 +121,9 @@ component Group inherits Rectangle {
     border-radius: Theme.mac ? 9px : 0px;
     background: Theme.mac ? Theme.text.transparentize(94%) : transparent;
     VerticalLayout {
-        padding: Theme.mac ? 10px : 0px;
-        spacing: Theme.mac ? 8px : 6px;
+        padding-top: Theme.mac ? 2px : 0px;
+        padding-bottom: Theme.mac ? 2px : 0px;
+        spacing: Theme.mac ? 0px : 6px;
         @children
     }
 }
@@ -174,6 +185,17 @@ export component QuickEditPanel inherits Panel {
     in property <bool> arrow-left: true;
     in property <length> arrow-y: 40px;
 
+    // A quick fade in, as the system's popovers do.
+    property <bool> shown;
+    opacity: shown ? 1 : 0;
+    animate opacity {
+        duration: 140ms;
+        easing: ease-out;
+    }
+    init => {
+        self.shown = true;
+    }
+
     width: Theme.mac ? 392px : 404px;
     height: layout.preferred-height;
     border-radius: Theme.mac ? 12px : 8px;
@@ -224,7 +246,7 @@ export component QuickEditPanel inherits Panel {
                 enabled: false;
             }
             SysButton {
-                text: "Done";
+                text: "Close";
                 primary: true;
                 clicked => {
                     root.action("done");
@@ -350,33 +372,36 @@ export component QuickEditPanel inherits Panel {
             if !qe.control && Theme.mac: Rule { }
             if !qe.control: FieldRow {
                 label: "Output";
-                ComboBox {
+                PopButton {
+                    y: (parent.height - self.height) / 2;
                     model: qe.outputs;
                     current-index: qe.output;
-                    selected => {
-                        root.choice("output", self.current-index);
+                    selected(i) => {
+                        root.choice("output", i);
                     }
                 }
             }
             if !qe.control && Theme.mac: Rule { }
             if !qe.control: FieldRow {
                 label: Theme.mac ? "Fade Out" : "Fade out";
-                ComboBox {
+                PopButton {
+                    y: (parent.height - self.height) / 2;
                     model: qe.fades;
                     current-index: qe.fade;
-                    selected => {
-                        root.choice("fade", self.current-index);
+                    selected(i) => {
+                        root.choice("fade", i);
                     }
                 }
             }
             if qe.show-group && !qe.control && Theme.mac: Rule { }
             if qe.show-group: FieldRow {
                 label: "Group";
-                ComboBox {
+                PopButton {
+                    y: (parent.height - self.height) / 2;
                     model: qe.groups;
                     current-index: qe.group;
-                    selected => {
-                        root.choice("group", self.current-index);
+                    selected(i) => {
+                        root.choice("group", i);
                     }
                 }
             }
@@ -447,7 +472,8 @@ export component QuickEditPanel inherits Panel {
             }
         }
 
-        Rectangle {
+        // Windows: a rule above the actions; the Mac popover has none.
+        if !Theme.mac: Rectangle {
             height: 1px;
             background: Theme.panel-border;
         }

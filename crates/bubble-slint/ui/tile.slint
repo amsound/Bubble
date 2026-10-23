@@ -66,6 +66,9 @@ export component TileView inherits Rectangle {
 
     // A press: right button, touch, and the modifiers held.
     callback down(bool /* right */, bool /* touch */, bool /* shift */, bool /* alt */, bool /* ctrl */);
+    // Where the last press was (tile coordinates), for a menu at the pointer.
+    out property <length> press-x;
+    out property <length> press-y;
     callback up(bool /* touch */);
     // Touch in Edit mode: a tap (released before the hold time) or a press-and-hold.
     callback tap();
@@ -280,7 +283,9 @@ export component TileView inherits Rectangle {
             width: root.width - 2 * pad;
             height: max(0px, bottom.y - 2px - self.y);
             text: tile.label;
-            font-family: style.font;
+            // The large label in San Francisco's Display design, as macOS sets large
+            // text (the window default is its Text design; fonts.rs).
+            font-family: style.font != "" ? style.font : Theme.mac ? "System Font" : "";
             font-weight: tile.control ? 700 : max(style.weight, 600);
             letter-spacing: tile.control ? 0.6px : 0px;
             font-size: label-size;
@@ -378,6 +383,8 @@ export component TileView inherits Rectangle {
         pointer-event(e) => {
             if e.kind == PointerEventKind.down {
                 root.hide-tip();
+                root.press-x = self.mouse-x;
+                root.press-y = self.mouse-y;
                 if e.button == PointerEventButton.right {
                     root.down(true, false, e.modifiers.shift, e.modifiers.alt, e.modifiers.control);
                 } else if e.button == PointerEventButton.left {

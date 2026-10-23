@@ -133,16 +133,19 @@ export component BottomBar inherits Rectangle {
     property <length> m: 5px;
     property <length> gap: 6px;
     property <length> btn-h: max(20px, self.height - 2 * m);
-    property <length> text: clamp(btn-h * 0.36, 12px, 30px);
-    property <length> stop-w: max(120px, btn-h * 3.2);
-    property <length> page-w: max(96px, btn-h * 2.4);
-    property <length> mode-w: max(56px, btn-h * 1.5);
+    // Sizes from the design (Small 44, Medium 64, Large 92 px), in between by line.
+    property <length> grow: max(0px, self.height - 44px);
+    property <length> text: min(13px + grow * 0.104, 20px);
+    property <length> stop-text: min(14px + grow * 0.167, 24px);
+    property <length> stop-w: 140px + grow * 2.5;
+    property <length> page-w: 110px + grow * 1.67;
+    property <length> mode-w: 56px + grow * 1.125;
     property <length> right: self.width - m - stop-w - gap - page-w - gap;
     property <length> tabs-x: m + mode-w + 2 * gap;
     property <length> status-w: status.length == 0 ? 0px : (right - tabs-x) * 0.35;
     property <int> n: pages.length + (edit-mode ? 1 : 0);
     property <length> tabs-avail: max(40px, right - status-w - gap - tabs-x);
-    property <length> tab-w: clamp((tabs-avail - gap * (n - 1)) / max(n, 1), 24px, btn-h * 3.2);
+    property <length> tab-w: clamp((tabs-avail - gap * (n - 1)) / max(n, 1), 24px, 104px + grow * 1.17);
     // Where a dragged tab would land (-1: not dragging).
     property <int> drag-from: -1;
     property <int> drag-to: -1;
@@ -156,7 +159,7 @@ export component BottomBar inherits Rectangle {
         text: edit-mode ? "EDIT" : "SHOW";
         fill: edit-mode ? Theme.edit-mode : Theme.show-mode;
         text-color: #ffffff;
-        font-size: text * 0.8;
+        font-size: text;
         clicked => {
             root.toggle-mode();
         }
@@ -193,6 +196,9 @@ export component BottomBar inherits Rectangle {
             }
         }
         if i == root.renaming: Field {
+            // The whole tab, so the name being typed is visible.
+            width: parent.width;
+            height: parent.height;
             text: root.rename-text;
             font-size: text;
             min-width: 0;
@@ -271,7 +277,7 @@ export component BottomBar inherits Rectangle {
         width: page-w;
         height: btn-h;
         text: "■ PAGE STOP";
-        font-size: text * 0.95;
+        font-size: text;
         clicked => {
             root.stop-page();
         }
@@ -284,7 +290,7 @@ export component BottomBar inherits Rectangle {
         text: "■ ALL STOP";
         fill: Theme.stop-all;
         text-color: #ffffff;
-        font-size: text * 1.1;
+        font-size: stop-text;
         clicked => {
             root.stop-all();
         }

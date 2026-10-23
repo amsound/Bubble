@@ -351,7 +351,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             ],
         ),
         Item::sub(
-            "Same Trigger on Several Carts",
+            "Same Hotkey on Several Carts",
             vec![
                 Item::action("Ganged (all play)", Cmd::DuplicatesGanged)
                     .check(s.duplicate_binding_policy == D::Ganged),
@@ -360,7 +360,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             ],
         ),
         Item::sub(
-            "Triggers Act On",
+            "Hotkeys Act On",
             vec![
                 Item::action("All Pages", Cmd::ScopeGlobal).check(s.binding_scope == S::Global),
                 Item::action("Current Page Only", Cmd::ScopePage)

@@ -22,6 +22,19 @@ mouse_position = "0.1.4"
 rfd.workspace = true
 uuid.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Skia draws text much closer to macOS's own than femtovg does.
+slint = { version = "=1.18.1", features = ["renderer-skia"] }
+# The app menu Slint creates: Quit routed through the unsaved-changes question,
+# Settings… and a Window menu (same versions winit already uses).
+objc2 = "0.6"
+allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSAppearance", "NSMenu", "NSMenuItem", "NSResponder"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSUserDefaults"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
+
 [build-dependencies]
 slint-build = "=1.18.1"
 resvg.workspace = true
