@@ -85,8 +85,6 @@ export component MainWindow inherits Window {
     // Where the busy popover was dragged to, from top centre.
     property <length> busy-dx;
     property <length> busy-dy;
-    // No session yet (a first launch): the mark with New Session and Open.
-    in property <bool> empty-card;
     // The cell files are dragged over (-1: none).
     in property <int> drop-index: -1;
     // Quick edit: shown while `qe-gen` has one entry; a new model rebuilds it.
@@ -138,8 +136,6 @@ export component MainWindow inherits Window {
     callback qe-choice-menu(string, length, length);
     callback qe-flag(string, bool);
     callback qe-action(string);
-    callback new-session();
-    callback open-session();
 
     // ---- layout ----
     property <length> gap: 6px;
@@ -396,54 +392,6 @@ export component MainWindow inherits Window {
         }
         hide-tip => {
             root.tip-text = "";
-        }
-    }
-
-    // No session yet: the mark and how to start. Only the buttons take clicks: the
-    // cells underneath still take clicks and drops.
-    if empty-card && drop-index < 0: Panel {
-        width: min(460px, root.wall-w - 24px);
-        height: min(300px, root.wall-h - 24px);
-        x: (root.width - self.width) / 2;
-        y: root.wall-top + (root.wall-h - self.height) / 2;
-        VerticalLayout {
-            padding: 24px;
-            spacing: 12px;
-            alignment: center;
-            Image {
-                source: @image-url("../../../assets/logo.svg");
-                height: 110px;
-                image-fit: contain;
-            }
-            Text {
-                text: "Bubble";
-                font-size: 28px;
-                font-weight: 700;
-                color: Theme.text;
-                horizontal-alignment: center;
-            }
-            HorizontalLayout {
-                alignment: center;
-                spacing: 12px;
-                FlatButton {
-                    width: 150px;
-                    height: 34px;
-                    text: "New Session…";
-                    fill: Theme.accent;
-                    text-color: #ffffff;
-                    clicked => {
-                        root.new-session();
-                    }
-                }
-                FlatButton {
-                    width: 150px;
-                    height: 34px;
-                    text: "Open…";
-                    clicked => {
-                        root.open-session();
-                    }
-                }
-            }
         }
     }
 

@@ -85,6 +85,9 @@ enum Dialog {
     /// Windows: the new session's Audio files setting, asked after the Save dialog
     /// (the Mac asks it inside the Save panel).
     AudioFiles,
+    /// No session to reopen (a first launch, or the last one is gone): New Session,
+    /// Open or Quit. It comes back until there is a session.
+    Start,
 }
 
 pub struct App {
@@ -416,12 +419,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     });
     on!(ui, app, on_popup_chosen, |a, i, idx| {
         a.popup_chosen(idx as usize, i);
-    });
-    on!(ui, app, on_new_session, |a, i| {
-        a.request_from_ui(PendingAction::New, i);
-    });
-    on!(ui, app, on_open_session, |a, _i| {
-        a.files.request(Purpose::Open);
     });
     // Quick edit.
     on!(ui, app, on_qe_close, |a, _i| {
@@ -789,7 +786,6 @@ impl App {
         }
         ui.set_edit_mode(self.edit_mode);
         // No session yet (a first launch): the mark with New Session and Open.
-        ui.set_empty_card(snap.path.is_none() && snap.project.carts().next().is_none());
         let drop = if self.drag_hover {
             window::pointer_in_window(ui).map_or(-1, |(x, y)| ui.invoke_cell_at(x, y))
         } else {
@@ -1693,9 +1689,24 @@ impl App {
             Some(Dialog::DeletePage)
         } else if self.relink {
             Some(Dialog::Relink)
+        } else if self.needs_session() {
+            Some(Dialog::Start)
         } else {
             None
         }
+    }
+
+    /// Nothing open, being opened or imported, and nothing on the grid.
+    fn needs_session(&self) -> bool {
+        if self.first_tick
+            || self.core.opening.is_some()
+            || self.core.open_at_start.is_some()
+            || self.core.job.is_some()
+        {
+            return false;
+        }
+        let c = self.lock();
+        c.path().is_none() && c.project().carts().next().is_none()
     }
 
     fn show_dialog(&mut self, ui: &MainWindow, snap: &Snapshot) {
@@ -1849,6 +1860,19 @@ impl App {
                     ..Default::default()
                 }
             }
+            Dialog::Start => Alert {
+                title: "Start with a session".into(),
+                info: "Bubble keeps its carts and audio in a session. Create a new one, or \
+                       open one you already have."
+                    .into(),
+                buttons: vec![
+                    name("New Session\u{2026}", "New session\u{2026}"),
+                    "Open\u{2026}".into(),
+                    name("Quit", "Exit"),
+                ],
+                links: true,
+                ..Default::default()
+            },
             Dialog::DeletePage => {
                 let page = self.delete_page.unwrap_or(0);
                 let n = snap
@@ -1964,6 +1988,13 @@ impl App {
                 self.core.prompts.error = None;
             }
             Dialog::Recover => self.dialog_row(0, i, intents),
+            Dialog::Start => match i {
+                0 => self
+                    .core
+                    .begin_new_session(String::new(), AfterCreate::Empty),
+                1 => self.core.files.request(Purpose::Open),
+                _ => self.quit_after_apply(),
+            },
             Dialog::AudioFiles => {
                 self.ask_audio = false;
                 if let Some(ns) = &mut self.core.prompts.new_session {
@@ -2045,7 +2076,7 @@ impl App {
                 }
             }
             // The Save panel answers these (save_chosen, alert_answer).
-            (Dialog::NewSession | Dialog::AudioFiles, _) => {}
+            (Dialog::NewSession | Dialog::AudioFiles | Dialog::Start, _) => {}
             (Dialog::Relink, _) => self.relink = false,
             (Dialog::DeletePage, i) => {
                 if let Some(p) = self.delete_page.take()

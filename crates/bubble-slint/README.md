@@ -95,6 +95,10 @@ Done (main window):
       sheet on a Mac, with "Audio files: Keep as imported / Convert to WAV" in it for a
       new session; on Windows the Save dialog, then an alert asking Audio files). The
       chosen folder becomes the default for the next one. Bubble draws no dialogs.
+- [x] Start: Bubble reopens the last session. With nothing to reopen (a first launch,
+      or the last session is gone) the window opens with a native alert: New
+      Session…, Open…, Quit. Cancelling the Save or Open panel brings it back, so
+      there is always a session to put audio in.
       Alerts and native menus open after the current handler returns (main dispatch
       queue on macOS): a menu opened inside a Slint timer panicked with a cart playing.
 - [x] OS file drop onto a cell via the winit hook, targeted at the cell under the
