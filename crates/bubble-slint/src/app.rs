@@ -389,7 +389,7 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
         s.toggle(what.as_str(), &snap, i);
     });
     on_setup!(win, me, on_label_edited, |s, a, _snap, _i, t| {
-        s.draft.label = t.to_string();
+        s.draft.label = model::unpiped(&t);
     });
     on_setup!(win, me, on_notes_edited, |s, a, _snap, _i, t| {
         s.draft.notes = t.to_string();
@@ -434,6 +434,7 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
                     }
                 }
                 "clear-key" => i.push(Intent::ClearBindings(id, Some(true))),
+                "clear-trigger" => i.push(Intent::ClearBindings(id, None)),
                 "clear-midi" => i.push(Intent::ClearBindings(id, Some(false))),
                 "replace" => {
                     if let Some((page, row, col)) = snap.project.cart_position(id) {
@@ -1608,6 +1609,17 @@ impl App {
     // ---- menu commands ----
 
     fn command(&mut self, cmd: Cmd, intents: &mut Vec<Intent>) {
+        // ⌘. is Cancel in a dialog: with Cart Setup in front it closes that, not
+        // Stop All Immediately.
+        if cmd == Cmd::StopAllNow
+            && self
+                .setup
+                .as_ref()
+                .is_some_and(|s| window::is_key(s.win.window()))
+        {
+            self.close_setup(false, intents);
+            return;
+        }
         let snap = self.core.snapshot();
         if bubble_core::menu::apply_common(&mut self.core, &cmd, &snap, intents) {
             return;

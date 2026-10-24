@@ -9,7 +9,7 @@
 //! cursor, a double-click plays from there, a drag elsewhere scrolls.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bubble_control::{AssetState, CartState as Cs, describe};
 use bubble_core::app::Core;
@@ -60,8 +60,6 @@ enum Pick {
     SlowDown(u32),
     SpeedUp(u32),
     Retrigger(Option<Retrigger>),
-    Starts(StopScope),
-    Ends(bool),
     Group(Option<Uuid>),
 }
 
@@ -95,8 +93,11 @@ pub struct Setup {
     /// Two-finger pinch on a touch screen: the fingers and the last distance.
     touches: Vec<(u64, f64, f64)>,
     pinch: Option<f64>,
-    /// The playhead was grabbed while playing: it holds still until let go.
+    /// The playhead was grabbed while playing: it carries on when let go.
     resume: bool,
+    /// Scrubbing: when the held playhead last moved, and whether it is sounding.
+    scrub_at: Option<Instant>,
+    sounding: bool,
 }
 
 fn fmt_time(s: f64) -> String {
@@ -125,14 +126,6 @@ fn retrigger_text(r: Retrigger) -> &'static str {
             }
         }
         Retrigger::Ignore => "Ignore",
-    }
-}
-
-fn stop_text(s: StopScope) -> &'static str {
-    match s {
-        StopScope::None => "Stop nothing",
-        StopScope::All => "Stop all other carts",
-        StopScope::Page => "Stop others on this page",
     }
 }
 
@@ -185,6 +178,8 @@ impl Setup {
             touches: Vec::new(),
             pinch: None,
             resume: false,
+            scrub_at: None,
+            sounding: false,
         }
     }
 
@@ -337,10 +332,14 @@ impl Setup {
         );
         match self.drag {
             Some(Drag::Handle(h)) => self.last = h,
-            // Holding the playhead holds the sound; letting go carries on.
-            Some(Drag::Playhead) if !self.paused(snap) => {
-                intents.push(Intent::LiveSpeedRamp(self.id, 0.0, 5));
-                self.resume = true;
+            // Holding the playhead still holds the sound; moving it plays from
+            // where it is (scrubbing); letting go carries on as before.
+            Some(Drag::Playhead) => {
+                if !self.paused(snap) {
+                    intents.push(Intent::LiveSpeedRamp(self.id, 0.0, 5));
+                    self.resume = true;
+                }
+                self.sounding = false;
             }
             _ => {}
         }
@@ -360,6 +359,11 @@ impl Setup {
                 let (a, b) = self.trims();
                 let t = self.t_of(x).clamp(a, (b - MIN_LEN).max(a));
                 intents.push(Intent::Seek(self.id, t));
+                if !self.sounding {
+                    intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
+                    self.sounding = true;
+                }
+                self.scrub_at = Some(Instant::now());
             }
             Some(Drag::Pan { x: x0, start }) => {
                 self.start = start - (x - x0) as f64 / self.width() as f64 * self.span;
@@ -374,9 +378,16 @@ impl Setup {
         if !self.moved && matches!(self.drag, Some(Drag::Pan { .. })) {
             self.cursor = Some(self.t_of(x));
         }
-        if std::mem::take(&mut self.resume) && self.playing(snap) {
-            intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
+        if matches!(self.drag, Some(Drag::Playhead)) && self.playing(snap) {
+            let resume = std::mem::take(&mut self.resume);
+            if resume && !self.sounding {
+                intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
+            } else if !resume && self.sounding {
+                intents.push(Intent::LiveSpeedRamp(self.id, 0.0, 5));
+            }
         }
+        self.sounding = false;
+        self.scrub_at = None;
         self.drag = None;
     }
 
@@ -433,6 +444,16 @@ impl Setup {
 
     /// While a handle is dragged into either edge, the waveform scrolls that way.
     pub fn auto_scroll(&mut self, snap: &Snapshot, intents: &mut Vec<Intent>) -> bool {
+        // A scrubbed playhead held still goes quiet again.
+        if matches!(self.drag, Some(Drag::Playhead))
+            && self.sounding
+            && self
+                .scrub_at
+                .is_some_and(|t| t.elapsed() > Duration::from_millis(120))
+        {
+            intents.push(Intent::LiveSpeedRamp(self.id, 0.0, 5));
+            self.sounding = false;
+        }
         let (Some(Drag::Handle(h)), Some(x)) = (self.drag, self.pointer) else {
             return false;
         };
@@ -519,6 +540,22 @@ impl Setup {
                         self.draft.muted,
                     ));
                 }
+            }
+            "next" => {
+                self.draft.play_next = match self.draft.play_next {
+                    Some(_) => None,
+                    None => Some("next_cell".to_string()),
+                }
+            }
+            // Stop Page and Stop All: one or the other, or neither (stop nothing).
+            "stop-page" | "stop-all" => {
+                let s = if what == "stop-page" {
+                    StopScope::Page
+                } else {
+                    StopScope::All
+                };
+                let on = &mut self.draft.on_play.stop;
+                *on = if *on == s { StopScope::None } else { s };
             }
             _ => self.draft.hold_to_play = !self.draft.hold_to_play,
         }
@@ -718,20 +755,6 @@ impl Setup {
                     rows.push((Pick::Retrigger(v), retrigger_text(r).to_string(), r == cur));
                 }
             }
-            "starts" => {
-                for s in [StopScope::None, StopScope::Page, StopScope::All] {
-                    rows.push((
-                        Pick::Starts(s),
-                        stop_text(s).to_string(),
-                        c.on_play.stop == s,
-                    ));
-                }
-            }
-            "ends" => {
-                let next = c.play_next.is_some();
-                rows.push((Pick::Ends(false), "Nothing".into(), !next));
-                rows.push((Pick::Ends(true), "Play the next cart".into(), next));
-            }
             _ => {
                 rows.push((Pick::Group(None), "None".into(), c.group.is_none()));
                 for (i, g) in snap.project.groups.iter().enumerate() {
@@ -782,8 +805,6 @@ impl Setup {
             Pick::SlowDown(ms) => c.slowdown_ms = ms,
             Pick::SpeedUp(ms) => c.speedup_ms = ms,
             Pick::Retrigger(r) => c.retrigger = r,
-            Pick::Starts(s) => c.on_play.stop = s,
-            Pick::Ends(next) => c.play_next = next.then(|| "next_cell".to_string()),
             Pick::Group(g) => c.group = g,
         }
     }
@@ -986,7 +1007,7 @@ impl Setup {
             .iter()
             .position(|s| *s == rgb)
             .map_or(-1, |i| i as i32);
-        let name = bubble_control::display_label(c, &snap.project);
+        let name = model::piped(&bubble_control::display_label(c, &snap.project));
         let info = SetupInfo {
             name: name.clone().into(),
             details: details.into(),
@@ -1002,13 +1023,9 @@ impl Setup {
                     .unwrap_or(snap.project.settings.default_retrigger),
             )
             .into(),
-            starts: stop_text(c.on_play.stop).into(),
-            ends: if c.play_next.is_some() {
-                "Play the next cart"
-            } else {
-                "Nothing"
-            }
-            .into(),
+            play_next: c.play_next.is_some(),
+            stop_page: c.on_play.stop == StopScope::Page,
+            stop_all: c.on_play.stop == StopScope::All,
             group: group.into(),
             gain_text: gain_text(c.gain_db).into(),
             pan_text: pan_text(c.pan).into(),
@@ -1041,7 +1058,7 @@ impl Setup {
             win.set_gain(c.gain_db);
             win.set_pan(c.pan);
             win.set_speed(c.speed);
-            win.set_label_text(c.label.clone().into());
+            win.set_label_text(model::piped(&c.label).into());
             win.set_notes_text(c.notes.clone().into());
         }
     }

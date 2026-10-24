@@ -35,8 +35,11 @@ export struct SetupInfo {
     speed-x0: string,
     speed-x1: string,
     retrigger: string,
-    starts: string,
-    ends: string,
+    // On play: stop the page or everything else (neither: stop nothing); at the end,
+    // play the next cart.
+    play-next: bool,
+    stop-page: bool,
+    stop-all: bool,
     group: string,
     gain-text: string,
     pan-text: string,
@@ -304,8 +307,10 @@ export component CartSetupWindow inherits Window {
     in property <string> window-title: "Cart Setup";
     title: window-title;
     icon: window-icon;
-    preferred-width: 980px;
+    // Opens at its smallest.
+    preferred-width: 860px;
     min-width: 860px;
+    property <length> label-width: Theme.mac ? 92px : 104px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
 
@@ -481,6 +486,21 @@ export component CartSetupWindow inherits Window {
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
+                }
+                SysButton {
+                    text: "Replace…";
+                    clicked => {
+                        root.action("replace");
+                    }
+                }
+                if info.missing: SysButton {
+                    text: "Locate…";
+                    clicked => {
+                        root.action("locate");
+                    }
+                }
+                Rectangle {
+                    width: 6px;
                 }
                 SysButton {
                     text: Theme.mac ? "Top and Tail" : "Top and tail";
@@ -834,7 +854,7 @@ export component CartSetupWindow inherits Window {
                 }
             }
 
-            // ---- settings: Sound | Cart ----
+            // ---- settings: Sound | Cart, seven rows each ----
             HorizontalLayout {
                 spacing: 12px;
                 alignment: stretch;
@@ -854,7 +874,7 @@ export component CartSetupWindow inherits Window {
                     }
                     Group {
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Output";
                             Choice {
                                 value: info.output;
@@ -865,7 +885,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Gain";
                             SetupSlider {
                                 minimum: -12;
@@ -879,21 +899,25 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                             Text {
-                                width: 64px;
+                                width: 56px;
                                 text: info.gain-text;
                                 color: Theme.text;
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
-                                TouchArea {
-                                    double-clicked => {
-                                        root.reset("gain");
-                                    }
+                            }
+                            Toggle {
+                                width: 56px;
+                                height: Theme.mac ? 24px : 32px;
+                                text: "Mute";
+                                on: info.muted;
+                                toggled(on) => {
+                                    root.toggle("mute");
                                 }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Pan";
                             SetupSlider {
                                 minimum: -1;
@@ -907,21 +931,16 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                             Text {
-                                width: 64px;
+                                width: 56px + 10px + 56px;
                                 text: info.pan-text;
                                 color: Theme.text;
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
-                                TouchArea {
-                                    double-clicked => {
-                                        root.reset("pan");
-                                    }
-                                }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Speed";
                             SetupSlider {
                                 minimum: 0.25;
@@ -936,27 +955,21 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                             Text {
-                                width: 64px;
+                                width: 56px + 10px + 56px;
                                 text: info.speed-text;
                                 color: Theme.text;
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
-                                TouchArea {
-                                    double-clicked => {
-                                        root.reset("speed");
-                                    }
-                                }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: Theme.mac ? "Speed Bar" : "Speed bar";
                             HorizontalLayout {
                                 spacing: 6px;
                                 alignment: start;
                                 PopButton {
-                                    y: (parent.height - self.height) / 2;
                                     model: ["x0 · " + info.speed-x0];
                                     current-index: 0;
                                     open(x, y) => {
@@ -964,7 +977,6 @@ export component CartSetupWindow inherits Window {
                                     }
                                 }
                                 PopButton {
-                                    y: (parent.height - self.height) / 2;
                                     model: ["x1 · " + info.speed-x1];
                                     current-index: 0;
                                     open(x, y) => {
@@ -975,64 +987,43 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: Theme.mac ? "Fade In" : "Fade in";
-                            Choice {
-                                value: info.fade-in;
-                                open(x, y) => {
-                                    root.choice-menu("fade-in", x, y);
-                                }
-                            }
-                        }
-                        if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: Theme.mac ? "Fade Out" : "Fade out";
-                            Choice {
-                                value: info.fade-out;
-                                open(x, y) => {
-                                    root.choice-menu("fade-out", x, y);
-                                }
-                            }
-                        }
-                        if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: "Playback";
+                            label-width: root.label-width;
+                            label: "Fades";
                             HorizontalLayout {
                                 spacing: 6px;
-                                Toggle {
-                                    text: "Loop";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    on: info.looping;
-                                    toggled(on) => {
-                                        root.toggle("loop");
+                                alignment: start;
+                                Text {
+                                    text: "In";
+                                    color: Theme.weak-text;
+                                    vertical-alignment: center;
+                                }
+                                PopButton {
+                                    model: [info.fade-in];
+                                    current-index: 0;
+                                    open(x, y) => {
+                                        root.choice-menu("fade-in", x, y);
                                     }
                                 }
-                                Toggle {
-                                    text: "Mute";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    on: info.muted;
-                                    toggled(on) => {
-                                        root.toggle("mute");
-                                    }
+                                Rectangle {
+                                    width: 6px;
                                 }
-                                Toggle {
-                                    text: "Hold";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    on: info.hold;
-                                    toggled(on) => {
-                                        root.toggle("hold");
+                                Text {
+                                    text: "Out";
+                                    color: Theme.weak-text;
+                                    vertical-alignment: center;
+                                }
+                                PopButton {
+                                    model: [info.fade-out];
+                                    current-index: 0;
+                                    open(x, y) => {
+                                        root.choice-menu("fade-out", x, y);
                                     }
                                 }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: Theme.mac ? "On Retrigger" : "On retrigger";
                             Choice {
                                 value: info.retrigger;
@@ -1057,7 +1048,7 @@ export component CartSetupWindow inherits Window {
                     }
                     Group {
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Label";
                             LabelField {
                                 single-line: true;
@@ -1072,7 +1063,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Colour";
                             HorizontalLayout {
                                 spacing: 2px;
@@ -1087,7 +1078,6 @@ export component CartSetupWindow inherits Window {
                                 Rectangle {
                                     width: 1px;
                                     height: 16px;
-                                    y: (parent.height - self.height) / 2;
                                     background: Theme.panel-border;
                                 }
                                 Swatch {
@@ -1101,29 +1091,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: Theme.mac ? "When It Starts" : "When it starts";
-                            Choice {
-                                value: info.starts;
-                                open(x, y) => {
-                                    root.choice-menu("starts", x, y);
-                                }
-                            }
-                        }
-                        if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: Theme.mac ? "When It Ends" : "When it ends";
-                            Choice {
-                                value: info.ends;
-                                open(x, y) => {
-                                    root.choice-menu("ends", x, y);
-                                }
-                            }
-                        }
-                        if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Group";
                             Choice {
                                 value: info.group;
@@ -1133,9 +1101,76 @@ export component CartSetupWindow inherits Window {
                             }
                         }
                         if Theme.mac: Rule { }
+                        // As in quick edit: what the cart does, as toggle buttons.
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: "Hotkey";
+                            label-width: root.label-width;
+                            label: "Playback";
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Toggle {
+                                    text: "Loop";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    on: info.looping;
+                                    toggled(on) => {
+                                        root.toggle("loop");
+                                    }
+                                }
+                                Toggle {
+                                    text: Theme.mac ? "Play Next" : "Play next";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    on: info.play-next;
+                                    toggled(on) => {
+                                        root.toggle("next");
+                                    }
+                                }
+                                Toggle {
+                                    text: "Hold";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    on: info.hold;
+                                    toggled(on) => {
+                                        root.toggle("hold");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "On Play" : "On play";
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Toggle {
+                                    text: Theme.mac ? "Stop Page" : "Stop page";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    on: info.stop-page;
+                                    toggled(on) => {
+                                        root.toggle("stop-page");
+                                    }
+                                }
+                                Toggle {
+                                    text: Theme.mac ? "Stop All" : "Stop all";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    on: info.stop-all;
+                                    toggled(on) => {
+                                        root.toggle("stop-all");
+                                    }
+                                }
+                                // Lines up with Playback's three.
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        // The hotkey and MIDI note that play it; Learn takes either.
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: "Trigger";
                             HorizontalLayout {
                                 spacing: 8px;
                                 if info.learning: Text {
@@ -1147,7 +1182,6 @@ export component CartSetupWindow inherits Window {
                                     horizontal-stretch: 1;
                                 }
                                 if !info.learning && info.hotkey != "": Rectangle {
-                                    y: (parent.height - self.height) / 2;
                                     height: 20px;
                                     width: key-text.preferred-width + 14px;
                                     border-radius: 4px;
@@ -1159,7 +1193,14 @@ export component CartSetupWindow inherits Window {
                                         color: info.cart-color;
                                     }
                                 }
-                                if !info.learning && info.hotkey == "": Text {
+                                if !info.learning && info.midi != "": Text {
+                                    text: info.midi;
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    min-width: 0;
+                                }
+                                if !info.learning && info.hotkey == "" && info.midi == "": Text {
                                     text: "None";
                                     color: Theme.weak-text;
                                     vertical-alignment: center;
@@ -1168,75 +1209,25 @@ export component CartSetupWindow inherits Window {
                                     horizontal-stretch: 1;
                                 }
                                 SysButton {
-                                    y: (parent.height - self.height) / 2;
                                     text: info.learning ? "Cancel" : "Learn";
                                     clicked => {
                                         root.action("learn");
                                     }
                                 }
                                 SysButton {
-                                    y: (parent.height - self.height) / 2;
                                     text: "Clear";
-                                    enabled: info.hotkey != "";
+                                    enabled: info.hotkey != "" || info.midi != "";
                                     clicked => {
-                                        root.action("clear-key");
-                                    }
-                                }
-                            }
-                        }
-                        if Theme.mac && info.show-midi: Rule { }
-                        if info.show-midi: FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: "MIDI";
-                            HorizontalLayout {
-                                spacing: 8px;
-                                Text {
-                                    text: info.midi == "" ? "None" : info.midi;
-                                    color: info.midi == "" ? Theme.weak-text : Theme.text;
-                                    vertical-alignment: center;
-                                }
-                                Rectangle {
-                                    horizontal-stretch: 1;
-                                }
-                                SysButton {
-                                    y: (parent.height - self.height) / 2;
-                                    text: "Clear";
-                                    enabled: info.midi != "";
-                                    clicked => {
-                                        root.action("clear-midi");
+                                        root.action("clear-trigger");
                                     }
                                 }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
-                            label: Theme.mac ? "Audio File" : "Audio file";
-                            HorizontalLayout {
-                                spacing: 8px;
-                                alignment: start;
-                                SysButton {
-                                    y: (parent.height - self.height) / 2;
-                                    text: "Replace…";
-                                    clicked => {
-                                        root.action("replace");
-                                    }
-                                }
-                                if info.missing: SysButton {
-                                    y: (parent.height - self.height) / 2;
-                                    text: "Locate…";
-                                    clicked => {
-                                        root.action("locate");
-                                    }
-                                }
-                            }
-                        }
-                        if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: Theme.mac ? 100px : 112px;
+                            label-width: root.label-width;
                             label: "Notes";
                             LabelField {
-                                lines: 2;
                                 text <=> root.notes-text;
                                 edited(t) => {
                                     root.notes-edited(t);

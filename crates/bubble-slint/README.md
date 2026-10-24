@@ -122,6 +122,17 @@ Done (main window):
       gradient meter, and a window as tall as its content. On a Mac the main menu
       bar stays while Cart Setup is in front (Slint would swap in an empty one),
       and Cut/Copy/Paste/Undo/Redo act on its text fields.
+      Opens at its smallest size (860 points wide). Seven rows a side: Sound
+      (Output, Gain with Mute, Pan, Speed, Speed Bar, Fades In/Out, On Retrigger)
+      and Cart (Label, Colour, Group, Playback Loop/Play Next/Hold, On Play Stop
+      Page/Stop All, Trigger: hotkey and MIDI with one Learn and Clear, Notes).
+      Replace… and Locate… sit in the header by the file. A label's lines show as
+      "Audio Track | line 2" in the header, title and Label field, and a typed "|"
+      is a new line; only quick edit adds a line break. ⌘. (Stop All Immediately)
+      cancels Cart Setup while it is in front. Dragging the playhead scrubs: moving
+      plays from there, holding still goes quiet after 120 ms, letting go carries on
+      (or stays paused). Top and Tail trims to the first and last sample at or above
+      −40 dBFS on any channel.
       A paused voice (speed 0) fades to silence below 5% speed in the engine, rather
       than holding one sample (a DC offset).
 - [x] Start: Bubble reopens the last session. With nothing to reopen (a first launch,

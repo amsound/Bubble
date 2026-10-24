@@ -356,6 +356,24 @@ fn strings(v: Vec<String>) -> ModelRc<SharedString> {
     ))
 }
 
+/// A label on one line: its lines joined with " | " ("Audio Track | line 2"). Only
+/// quick edit adds a new line to a label; elsewhere a label is shown and typed this way.
+pub fn piped(label: &str) -> String {
+    label.lines().collect::<Vec<_>>().join(" | ")
+}
+
+/// The reverse of `piped`: a typed "|" is a new line.
+pub fn unpiped(text: &str) -> String {
+    if text.contains('|') {
+        text.split('|')
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        text.to_string()
+    }
+}
+
 pub fn fade_text(ms: u32) -> String {
     if ms == 0 {
         "None".into()
