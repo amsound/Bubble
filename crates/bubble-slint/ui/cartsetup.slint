@@ -12,7 +12,6 @@
 //          Notes
 //                                                                       [Cancel] [OK]
 
-import { Slider } from "std-widgets.slint";
 import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock } from "theme.slint";
 import { LabelField, FieldRow, Rule, Group, Toggle } from "quickedit.slint";
 
@@ -162,6 +161,127 @@ component TrimBox inherits Rectangle {
     }
 }
 
+// A slider drawn like the system's (a Mac slider, or Windows 11's with its accent dot).
+// Pressing the track jumps there; the knob drags from where it was taken. A
+// double-click on the knob puts it back to its default (`reset`); one on the track
+// only moves it. With `log-scale` the middle of the track is the geometric mean
+// (Speed: 25% · 100% · 400%).
+component SetupSlider inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <bool> log-scale;
+    callback changed(float);
+    callback reset();
+    property <float> pos: clamp(log-scale ? log(value / minimum, 2) / log(maximum / minimum, 2) : (value - minimum) / (maximum - minimum), 0, 1);
+    property <length> knob: Theme.mac ? 18px : 20px;
+    property <length> knob-x: (self.width - knob) * pos;
+    property <length> grab;
+    // Whether the last two presses were on the knob (a double-click there resets).
+    property <bool> down-on-knob;
+    property <bool> before-on-knob;
+    height: 22px;
+    min-width: 80px;
+    horizontal-stretch: 1;
+    accessible-role: slider;
+    accessible-value: value;
+
+    function set-from(x: length) {
+        let p = clamp((x - root.grab) / max(1px, root.width - root.knob), 0, 1);
+        let v = root.log-scale ? root.minimum * pow(root.maximum / root.minimum, p) : root.minimum + p * (root.maximum - root.minimum);
+        root.value = v;
+        root.changed(v);
+    }
+
+    Rectangle {
+        x: root.knob / 2;
+        width: root.width - root.knob;
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.text.transparentize(Theme.mac ? 80% : 60%);
+    }
+    Rectangle {
+        x: root.knob / 2;
+        width: root.knob-x;
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.mac ? #0a84ff : Theme.accent;
+    }
+    Rectangle {
+        x: root.knob-x;
+        y: (parent.height - self.height) / 2;
+        width: root.knob;
+        height: root.knob;
+        border-radius: self.width / 2;
+        background: Theme.mac ? #f2f2f2 : (Theme.dark ? #454545 : #ffffff);
+        border-width: Theme.mac ? 0px : 1px;
+        border-color: Theme.panel-border;
+        drop-shadow-blur: 3px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #00000070;
+        if !Theme.mac: Rectangle {
+            width: ta.pressed ? 10px : ta.has-hover ? 14px : 12px;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: Theme.accent;
+            animate width { duration: 100ms; }
+        }
+    }
+    ta := TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                let on-knob = self.mouse-x >= root.knob-x - 2px && self.mouse-x <= root.knob-x + root.knob + 2px;
+                root.before-on-knob = root.down-on-knob;
+                root.down-on-knob = on-knob;
+                if on-knob {
+                    root.grab = self.mouse-x - root.knob-x;
+                } else {
+                    root.grab = root.knob / 2;
+                    root.set-from(self.mouse-x);
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.set-from(self.mouse-x);
+            }
+        }
+        double-clicked => {
+            if root.down-on-knob && root.before-on-knob {
+                root.reset();
+            }
+        }
+    }
+}
+
+// A colour swatch, with a ring round the chosen one.
+component Swatch inherits Rectangle {
+    in property <brush> colour;
+    in property <bool> chosen;
+    callback pressed();
+    width: 24px;
+    height: 24px;
+    border-radius: Theme.mac ? 12px : 6px;
+    border-width: chosen ? 2px : 0px;
+    border-color: Theme.text;
+    Rectangle {
+        width: 16px;
+        height: 16px;
+        border-radius: Theme.mac ? 8px : 3px;
+        background: root.colour;
+    }
+    // On the press, so it takes at once (and the ring follows straight away).
+    TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                root.pressed();
+            }
+        }
+    }
+}
+
 // A pop-up button that only shows its value; the choices come from Rust as a native
 // menu (`choice-menu`).
 component Choice inherits HorizontalLayout {
@@ -185,9 +305,7 @@ export component CartSetupWindow inherits Window {
     title: window-title;
     icon: window-icon;
     preferred-width: 980px;
-    preferred-height: 840px;
     min-width: 860px;
-    min-height: 660px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
 
@@ -268,13 +386,13 @@ export component CartSetupWindow inherits Window {
     // "zoom-in", "zoom-out", "return" (OK), "escape" and ⌘. (Cancel); shift held.
     callback key(string, bool);
 
-    // When each slider was last released: two quick releases (a double-click) reset it.
-    property <duration> gain-release: -1s;
-    property <duration> pan-release: -1s;
-    property <duration> speed-release: -1s;
-
     public function open-popup() {
         ctx.show({ x: root.popup-x, y: root.popup-y });
+    }
+    // Edit menu commands for the text field being typed in.
+    public function text-command(name: string) {
+        TextCommand.name = name;
+        TextCommand.seq += 1;
     }
 
     keys := FocusScope {
@@ -384,13 +502,14 @@ export component CartSetupWindow inherits Window {
             HorizontalLayout {
                 spacing: 10px;
                 vertical-stretch: 1;
-                min-height: 160px;
+                min-height: 180px;
+                preferred-height: 250px;
                 Rectangle {
                     horizontal-stretch: 1;
                     border-radius: Theme.mac ? 9px : 4px;
                     background: Theme.dark ? #15161a : #f4f5f7;
                     border-width: 1px;
-                    border-color: Theme.panel-border;
+                    border-color: Theme.dark ? #ffffff12 : Theme.panel-border;
                     clip: true;
                     VerticalLayout {
                         // Time ruler (a double-click zooms to fit).
@@ -407,7 +526,7 @@ export component CartSetupWindow inherits Window {
                             Rectangle {
                                 y: parent.height - 1px;
                                 height: 1px;
-                                background: Theme.panel-border;
+                                background: Theme.dark ? #ffffff10 : Theme.panel-border;
                             }
                             TouchArea {
                                 double-clicked => {
@@ -436,18 +555,18 @@ export component CartSetupWindow inherits Window {
                                 viewbox-height: parent.height / 1px;
                                 commands: root.wave-path;
                                 stroke: Theme.dark ? #6ea8ff : #2f6fdb;
-                                stroke-width: 1px;
+                                stroke-width: 1.2px;
                             }
                             // Outside In and Out is dimmed.
                             Rectangle {
                                 x: 0;
                                 width: clamp(root.in-x, 0, parent.width);
-                                background: Theme.dark ? #00000090 : #ffffffb0;
+                                background: Theme.dark ? #0000008c : #ffffffa8;
                             }
                             Rectangle {
                                 x: clamp(root.out-x, 0, parent.width);
                                 width: parent.width - self.x;
-                                background: Theme.dark ? #00000090 : #ffffffb0;
+                                background: Theme.dark ? #0000008c : #ffffffa8;
                             }
                             Path {
                                 width: parent.width;
@@ -470,6 +589,8 @@ export component CartSetupWindow inherits Window {
                                 width: 2px;
                                 visible: root.playhead-x >= 0;
                                 background: Theme.dark ? #ffffff : #111111;
+                                drop-shadow-blur: 6px;
+                                drop-shadow-color: Theme.dark ? #ffffff99 : #00000040;
                             }
                             // In and Out: a line with its flag, or a tab at the edge.
                             if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
@@ -480,12 +601,13 @@ export component CartSetupWindow inherits Window {
                             if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
                                 x: root.in-x;
                                 y: 0;
-                                width: in-flag.preferred-width + 14px;
-                                height: 20px;
+                                width: in-flag.preferred-width + 12px;
+                                height: 16px;
+                                border-bottom-right-radius: 4px;
                                 background: #ffd60a;
                                 in-flag := Text {
                                     text: "IN";
-                                    font-size: 11px;
+                                    font-size: 10px;
                                     font-weight: 700;
                                     color: #1a1a1a;
                                 }
@@ -498,12 +620,13 @@ export component CartSetupWindow inherits Window {
                             if root.out-x >= 0 && root.out-x <= parent.width: Rectangle {
                                 x: root.out-x - self.width;
                                 y: 0;
-                                width: out-flag.preferred-width + 14px;
-                                height: 20px;
+                                width: out-flag.preferred-width + 12px;
+                                height: 16px;
+                                border-bottom-left-radius: 4px;
                                 background: #ffd60a;
                                 out-flag := Text {
                                     text: "OUT";
-                                    font-size: 11px;
+                                    font-size: 10px;
                                     font-weight: 700;
                                     color: #1a1a1a;
                                 }
@@ -511,9 +634,9 @@ export component CartSetupWindow inherits Window {
                             if root.in-tab: Rectangle {
                                 x: 0;
                                 y: 0;
-                                width: in-tab-text.preferred-width + 14px;
-                                height: 18px;
-                                border-radius: 0;
+                                width: in-tab-text.preferred-width + 12px;
+                                height: 16px;
+                                border-bottom-right-radius: 4px;
                                 background: #ffd60a;
                                 in-tab-text := Text {
                                     text: "◀ IN " + root.in-time;
@@ -525,8 +648,9 @@ export component CartSetupWindow inherits Window {
                             if root.out-tab: Rectangle {
                                 x: parent.width - self.width;
                                 y: 0;
-                                width: out-tab-text.preferred-width + 14px;
-                                height: 18px;
+                                width: out-tab-text.preferred-width + 12px;
+                                height: 16px;
+                                border-bottom-left-radius: 4px;
                                 background: #ffd60a;
                                 out-tab-text := Text {
                                     text: "OUT " + root.out-time + " ▶";
@@ -567,35 +691,30 @@ export component CartSetupWindow inherits Window {
                     border-radius: Theme.mac ? 9px : 4px;
                     background: Theme.dark ? #15161a : #f4f5f7;
                     border-width: 1px;
-                    border-color: Theme.panel-border;
+                    border-color: Theme.dark ? #ffffff12 : Theme.panel-border;
                     HorizontalLayout {
                         padding: 7px;
-                        padding-top: 9px;
-                        padding-bottom: 9px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
                         spacing: 4px;
                         // Green to −18 dBFS (half way up), orange to −10 (three
                         // quarters), red above: each bar lit up to its level.
                         for ch in [
                             { level: root.level-l, hold: root.hold-l, hold-colour: root.hold-l-colour },
                             { level: root.level-r, hold: root.hold-r, hold-colour: root.hold-r-colour },
-                        ]: Rectangle {
-                            border-radius: 2px;
-                            background: Theme.text.transparentize(92%);
+                        ]: bar := Rectangle {
+                            border-radius: 3px;
+                            background: Theme.text.transparentize(93%);
                             clip: true;
                             Rectangle {
-                                y: parent.height * (1 - min(ch.level, 0.5));
-                                height: parent.height * min(ch.level, 0.5);
-                                background: #43a047;
-                            }
-                            if ch.level > 0.5: Rectangle {
-                                y: parent.height * (1 - min(ch.level, 0.75));
-                                height: parent.height * (min(ch.level, 0.75) - 0.5);
-                                background: #fb8c00;
-                            }
-                            if ch.level > 0.75: Rectangle {
                                 y: parent.height * (1 - ch.level);
-                                height: parent.height * (ch.level - 0.75);
-                                background: #e53935;
+                                height: parent.height * ch.level;
+                                clip: true;
+                                Rectangle {
+                                    y: -parent.y;
+                                    height: bar.height;
+                                    background: @linear-gradient(0deg, #30d158 0%, #30d158 46%, #ff9f0a 54%, #ff9f0a 71%, #ff453a 79%, #ff453a 100%);
+                                }
                             }
                             Rectangle {
                                 visible: ch.hold > 0.01;
@@ -611,6 +730,7 @@ export component CartSetupWindow inherits Window {
             // ---- trim in · transport · trim out ----
             HorizontalLayout {
                 spacing: 10px;
+                vertical-stretch: 0;
                 TrimBox {
                     title: Theme.mac ? "Trim In" : "Trim in";
                     time: root.in-chars;
@@ -718,6 +838,7 @@ export component CartSetupWindow inherits Window {
             HorizontalLayout {
                 spacing: 12px;
                 alignment: stretch;
+                vertical-stretch: 0;
                 VerticalLayout {
                     // Fixed halves: both columns ask for the same small size and share
                     // the rest equally, so what the pop-ups show never moves them.
@@ -733,7 +854,7 @@ export component CartSetupWindow inherits Window {
                     }
                     Group {
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Output";
                             Choice {
                                 value: info.output;
@@ -744,20 +865,17 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Gain";
-                            Slider {
+                            SetupSlider {
                                 minimum: -12;
                                 maximum: 12;
                                 value <=> root.gain;
                                 changed(v) => {
                                     root.gain-changed(v);
                                 }
-                                released => {
-                                    if animation-tick() - root.gain-release < 400ms {
-                                        root.reset("gain");
-                                    }
-                                    root.gain-release = animation-tick();
+                                reset => {
+                                    root.reset("gain");
                                 }
                             }
                             Text {
@@ -775,20 +893,17 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Pan";
-                            Slider {
+                            SetupSlider {
                                 minimum: -1;
                                 maximum: 1;
                                 value <=> root.pan;
                                 changed(v) => {
                                     root.pan-changed(v);
                                 }
-                                released => {
-                                    if animation-tick() - root.pan-release < 400ms {
-                                        root.reset("pan");
-                                    }
-                                    root.pan-release = animation-tick();
+                                reset => {
+                                    root.reset("pan");
                                 }
                             }
                             Text {
@@ -806,20 +921,18 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Speed";
-                            Slider {
+                            SetupSlider {
                                 minimum: 0.25;
                                 maximum: 4;
+                                log-scale: true;
                                 value <=> root.speed;
                                 changed(v) => {
                                     root.speed-changed(v);
                                 }
-                                released => {
-                                    if animation-tick() - root.speed-release < 400ms {
-                                        root.reset("speed");
-                                    }
-                                    root.speed-release = animation-tick();
+                                reset => {
+                                    root.reset("speed");
                                 }
                             }
                             Text {
@@ -837,7 +950,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "Speed Bar" : "Speed bar";
                             HorizontalLayout {
                                 spacing: 6px;
@@ -862,7 +975,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "Fade In" : "Fade in";
                             Choice {
                                 value: info.fade-in;
@@ -873,7 +986,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "Fade Out" : "Fade out";
                             Choice {
                                 value: info.fade-out;
@@ -884,13 +997,14 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Playback";
                             HorizontalLayout {
                                 spacing: 6px;
                                 Toggle {
                                     text: "Loop";
-                                    icon: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
                                     on: info.looping;
                                     toggled(on) => {
                                         root.toggle("loop");
@@ -898,7 +1012,8 @@ export component CartSetupWindow inherits Window {
                                 }
                                 Toggle {
                                     text: "Mute";
-                                    icon: "M2.5 6h3l4-3v10l-4-3h-3zM11.5 6l3 4M14.5 6l-3 4";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
                                     on: info.muted;
                                     toggled(on) => {
                                         root.toggle("mute");
@@ -906,7 +1021,8 @@ export component CartSetupWindow inherits Window {
                                 }
                                 Toggle {
                                     text: "Hold";
-                                    icon: "M8 2.5v6M5 6.5v-2a3 3 0 0 1 6 0v6a4 4 0 0 1-8 0v-2";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
                                     on: info.hold;
                                     toggled(on) => {
                                         root.toggle("hold");
@@ -916,7 +1032,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "On Retrigger" : "On retrigger";
                             Choice {
                                 value: info.retrigger;
@@ -941,34 +1057,31 @@ export component CartSetupWindow inherits Window {
                     }
                     Group {
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Label";
                             LabelField {
+                                single-line: true;
                                 text <=> root.label-text;
                                 edited(t) => {
                                     root.label-edited(t);
+                                }
+                                accepted => {
+                                    root.ok();
                                 }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Colour";
                             HorizontalLayout {
-                                spacing: 5px;
+                                spacing: 2px;
                                 alignment: start;
-                                for c[i] in info.swatches: Rectangle {
-                                    width: 20px;
-                                    height: 20px;
-                                    y: (parent.height - self.height) / 2;
-                                    border-radius: Theme.mac ? 10px : 4px;
-                                    background: c;
-                                    border-width: i == info.colour ? 2px : 0px;
-                                    border-color: Theme.text;
-                                    TouchArea {
-                                        clicked => {
-                                            root.colour(i);
-                                        }
+                                for c[i] in info.swatches: Swatch {
+                                    colour: c;
+                                    chosen: i == info.colour;
+                                    pressed => {
+                                        root.colour(i);
                                     }
                                 }
                                 Rectangle {
@@ -977,25 +1090,18 @@ export component CartSetupWindow inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     background: Theme.panel-border;
                                 }
-                                Rectangle {
-                                    width: 20px;
-                                    height: 20px;
-                                    y: (parent.height - self.height) / 2;
-                                    border-radius: Theme.mac ? 10px : 4px;
-                                    background: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
-                                    border-width: info.colour < 0 ? 2px : 0px;
-                                    border-color: Theme.text;
-                                    TouchArea {
-                                        clicked => {
-                                            root.pick-colour();
-                                        }
+                                Swatch {
+                                    colour: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
+                                    chosen: info.colour < 0;
+                                    pressed => {
+                                        root.pick-colour();
                                     }
                                 }
                             }
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "When It Starts" : "When it starts";
                             Choice {
                                 value: info.starts;
@@ -1006,7 +1112,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "When It Ends" : "When it ends";
                             Choice {
                                 value: info.ends;
@@ -1017,7 +1123,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Group";
                             Choice {
                                 value: info.group;
@@ -1028,14 +1134,17 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Hotkey";
                             HorizontalLayout {
                                 spacing: 8px;
                                 if info.learning: Text {
-                                    text: "Press a key or send MIDI… (Esc cancels)";
+                                    text: info.show-midi ? "Press a key or MIDI…" : "Press a key…";
                                     color: Theme.accent;
                                     vertical-alignment: center;
+                                    overflow: elide;
+                                    min-width: 0;
+                                    horizontal-stretch: 1;
                                 }
                                 if !info.learning && info.hotkey != "": Rectangle {
                                     y: (parent.height - self.height) / 2;
@@ -1077,7 +1186,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac && info.show-midi: Rule { }
                         if info.show-midi: FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "MIDI";
                             HorizontalLayout {
                                 spacing: 8px;
@@ -1101,7 +1210,7 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: Theme.mac ? "Audio File" : "Audio file";
                             HorizontalLayout {
                                 spacing: 8px;
@@ -1124,9 +1233,10 @@ export component CartSetupWindow inherits Window {
                         }
                         if Theme.mac: Rule { }
                         FieldRow {
-                            label-width: Theme.mac ? 104px : 112px;
+                            label-width: Theme.mac ? 100px : 112px;
                             label: "Notes";
                             LabelField {
+                                lines: 2;
                                 text <=> root.notes-text;
                                 edited(t) => {
                                     root.notes-edited(t);
@@ -1138,11 +1248,16 @@ export component CartSetupWindow inherits Window {
             }
 
             // ---- OK / Cancel: Cancel then OK on a Mac, OK then Cancel on Windows ----
+            Rectangle {
+                height: 1px;
+                vertical-stretch: 0;
+                background: Theme.dark ? #ffffff14 : Theme.panel-border;
+            }
             HorizontalLayout {
-                padding-top: 4px;
                 padding-bottom: 14px;
                 spacing: 8px;
                 alignment: end;
+                vertical-stretch: 0;
                 if Theme.mac: SysButton {
                     text: "Cancel";
                     clicked => {

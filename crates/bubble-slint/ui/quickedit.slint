@@ -47,10 +47,15 @@ export struct QuickEdit {
 // has the keyboard.
 export component LabelField inherits Rectangle {
     in-out property <string> text <=> input.text;
+    // One line only (Return is `accepted`), or at least this many lines tall.
+    in property <bool> single-line;
+    in property <int> lines: 1;
     callback edited(string);
+    callback accepted();
     property <int> seq: TextCommand.seq;
     // One line, growing as the label wraps or gains lines.
-    height: max(Theme.mac ? 22px : 32px, input.preferred-height + (Theme.mac ? 6px : 12px));
+    height: single-line ? (Theme.mac ? 22px : 32px)
+        : max((Theme.mac ? 16px : 20px) * lines + (Theme.mac ? 6px : 12px), input.preferred-height + (Theme.mac ? 6px : 12px));
     border-radius: Theme.mac ? 5px : 4px;
     background: Theme.mac ? Theme.text.transparentize(90%) : Theme.window-bg;
     border-width: input.has-focus ? 2px : (Theme.mac ? 0px : 1px);
@@ -61,13 +66,17 @@ export component LabelField inherits Rectangle {
         y: Theme.mac ? 3px : 6px;
         width: parent.width - 16px;
         height: parent.height - (Theme.mac ? 6px : 12px);
-        single-line: false;
-        wrap: word-wrap;
+        single-line: root.single-line;
+        wrap: root.single-line ? no-wrap : word-wrap;
+        vertical-alignment: root.single-line ? center : top;
         font-size: Theme.mac ? 13px : 14px;
         color: Theme.text;
         selection-background-color: Theme.accent;
         edited => {
             root.edited(self.text);
+        }
+        accepted => {
+            root.accepted();
         }
         changed has-focus => {
             TextCommand.typing = self.has-focus;
@@ -143,7 +152,7 @@ export component Toggle inherits Rectangle {
     HorizontalLayout {
         alignment: center;
         spacing: 6px;
-        Path {
+        if root.icon != "": Path {
             width: 14px;
             height: 14px;
             y: (parent.height - self.height) / 2;

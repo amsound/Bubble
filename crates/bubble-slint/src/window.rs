@@ -296,6 +296,43 @@ pub fn on_main(f: impl FnOnce() + Send + 'static) {
     let _ = slint::invoke_from_event_loop(f);
 }
 
+#[cfg(target_os = "macos")]
+thread_local! {
+    static MAIN_MENU: std::cell::RefCell<Option<objc2::rc::Retained<objc2_app_kit::NSMenu>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A Mac has one menu bar, and Slint gives a window with no menu of its own an empty
+/// one when it becomes key. So a tool window keeps the main window's: remember it
+/// while the main window is key, and put it back when the tool window becomes key.
+pub fn remember_menu() {
+    #[cfg(target_os = "macos")]
+    if let Some(mtm) = objc2::MainThreadMarker::new() {
+        let menu = objc2_app_kit::NSApplication::sharedApplication(mtm).mainMenu();
+        MAIN_MENU.with(|m| *m.borrow_mut() = menu);
+    }
+}
+
+/// See `remember_menu`. Runs after Slint has swapped in its own.
+pub fn restore_menu() {
+    #[cfg(target_os = "macos")]
+    on_main(|| {
+        let Some(mtm) = objc2::MainThreadMarker::new() else {
+            return;
+        };
+        MAIN_MENU.with(|m| {
+            if let Some(menu) = m.borrow().as_ref() {
+                objc2_app_kit::NSApplication::sharedApplication(mtm).setMainMenu(Some(menu));
+            }
+        });
+    });
+}
+
+/// Whether the window has the keyboard (is the key window).
+pub fn is_key(w: &slint::Window) -> bool {
+    w.with_winit_window(|w| w.has_focus()).unwrap_or(false)
+}
+
 /// Keeps a tool window (Cart Setup) in front of the main window until it is closed.
 /// macOS: the floating level, hidden while Bubble is in the background, as inspector
 /// windows are. Windows: owned by the main window, which it then always stays above.

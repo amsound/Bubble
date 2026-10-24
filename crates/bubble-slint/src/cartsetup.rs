@@ -95,6 +95,8 @@ pub struct Setup {
     /// Two-finger pinch on a touch screen: the fingers and the last distance.
     touches: Vec<(u64, f64, f64)>,
     pinch: Option<f64>,
+    /// The playhead was grabbed while playing: it holds still until let go.
+    resume: bool,
 }
 
 fn fmt_time(s: f64) -> String {
@@ -182,6 +184,7 @@ impl Setup {
             push: true,
             touches: Vec::new(),
             pinch: None,
+            resume: false,
         }
     }
 
@@ -260,19 +263,10 @@ impl Setup {
         (self.start + x as f64 / self.width() as f64 * self.span).clamp(0.0, self.dur)
     }
 
-    /// A little room either side of the file, so In and Out at its ends are clear of
-    /// the edges.
-    fn margin(&self) -> f64 {
-        self.dur * 0.025
-    }
-
     fn clamp_view(&mut self) {
-        let m = self.margin();
         let min_span = (self.dur / 4000.0).max(0.005).min(self.dur);
-        self.span = self
-            .span
-            .clamp(min_span, (self.dur + 2.0 * m).max(min_span));
-        self.start = self.start.clamp(-m, (self.dur + m - self.span).max(-m));
+        self.span = self.span.clamp(min_span, self.dur.max(min_span));
+        self.start = self.start.clamp(0.0, (self.dur - self.span).max(0.0));
     }
 
     /// Zooms by `factor` (above 1 zooms in), keeping `anchor` (seconds) where it is.
@@ -288,9 +282,8 @@ impl Setup {
     }
 
     fn zoom_fit(&mut self) {
-        let m = self.margin();
-        self.start = -m;
-        self.span = self.dur + 2.0 * m;
+        self.start = 0.0;
+        self.span = self.dur;
     }
 
     fn anchor(&self) -> f64 {
@@ -302,7 +295,7 @@ impl Setup {
 
     // ---- input from the window ----
 
-    pub fn wave_down(&mut self, x: f32, y: f32, snap: &Snapshot) {
+    pub fn wave_down(&mut self, x: f32, y: f32, snap: &Snapshot, intents: &mut Vec<Intent>) {
         self.pointer = Some(x);
         self.press = x;
         self.moved = false;
@@ -342,8 +335,14 @@ impl Setup {
                 }
             },
         );
-        if let Some(Drag::Handle(h)) = self.drag {
-            self.last = h;
+        match self.drag {
+            Some(Drag::Handle(h)) => self.last = h,
+            // Holding the playhead holds the sound; letting go carries on.
+            Some(Drag::Playhead) if !self.paused(snap) => {
+                intents.push(Intent::LiveSpeedRamp(self.id, 0.0, 5));
+                self.resume = true;
+            }
+            _ => {}
         }
     }
 
@@ -370,10 +369,13 @@ impl Setup {
         }
     }
 
-    pub fn wave_up(&mut self, x: f32) {
+    pub fn wave_up(&mut self, x: f32, snap: &Snapshot, intents: &mut Vec<Intent>) {
         // A click that did not drag places the cursor.
         if !self.moved && matches!(self.drag, Some(Drag::Pan { .. })) {
             self.cursor = Some(self.t_of(x));
+        }
+        if std::mem::take(&mut self.resume) && self.playing(snap) {
+            intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
         }
         self.drag = None;
     }
@@ -909,8 +911,12 @@ impl Setup {
         win.set_out_time(fmt_time(b).into());
         win.set_in_chars(model::chars(&fmt_time(a)));
         win.set_out_chars(model::chars(&fmt_time(b)));
-        win.set_cursor_x(self.cursor.map_or(-100.0, |t| self.x_of(t)));
+        // While it plays, the playhead stands for the cursor.
         let playhead = self.playhead(snap);
+        win.set_cursor_x(match (self.cursor, playhead) {
+            (Some(t), None) => self.x_of(t),
+            _ => -100.0,
+        });
         win.set_playhead_x(playhead.map_or(-100.0, |t| self.x_of(t)));
         win.set_ruler(ModelRc::new(VecModel::from(if has_audio {
             self.ruler(w)

@@ -113,6 +113,17 @@ Done (main window):
       any other colour in the system colour picker; Replace… and Locate… use the Open
       panel. A learned hotkey or MIDI note plays the cart, and its On Retrigger decides
       a second press (Toggle Stop: play/stop; Restart: play/restart).
+      Drawn to the Mac mockup: In and Out sit on the box's edges at fit (no margin);
+      holding the playhead holds the sound and letting go carries on; the cursor
+      hides while playing. Its own sliders: a press on the track jumps there, a
+      double-click on the knob resets, Speed is logarithmic with 100% in the middle.
+      Playback as three equal buttons, a one-line Label (Return is OK), swatches
+      that take on the press, a short Learn prompt (closing cancels Learn), a
+      gradient meter, and a window as tall as its content. On a Mac the main menu
+      bar stays while Cart Setup is in front (Slint would swap in an empty one),
+      and Cut/Copy/Paste/Undo/Redo act on its text fields.
+      A paused voice (speed 0) fades to silence below 5% speed in the engine, rather
+      than holding one sample (a DC offset).
 - [x] Start: Bubble reopens the last session. With nothing to reopen (a first launch,
       or the last session is gone) the window opens with a native alert: New
       Session…, Open…, Quit. Cancelling the Save or Open panel brings it back, so

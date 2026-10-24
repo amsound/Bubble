@@ -884,7 +884,10 @@ impl Mixer {
                         }
                     }
                     let (env, done) = v.env.next();
-                    let g = v.gain.next() * env;
+                    // Held at (or slowing into) speed 0, a voice would repeat one sample:
+                    // a DC offset, not silence. Fade it out below 5% speed.
+                    let moving = (v.rate.cur / 0.05).min(1.0);
+                    let g = v.gain.next() * env * moving;
                     if direct {
                         // Keep the pan ramps moving; balance does not apply to 5.1.
                         v.pan_l.next();

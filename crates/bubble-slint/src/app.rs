@@ -473,14 +473,14 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
             }
         });
     });
-    on_setup!(win, me, on_wave_down, |s, a, snap, _i, x, y, _touch| {
-        s.wave_down(x, y, &snap);
+    on_setup!(win, me, on_wave_down, |s, a, snap, i, x, y, _touch| {
+        s.wave_down(x, y, &snap, i);
     });
     on_setup!(win, me, on_wave_move, |s, a, snap, i, x, _y| {
         s.wave_move(x, &snap, i);
     });
-    on_setup!(win, me, on_wave_up, |s, a, _snap, _i, x, _y| {
-        s.wave_up(x);
+    on_setup!(win, me, on_wave_up, |s, a, snap, i, x, _y| {
+        s.wave_up(x, &snap, i);
     });
     on_setup!(win, me, on_wave_double, |s, a, snap, i, x| {
         s.wave_double(x, &snap, i);
@@ -525,6 +525,10 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
             return EventResult::Propagate;
         };
         match ev {
+            WindowEvent::Focused(true) => {
+                window::restore_menu();
+                EventResult::Propagate
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let learning = with(&app, |a| a.lock().learning().is_some()).unwrap_or(false);
                 if !learning {
@@ -1608,7 +1612,28 @@ impl App {
         if bubble_core::menu::apply_common(&mut self.core, &cmd, &snap, intents) {
             return;
         }
-        // While typing, the edit commands act on the text field.
+        // While typing, the edit commands act on the text field: Cart Setup's when it
+        // has the keyboard.
+        let setup_typing = self.setup.as_ref().filter(|s| {
+            window::is_key(s.win.window()) && s.win.global::<TextCommand>().get_typing()
+        });
+        if let Some(s) = setup_typing {
+            let text = match cmd {
+                Cmd::Cut => Some("cut"),
+                Cmd::Copy => Some("copy"),
+                Cmd::Paste => Some("paste"),
+                Cmd::Undo => Some("undo"),
+                Cmd::Redo => Some("redo"),
+                Cmd::PasteAttributes(_) | Cmd::DuplicateCart | Cmd::ClearCart => Some(""),
+                _ => None,
+            };
+            if let Some(t) = text {
+                if !t.is_empty() {
+                    s.win.invoke_text_command(t.into());
+                }
+                return;
+            }
+        }
         let typing = self
             .ui
             .upgrade()
@@ -1826,6 +1851,7 @@ impl App {
         t.set_appearance(theme.get_appearance());
         t.set_system_dark(theme.get_system_dark());
         win.set_window_icon(window::icon());
+        window::remember_menu();
         wire_setup(&win, &self.me);
         let _ = win.show();
         window::keep_above(win.window(), ui.window());
@@ -1845,6 +1871,9 @@ impl App {
             intents.push(Intent::ReplaceCart(s.draft.clone()));
         } else if !keep && playing {
             intents.push(Intent::KillCart(s.id));
+        }
+        if snap.learning.is_some_and(|l| l.cart == s.id) {
+            intents.push(Intent::CancelLearn);
         }
         if self.picker_setup {
             self.picker.close();
