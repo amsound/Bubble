@@ -3,12 +3,13 @@
 // callbacks, and Rust decides what it does.
 
 import { Palette, Spinner, ProgressIndicator, Button } from "std-widgets.slint";
-import { Theme, TextCommand, FlatButton, Panel } from "theme.slint";
+import { Theme, TextCommand, FlatButton, Panel, PopupRow } from "theme.slint";
 import { TileView, Tile, LabelStyle, CartState } from "tile.slint";
 import { BottomBar, PageTab, StatusItem } from "bar.slint";
 import { QuickEditPanel, QuickEdit } from "quickedit.slint";
+import { CartSetupWindow, SetupInfo, WaveMark } from "cartsetup.slint";
 
-export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit }
+export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit, PopupRow, CartSetupWindow, SetupInfo, WaveMark }
 
 // A menu entry; a separator has the separator title (see `src/menu.rs`).
 export struct MenuEntryData {
@@ -44,13 +45,6 @@ export struct BusyRow {
 }
 
 // A context-menu entry; a separator has the separator title (see `src/menu.rs`).
-export struct PopupRow {
-    id: int,
-    text: string,
-    enabled: bool,
-    // A pop-up button's current choice.
-    checked: bool,
-}
 
 export component MainWindow inherits Window {
     in property <string> window-title: "Bubble";

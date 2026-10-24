@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 bubble-control = { path = "../bubble-control" }
 bubble-core = { path = "../bubble-core" }
+bubble-engine = { path = "../bubble-engine" }
 bubble-project = { path = "../bubble-project" }
 # Bubble is GPL-3.0-or-later, so Slint is used under its GPLv3 licence (D-38).
 # `unstable-winit-030`: OS file drops, physical keys and the window's place, which

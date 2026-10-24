@@ -10,6 +10,7 @@ pub mod dialogs;
 pub mod instance;
 pub mod log;
 pub mod menu;
+pub mod meter;
 pub mod midi;
 pub mod prefs;
 pub mod view;

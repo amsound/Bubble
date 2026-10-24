@@ -45,7 +45,7 @@ export struct QuickEdit {
 
 // The label: a plain multi-line field in the system font, telling the app when it
 // has the keyboard.
-component LabelField inherits Rectangle {
+export component LabelField inherits Rectangle {
     in-out property <string> text <=> input.text;
     callback edited(string);
     property <int> seq: TextCommand.seq;
@@ -89,8 +89,9 @@ component LabelField inherits Rectangle {
 }
 
 // A label column and its control, as one row.
-component FieldRow inherits HorizontalLayout {
+export component FieldRow inherits HorizontalLayout {
     in property <string> label;
+    in property <length> label-width: Theme.mac ? 64px : 72px;
     spacing: 10px;
     // Mac grouped-form rows carry their own inset; Windows rows sit on the flyout.
     padding-left: Theme.mac ? 10px : 0px;
@@ -99,7 +100,7 @@ component FieldRow inherits HorizontalLayout {
     padding-bottom: Theme.mac ? 6px : 0px;
     Text {
         text: root.label;
-        width: Theme.mac ? 64px : 72px;
+        width: root.label-width;
         vertical-alignment: center;
         color: Theme.mac ? Theme.text.transparentize(22%) : Theme.weak-text;
     }
@@ -107,7 +108,7 @@ component FieldRow inherits HorizontalLayout {
 }
 
 // A thin rule between rows of a group (Mac grouped form).
-component Rule inherits Rectangle {
+export component Rule inherits Rectangle {
     height: 1px;
     Rectangle {
         x: 10px;
@@ -117,7 +118,7 @@ component Rule inherits Rectangle {
 }
 
 // A Mac grouped-form box; on Windows the rows sit straight on the flyout.
-component Group inherits Rectangle {
+export component Group inherits Rectangle {
     border-radius: Theme.mac ? 9px : 0px;
     background: Theme.mac ? Theme.text.transparentize(94%) : transparent;
     VerticalLayout {
@@ -129,7 +130,7 @@ component Group inherits Rectangle {
 }
 
 // Loop, Play Next, Stop All: toggle buttons with the tile's icons.
-component Toggle inherits Rectangle {
+export component Toggle inherits Rectangle {
     in property <string> text;
     in property <string> icon;
     in property <bool> on;
@@ -175,8 +176,8 @@ export component QuickEditPanel inherits Panel {
     callback choice-menu(string, length, length);
     // "loop", "next" or "stop-all".
     callback flag(string, bool);
-    // "done", "learn", "replace", "copy", "paste", "delete", "gain-reset" or
-    // "pick-colour" (the system colour picker).
+    // "done", "learn", "replace", "copy", "paste", "delete", "gain-reset",
+    // "pick-colour" (the system colour picker) or "setup" (Cart Setup).
     callback action(string);
 
     // When the gain slider was last released (a double-click resets it).
@@ -241,10 +242,11 @@ export component QuickEditPanel inherits Panel {
             Rectangle {
                 horizontal-stretch: 1;
             }
-            // Cart Setup is still in the egui interface.
             SysButton {
                 text: "Cart Setup…";
-                enabled: false;
+                clicked => {
+                    root.action("setup");
+                }
             }
         }
 

@@ -97,6 +97,22 @@ Done (main window):
       sheet on a Mac, with "Audio files: Keep as imported / Convert to WAV" in it for a
       new session; on Windows the Save dialog, then an alert asking Audio files). The
       chosen folder becomes the default for the next one. Bubble draws no dialogs.
+- [x] Cart Setup (design: "Bubble Cart Setup design") in its own system window, from
+      quick edit's Cart Setup… or Cart ▸ Cart Setup… (⌘I / Ctrl+I). Edits go to a draft:
+      OK keeps them (one undo step), Cancel or Esc drops them, the close button with
+      edits not kept asks in a system alert (Keep / Discard / Cancel). Waveform of the
+      visible part with ruler, In/Out (only their handles move them; off screen they
+      are tabs at the edge, dragged in from there; dragging into an edge scrolls),
+      fade ramps, cursor (click) and playhead; scroll or swipe moves through time,
+      ⌘/Ctrl + scroll, pinch (trackpad, touch screen) or ⌘/Ctrl +/− zoom, a
+      double-click plays from there, a double-click on the ruler fits. Meter (PPM,
+      `bubble_core::meter`). Trim boxes with −/+ (0.01 s) and Set; Space play/pause,
+      I and O set In/Out at the playhead or cursor, ←/→ nudge the last handle (Shift
+      0.1 s), P plays the last 3 s before Out. What you hear follows the draft while
+      auditioning. Sound and Cart settings as in the design; pop-ups open native menus;
+      any other colour in the system colour picker; Replace… and Locate… use the Open
+      panel. A learned hotkey or MIDI note plays the cart, and its On Retrigger decides
+      a second press (Toggle Stop: play/stop; Restart: play/restart).
 - [x] Start: Bubble reopens the last session. With nothing to reopen (a first launch,
       or the last session is gone) the window opens with a native alert: New
       Session…, Open…, Quit. Cancelling the Save or Open panel brings it back, so
@@ -141,7 +157,6 @@ bar. Cross-builds for Windows x64; not yet run on Windows.
 
 Left:
 
-- [ ] Cart Setup (waveform, trims, loop audition, live trims).
 - [ ] Outputs and Reassign Cart Outputs.
 - [ ] Session Settings (incl. Display and a custom output level) and Page Settings.
 - [ ] Speed Bar.

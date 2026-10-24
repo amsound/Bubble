@@ -1033,6 +1033,7 @@ dependencies = [
  "block2 0.6.2",
  "bubble-control",
  "bubble-core",
+ "bubble-engine",
  "bubble-project",
  "dispatch2",
  "mouse_position",

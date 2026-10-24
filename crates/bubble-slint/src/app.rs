@@ -33,7 +33,7 @@ use crate::{
     BusyRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys, menu,
     window,
 };
-use crate::{colour, savepanel};
+use crate::{cartsetup, colour, savepanel};
 
 /// How often the window refreshes while carts play (the clock and progress bars).
 const PLAYING: Duration = Duration::from_millis(33);
@@ -88,6 +88,8 @@ enum Dialog {
     /// No session to reopen (a first launch, or the last one is gone): New Session,
     /// Open or Quit. It comes back until there is a session.
     Start,
+    /// Cart Setup's close button with edits not kept: Keep, Discard or Cancel.
+    SetupClose,
 }
 
 pub struct App {
@@ -121,8 +123,14 @@ pub struct App {
     /// The native alert on screen, and which prompt it asks.
     alerts: Alerts,
     alert_for: Option<Dialog>,
-    /// The system colour picker, for quick edit's other colour.
+    /// The system colour picker, for quick edit's or Cart Setup's other colour.
     picker: colour::Picker,
+    picker_setup: bool,
+    /// The Cart Setup window, and its close button asking about unkept edits.
+    setup: Option<cartsetup::Setup>,
+    setup_close_ask: bool,
+    /// This app, for windows opened later to call back into.
+    me: std::rc::Weak<RefCell<App>>,
     /// The system Save panel for a new session: open, its answer, and the Audio files
     /// question still to ask (Windows).
     save_open: bool,
@@ -226,6 +234,7 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     ui.set_bar_height(bar_height(core.prefs.bar_size));
 
     let app = Rc::new(RefCell::new(App::new(core, &ui)));
+    app.borrow_mut().me = Rc::downgrade(&app);
     // Audio, MIDI, recovery and the session to open (in the background).
     app.borrow_mut().core.start();
     log_info(&format!("window ready ({renderer})"));
@@ -326,6 +335,220 @@ macro_rules! on {
             act(&app, move |$a, $i| $body);
         });
     }};
+}
+
+/// Cart Setup's callbacks act on its `Setup` (taken out of the app while they run).
+macro_rules! on_setup {
+    ($win:expr, $me:expr, $method:ident, |$s:ident, $a:ident, $snap:ident, $i:ident $(, $arg:ident)*| $body:block) => {{
+        let me = $me.clone();
+        $win.$method(move |$($arg),*| {
+            if let Some(app) = me.upgrade() {
+                act(&app, move |$a, $i| {
+                    let $snap = $a.core.snapshot();
+                    if let Some(taken) = $a.setup.take() {
+                        #[allow(unused_mut)]
+                        let mut $s = taken;
+                        $body
+                        if $a.setup.is_none() {
+                            $a.setup = Some($s);
+                        }
+                    }
+                });
+            }
+        });
+    }};
+}
+
+fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
+    for keep in [true, false] {
+        let me = me.clone();
+        let f = move || {
+            if let Some(app) = me.upgrade() {
+                act(&app, move |a, i| a.close_setup(keep, i));
+            }
+        };
+        if keep {
+            win.on_ok(f);
+        } else {
+            win.on_cancel(f);
+        }
+    }
+    on_setup!(win, me, on_gain_changed, |s, a, snap, i, v| {
+        s.gain(v, &snap, i);
+    });
+    on_setup!(win, me, on_pan_changed, |s, a, _snap, _i, v| {
+        s.pan(v);
+    });
+    on_setup!(win, me, on_speed_changed, |s, a, snap, i, v| {
+        s.speed(v, &snap, i);
+    });
+    on_setup!(win, me, on_reset, |s, a, snap, i, what| {
+        s.reset(what.as_str(), &snap, i);
+    });
+    on_setup!(win, me, on_toggle, |s, a, snap, i, what| {
+        s.toggle(what.as_str(), &snap, i);
+    });
+    on_setup!(win, me, on_label_edited, |s, a, _snap, _i, t| {
+        s.draft.label = t.to_string();
+    });
+    on_setup!(win, me, on_notes_edited, |s, a, _snap, _i, t| {
+        s.draft.notes = t.to_string();
+    });
+    on_setup!(win, me, on_colour, |s, a, _snap, _i, idx| {
+        if let Some(c) = model::SWATCHES.get(idx as usize).copied() {
+            s.set_colour(Some(c));
+        }
+    });
+    on_setup!(win, me, on_pick_colour, |s, a, _snap, _i| {
+        let [r, g, b] = s.current_rgb();
+        a.picker_setup = true;
+        a.picker.open((r, g, b), s.win.window());
+    });
+    on_setup!(win, me, on_choice_menu, |s, a, snap, _i, field, x, y| {
+        let rows = s.choices(field.as_str(), &a.core, &snap);
+        s.win.set_popup_rows(ModelRc::new(VecModel::from(rows)));
+        s.win.set_popup_x(x);
+        s.win.set_popup_y(y);
+        let w = s.win.as_weak();
+        window::on_main(move || {
+            if let Some(win) = w.upgrade() {
+                win.invoke_open_popup();
+            }
+        });
+    });
+    on_setup!(win, me, on_popup_chosen, |s, a, _snap, _i, id| {
+        s.chosen(id);
+    });
+    on_setup!(win, me, on_nudge, |s, a, snap, i, which, d| {
+        s.nudge(which.as_str(), d as f64, &snap, i);
+    });
+    on_setup!(win, me, on_action, |s, a, snap, i, what| {
+        if !s.action(what.as_str(), &snap, i) {
+            let id = s.id;
+            match what.as_str() {
+                "learn" => {
+                    if snap.learning.is_some_and(|l| l.cart == id) {
+                        i.push(Intent::CancelLearn);
+                    } else {
+                        i.push(Intent::LearnDefault(id));
+                    }
+                }
+                "clear-key" => i.push(Intent::ClearBindings(id, Some(true))),
+                "clear-midi" => i.push(Intent::ClearBindings(id, Some(false))),
+                "replace" => {
+                    if let Some((page, row, col)) = snap.project.cart_position(id) {
+                        a.core.files.request(Purpose::Assign {
+                            page,
+                            row,
+                            col,
+                            many: false,
+                        });
+                    }
+                }
+                "locate" => {
+                    if let Some(asset) = s.draft.asset {
+                        a.core.files.request(Purpose::Relink(asset));
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+    // Esc is Cancel (or cancels Learn).
+    let me4 = me.clone();
+    win.on_key(move |name, shift| {
+        let Some(app) = me4.upgrade() else { return };
+        act(&app, move |a, i| {
+            let snap = a.core.snapshot();
+            if name.as_str() == "escape" {
+                if snap.learning.is_some() {
+                    i.push(Intent::CancelLearn);
+                } else {
+                    a.close_setup(false, i);
+                }
+            } else if let Some(s) = &mut a.setup {
+                s.key(name.as_str(), shift, &snap, i);
+            }
+        });
+    });
+    on_setup!(win, me, on_wave_down, |s, a, _snap, _i, x, y, _touch| {
+        s.wave_down(x, y);
+    });
+    on_setup!(win, me, on_wave_move, |s, a, snap, i, x, _y| {
+        s.wave_move(x, &snap, i);
+    });
+    on_setup!(win, me, on_wave_up, |s, a, _snap, _i, x, _y| {
+        s.wave_up(x);
+    });
+    on_setup!(win, me, on_wave_double, |s, a, snap, i, x| {
+        s.wave_double(x, &snap, i);
+    });
+    on_setup!(
+        win,
+        me,
+        on_wave_scroll,
+        |s, a, _snap, _i, dx, dy, zoom, shift| {
+            s.wave_scroll(dx, dy, zoom, shift);
+        }
+    );
+    on_setup!(win, me, on_wave_resized, |s, a, _snap, _i| {});
+
+    // The close button: edits not kept are asked about (OK and Cancel never ask).
+    let me2 = me.clone();
+    win.window().on_close_requested(move || {
+        let Some(app) = me2.upgrade() else {
+            return slint::CloseRequestResponse::HideWindow;
+        };
+        let Ok(mut a) = app.try_borrow_mut() else {
+            return slint::CloseRequestResponse::KeepWindowShown;
+        };
+        if a.setup.as_ref().is_some_and(|s| s.changed()) {
+            a.setup_close_ask = true;
+            a.tick();
+            slint::CloseRequestResponse::KeepWindowShown
+        } else {
+            let mut intents = Vec::new();
+            a.close_setup(false, &mut intents);
+            a.apply_intents(intents);
+            a.tick();
+            slint::CloseRequestResponse::HideWindow
+        }
+    });
+
+    // Pinch: a trackpad (macOS) and two fingers on a touch screen.
+    let me3 = me.clone();
+    win.window().on_winit_window_event(move |_w, ev| {
+        let Some(app) = me3.upgrade() else {
+            return EventResult::Propagate;
+        };
+        match ev {
+            WindowEvent::PinchGesture { delta, .. } => {
+                let d = *delta;
+                act(&app, move |a, _| {
+                    if let Some(s) = &mut a.setup {
+                        s.pinch(d);
+                    }
+                });
+                EventResult::PreventDefault
+            }
+            WindowEvent::Touch(t) => {
+                use slint::winit_030::winit::event::TouchPhase;
+                let down = matches!(t.phase, TouchPhase::Started | TouchPhase::Moved);
+                let (id, x, y) = (t.id, t.location.x, t.location.y);
+                let pinching = with(&app, move |a| {
+                    a.setup.as_mut().is_some_and(|s| s.touch(id, x, y, down))
+                })
+                .unwrap_or(false);
+                if pinching {
+                    act(&app, |_, _| {});
+                    EventResult::PreventDefault
+                } else {
+                    EventResult::Propagate
+                }
+            }
+            _ => EventResult::Propagate,
+        }
+    });
 }
 
 fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
@@ -597,6 +820,10 @@ impl App {
             alerts: Alerts::new(),
             alert_for: None,
             picker: colour::Picker::new(),
+            picker_setup: false,
+            setup: None,
+            setup_close_ask: false,
+            me: std::rc::Weak::new(),
             save_open: false,
             save_tx,
             save_rx,
@@ -688,16 +915,25 @@ impl App {
         {
             self.alert_answer(d, i, &mut intents);
         }
-        // The system colour picker: the quick edit cart follows it.
+        // The system colour picker: the quick edit cart, or Cart Setup's draft, follows it.
         if let Some(p) = self.picker.poll()
             && let Some((r, g, b)) = p.rgb
-            && self.quick_edit.is_some()
         {
             let rgb = [r, g, b];
-            self.qe_edit(&mut intents, |c| {
-                c.color = (rgb != model::DEFAULT_CART_COLOR).then(|| model::hex(rgb))
-            });
-            self.qe_refresh();
+            if self.picker_setup {
+                if let Some(s) = &mut self.setup {
+                    s.set_colour(Some(rgb));
+                }
+            } else if self.quick_edit.is_some() {
+                self.qe_edit(&mut intents, |c| {
+                    c.color = (rgb != model::DEFAULT_CART_COLOR).then(|| model::hex(rgb))
+                });
+                self.qe_refresh();
+            }
+        }
+        // A handle dragged into Cart Setup's edge scrolls the waveform.
+        if let Some(s) = &mut self.setup {
+            s.auto_scroll(&snap, &mut intents);
         }
         if let Ok(choice) = self.save_rx.try_recv() {
             self.save_open = false;
@@ -722,10 +958,12 @@ impl App {
         if playing {
             self.last_playing = Instant::now();
         }
-        self.interval = if self.drag_hover {
+        self.interval = if self.drag_hover || self.setup.as_ref().is_some_and(|s| s.is_dragging()) {
             DRAGGING
         } else if self.last_playing.elapsed() < Duration::from_secs(2)
             || self.last_input.elapsed() < Duration::from_millis(600)
+            // Cart Setup's meter falls, and its view follows scrolling, for a while after.
+            || (self.setup.is_some() && self.last_input.elapsed() < Duration::from_secs(2))
         {
             PLAYING
         } else if snap.pending > 0
@@ -818,6 +1056,7 @@ impl App {
         window::patch_app_menu();
         self.show_quick_edit(ui, snap);
         self.show_dialog(ui, snap);
+        self.show_setup(ui, snap);
     }
 
     /// What the busy popover lists: the running job or the session being opened, then
@@ -1485,9 +1724,13 @@ impl App {
                     }
                 }
             }
+            Cmd::AudioSetup => {
+                if let Some(id) = sel {
+                    self.open_setup(id);
+                }
+            }
             // Windows not in this interface yet (their menu items are disabled).
-            Cmd::AudioSetup
-            | Cmd::SpeedBar
+            Cmd::SpeedBar
             | Cmd::Outputs
             | Cmd::ReassignOutputs
             | Cmd::ProjectSettings
@@ -1532,6 +1775,79 @@ impl App {
         let y = ui.invoke_cell_y(idx);
         ui.set_qe_y(y);
         ui.set_qe_point_y(y + ui.invoke_cell_h() / 2.0);
+    }
+
+    // ---- Cart Setup ----
+
+    /// Opens Cart Setup for a cart (a control button has none). Another cart's setup
+    /// with edits not kept stays as it is and comes to the front.
+    fn open_setup(&mut self, id: Uuid) {
+        let Some(cart) = self
+            .lock()
+            .project()
+            .cart(id)
+            .cloned()
+            .filter(|c| c.control.is_none())
+        else {
+            return;
+        };
+        if let Some(s) = &self.setup {
+            if s.id == id || s.changed() {
+                let _ = s.win.show();
+                return;
+            }
+            let _ = s.win.hide();
+        }
+        let (Ok(win), Some(ui)) = (crate::CartSetupWindow::new(), self.ui.upgrade()) else {
+            return;
+        };
+        let theme = ui.global::<Theme>();
+        let t = win.global::<Theme>();
+        t.set_mac(theme.get_mac());
+        t.set_ui_font(theme.get_ui_font());
+        t.set_appearance(theme.get_appearance());
+        t.set_system_dark(theme.get_system_dark());
+        win.set_window_icon(window::icon());
+        wire_setup(&win, &self.me);
+        let _ = win.show();
+        self.setup = Some(cartsetup::Setup::new(win, cart));
+    }
+
+    /// Closes Cart Setup: `keep` replaces the cart with the draft (one undo step),
+    /// otherwise the draft is dropped and an audition stops.
+    fn close_setup(&mut self, keep: bool, intents: &mut Vec<Intent>) {
+        let Some(s) = self.setup.take() else { return };
+        let snap = self.core.snapshot();
+        let playing = snap
+            .runtime
+            .get(&s.id)
+            .is_some_and(|r| matches!(r.state, Cs::Playing | Cs::Stopping));
+        if keep && s.changed() {
+            intents.push(Intent::ReplaceCart(s.draft.clone()));
+        } else if !keep && playing {
+            intents.push(Intent::KillCart(s.id));
+        }
+        if self.picker_setup {
+            self.picker.close();
+            self.picker_setup = false;
+        }
+        self.setup_close_ask = false;
+        let _ = s.win.hide();
+    }
+
+    fn show_setup(&mut self, ui: &MainWindow, snap: &Snapshot) {
+        let Some(mut s) = self.setup.take() else {
+            return;
+        };
+        let (theme, t) = (ui.global::<Theme>(), s.win.global::<Theme>());
+        if t.get_appearance() != theme.get_appearance() {
+            t.set_appearance(theme.get_appearance());
+        }
+        if t.get_system_dark() != theme.get_system_dark() {
+            t.set_system_dark(theme.get_system_dark());
+        }
+        s.show(&mut self.core, snap);
+        self.setup = Some(s);
     }
 
     fn close_quick_edit(&mut self) {
@@ -1639,6 +1955,10 @@ impl App {
         let at = self.lock().project().cart_position(id);
         match action {
             "done" => self.close_quick_edit(),
+            "setup" => {
+                self.close_quick_edit();
+                self.open_setup(id);
+            }
             "learn" => {
                 intents.push(Intent::LearnDefault(id));
                 self.close_quick_edit();
@@ -1693,6 +2013,8 @@ impl App {
         let p = &self.core.prompts;
         if p.error.is_some() {
             Some(Dialog::Error)
+        } else if self.setup_close_ask {
+            Some(Dialog::SetupClose)
         } else if self.confirm_close {
             Some(Dialog::ConfirmClose)
         } else if !p.recover.is_empty() {
@@ -1893,6 +2215,20 @@ impl App {
                 links: true,
                 ..Default::default()
             },
+            Dialog::SetupClose => {
+                let n = self
+                    .setup
+                    .as_ref()
+                    .map(|s| bubble_control::display_label(&s.draft, &snap.project))
+                    .unwrap_or_default();
+                Alert {
+                    title: format!("Keep the changes to \u{201c}{n}\u{201d}?"),
+                    info: "You changed this cart\u{2019}s setup and have not pressed OK.".into(),
+                    buttons: vec!["Keep".into(), "Cancel".into(), "Discard".into()],
+                    destructive: Some(2),
+                    ..Default::default()
+                }
+            }
             Dialog::DeletePage => {
                 let page = self.delete_page.unwrap_or(0);
                 let n = snap
@@ -2008,6 +2344,14 @@ impl App {
                 self.core.prompts.error = None;
             }
             Dialog::Recover => self.dialog_row(0, i, intents),
+            Dialog::SetupClose => {
+                self.setup_close_ask = false;
+                match i {
+                    0 => self.close_setup(true, intents),
+                    2 => self.close_setup(false, intents),
+                    _ => {}
+                }
+            }
             Dialog::Start => match i {
                 0 => self
                     .core
@@ -2096,7 +2440,7 @@ impl App {
                 }
             }
             // The Save panel answers these (save_chosen, alert_answer).
-            (Dialog::NewSession | Dialog::AudioFiles | Dialog::Start, _) => {}
+            (Dialog::NewSession | Dialog::AudioFiles | Dialog::Start | Dialog::SetupClose, _) => {}
             (Dialog::Relink, _) => self.relink = false,
             (Dialog::DeletePage, i) => {
                 if let Some(p) = self.delete_page.take()

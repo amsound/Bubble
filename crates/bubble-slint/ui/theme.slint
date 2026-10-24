@@ -2,6 +2,15 @@
 
 import { LineEdit } from "std-widgets.slint";
 
+// A row of a native menu (context menus, pop-up buttons).
+export struct PopupRow {
+    id: int,
+    text: string,
+    enabled: bool,
+    // A pop-up button's current choice.
+    checked: bool,
+}
+
 export global Theme {
     // 0 follow the system, 1 light, 2 dark (`Prefs.appearance`).
     in-out property <int> appearance;

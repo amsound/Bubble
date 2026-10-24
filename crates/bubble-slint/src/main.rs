@@ -13,6 +13,7 @@ use bubble_core::{instance, log};
 
 mod alerts;
 mod app;
+mod cartsetup;
 mod colour;
 mod fonts;
 mod keys;

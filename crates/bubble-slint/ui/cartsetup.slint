@@ -1,0 +1,1105 @@
+// Cart Setup: one cart in detail, in its own window (design "Bubble Cart Setup
+// design"). Edits go to a draft that OK keeps and Cancel drops; what you hear while
+// auditioning follows the draft at once. The waveform is drawn from paths Rust makes
+// for the visible part; every press, drag, scroll and key goes to Rust, which owns the
+// view, the handles and the audition (src/cartsetup.rs).
+//
+//   Morning News · file · 48 kHz · stereo · 0:41.20        [Top and Tail] [Zoom to Fit]
+//   [ ruler / waveform with IN, OUT, fades, cursor, playhead ]                  [meter]
+//   [Trim In  0:03.12 − + Set] [0:12.08 −0:22.10  ⏮ ⟲ ▶ ■] [Trim Out 0:37.18 − + Set]
+//   Sound: Output, Gain, Pan, Speed, Speed Bar, Fades, Playback, On Retrigger
+//   Cart:  Label, Colour, When It Starts, When It Ends, Group, Hotkey, MIDI, Audio File,
+//          Notes
+//                                                                       [Cancel] [OK]
+
+import { Slider } from "std-widgets.slint";
+import { Theme, TextCommand, SysButton, PopButton, PopupRow } from "theme.slint";
+import { LabelField, FieldRow, Rule, Group, Toggle } from "quickedit.slint";
+
+// A time on the ruler.
+export struct WaveMark {
+    x: length,
+    text: string,
+}
+
+export struct SetupInfo {
+    // "Morning News", and "file · 48 kHz · stereo · 0:41.20".
+    name: string,
+    details: string,
+    // A waveform to show (otherwise `message`, e.g. the file is missing).
+    has-audio: bool,
+    message: string,
+    // Pop-up buttons: what each shows now.
+    output: string,
+    fade-in: string,
+    fade-out: string,
+    speed-x0: string,
+    speed-x1: string,
+    retrigger: string,
+    starts: string,
+    ends: string,
+    group: string,
+    gain-text: string,
+    pan-text: string,
+    speed-text: string,
+    looping: bool,
+    muted: bool,
+    hold: bool,
+    swatches: [color],
+    // Index into `swatches`; -1 for any other colour.
+    colour: int,
+    // The learned key, drawn as on the tile, and the cart's colour for its text.
+    hotkey: string,
+    cart-color: color,
+    midi: string,
+    show-midi: bool,
+    learning: bool,
+    missing: bool,
+}
+
+// A small transport button with an icon.
+component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <bool> on;
+    in property <bool> filled;
+    in property <string> label;
+    callback clicked;
+    height: Theme.mac ? 28px : 32px;
+    horizontal-stretch: 1;
+    border-radius: Theme.mac ? 6px : 4px;
+    background: on ? Theme.accent : ta.pressed ? Theme.text.transparentize(75%) : ta.has-hover ? Theme.text.transparentize(82%) : Theme.text.transparentize(86%);
+    accessible-role: button;
+    accessible-label: label;
+    Path {
+        width: 16px;
+        height: 16px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: root.icon;
+        stroke: root.on ? #ffffff : Theme.text;
+        stroke-width: root.filled ? 0px : 1.7px;
+        fill: root.filled ? Theme.text : transparent;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Trim In / Trim Out: the time, − and + nudges, and Set (at the cursor or playhead).
+component TrimBox inherits Rectangle {
+    in property <string> title;
+    in property <string> time;
+    in property <string> set-text;
+    callback nudge(float);
+    callback set();
+    horizontal-stretch: 1;
+    border-radius: Theme.mac ? 9px : 4px;
+    background: Theme.mac ? Theme.text.transparentize(94%) : Theme.panel;
+    border-width: Theme.mac ? 0px : 1px;
+    border-color: Theme.panel-border;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        alignment: space-between;
+        Text {
+            text: root.title;
+            color: Theme.weak-text;
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.mac ? 28px : 32px;
+                border-radius: Theme.mac ? 5px : 4px;
+                background: Theme.mac ? Theme.text.transparentize(90%) : Theme.window-bg;
+                Text {
+                    x: 9px;
+                    text: root.time;
+                    font-size: 17px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+            }
+            SysButton {
+                text: "−";
+                y: (parent.height - self.height) / 2;
+                clicked => {
+                    root.nudge(-0.01);
+                }
+            }
+            SysButton {
+                text: "+";
+                y: (parent.height - self.height) / 2;
+                clicked => {
+                    root.nudge(0.01);
+                }
+            }
+            SysButton {
+                text: root.set-text;
+                y: (parent.height - self.height) / 2;
+                clicked => {
+                    root.set();
+                }
+            }
+        }
+    }
+}
+
+// A pop-up button that only shows its value; the choices come from Rust as a native
+// menu (`choice-menu`).
+component Choice inherits HorizontalLayout {
+    in property <string> value;
+    callback open(length, length);
+    // A Mac pop-up button is as wide as its choice; Windows fills the row.
+    alignment: Theme.mac ? LayoutAlignment.start : LayoutAlignment.stretch;
+    PopButton {
+        y: (parent.height - self.height) / 2;
+        model: [root.value];
+        current-index: 0;
+        open(x, y) => {
+            root.open(x, y);
+        }
+    }
+}
+
+export component CartSetupWindow inherits Window {
+    in property <image> window-icon;
+    in property <string> window-title: "Cart Setup";
+    title: window-title;
+    icon: window-icon;
+    preferred-width: 980px;
+    preferred-height: 780px;
+    min-width: 820px;
+    min-height: 600px;
+    background: Theme.window-bg;
+    default-font-family: Theme.ui-font;
+
+    in property <SetupInfo> info;
+    // Sliders and text, two-way so Rust can set them (a reset) and read them.
+    in-out property <float> gain;
+    in-out property <float> pan;
+    in-out property <float> speed;
+    in-out property <string> label-text;
+    in-out property <string> notes-text;
+
+    // ---- the waveform, all from Rust, in pixels of the wave area ----
+    in property <string> wave-path;
+    in property <string> fade-path;
+    in property <[WaveMark]> ruler;
+    in property <length> in-x: -100px;
+    in property <length> out-x: -100px;
+    // Off screen: a tab pinned to that edge (drag it to bring the handle in).
+    in property <bool> in-tab;
+    in property <bool> out-tab;
+    in property <string> in-time;
+    in property <string> out-time;
+    in property <length> cursor-x: -100px;
+    in property <length> playhead-x: -100px;
+    // The meter: level and hold per channel, 0 (−60 dBFS) to 1 (0 dBFS), and its zone
+    // colours.
+    in property <float> level-l;
+    in property <float> level-r;
+    in property <float> hold-l;
+    in property <float> hold-r;
+    in property <color> level-l-colour;
+    in property <color> level-r-colour;
+    // Transport readouts and state.
+    in property <string> elapsed;
+    in property <string> remaining;
+    in property <bool> running;
+
+    // Native menu rows for the pop-up buttons, and where it opens.
+    in property <[PopupRow]> popup-rows;
+    in property <length> popup-x;
+    in property <length> popup-y;
+
+    out property <length> wave-width: wave-area.width;
+    out property <length> wave-height: wave-area.height;
+
+    callback ok();
+    callback cancel();
+    // A pop-up button: its field and where its menu opens.
+    callback choice-menu(string, length, length);
+    callback popup-chosen(int);
+    callback gain-changed(float);
+    callback pan-changed(float);
+    callback speed-changed(float);
+    // "gain", "pan" or "speed" back to its default.
+    callback reset(string);
+    // "loop", "mute", "hold".
+    callback toggle(string);
+    callback label-edited(string);
+    callback notes-edited(string);
+    callback colour(int);
+    callback pick-colour();
+    // "learn", "clear-key", "clear-midi", "replace", "locate", "top-and-tail",
+    // "zoom-fit", "to-in", "loop", "play", "stop", "in-set", "out-set".
+    callback action(string);
+    callback nudge(string, float);
+    // The waveform: press (x, y, touch), move, release, double-click, scroll
+    // (dx, dy, zoom modifier, shift) and a new size.
+    callback wave-down(length, length, bool);
+    callback wave-move(length, length);
+    callback wave-up(length, length);
+    callback wave-double(length);
+    callback wave-scroll(length, length, bool, bool);
+    callback wave-resized();
+    // Keys not taken by a text field: "space", "i", "o", "p", "left", "right",
+    // "zoom-in", "zoom-out", "escape"; shift held.
+    callback key(string, bool);
+
+    public function open-popup() {
+        ctx.show({ x: root.popup-x, y: root.popup-y });
+    }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.repeat && e.text != Key.LeftArrow && e.text != Key.RightArrow {
+                return accept;
+            }
+            // Slint reports ⌘ as `control` on a Mac, so this is ⌘ there and Ctrl elsewhere.
+            let zoom-mod = e.modifiers.control;
+            if zoom-mod && (e.text == "=" || e.text == "+") {
+                root.key("zoom-in", false);
+                return accept;
+            }
+            if zoom-mod && e.text == "-" {
+                root.key("zoom-out", false);
+                return accept;
+            }
+            if e.modifiers.meta || e.modifiers.control || e.modifiers.alt {
+                return reject;
+            }
+            if e.text == " " {
+                root.key("space", false);
+                return accept;
+            }
+            if e.text == "i" || e.text == "I" {
+                root.key("i", false);
+                return accept;
+            }
+            if e.text == "o" || e.text == "O" {
+                root.key("o", false);
+                return accept;
+            }
+            if e.text == "p" || e.text == "P" {
+                root.key("p", false);
+                return accept;
+            }
+            if e.text == Key.LeftArrow {
+                root.key("left", e.modifiers.shift);
+                return accept;
+            }
+            if e.text == Key.RightArrow {
+                root.key("right", e.modifiers.shift);
+                return accept;
+            }
+            if e.text == Key.Escape {
+                root.key("escape", false);
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            padding-bottom: 0px;
+            spacing: 12px;
+
+            // ---- header ----
+            HorizontalLayout {
+                spacing: 10px;
+                Text {
+                    text: info.name;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: info.details;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                SysButton {
+                    text: Theme.mac ? "Top and Tail" : "Top and tail";
+                    enabled: info.has-audio;
+                    clicked => {
+                        root.action("top-and-tail");
+                    }
+                }
+                SysButton {
+                    text: Theme.mac ? "Zoom to Fit" : "Zoom to fit";
+                    enabled: info.has-audio;
+                    clicked => {
+                        root.action("zoom-fit");
+                    }
+                }
+            }
+
+            // ---- waveform and meter ----
+            HorizontalLayout {
+                spacing: 10px;
+                vertical-stretch: 1;
+                min-height: 160px;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: Theme.mac ? 9px : 4px;
+                    background: Theme.dark ? #15161a : #f4f5f7;
+                    border-width: 1px;
+                    border-color: Theme.panel-border;
+                    clip: true;
+                    VerticalLayout {
+                        // Time ruler (a double-click zooms to fit).
+                        Rectangle {
+                            height: 22px;
+                            for m in root.ruler: Text {
+                                x: m.x + 4px;
+                                text: m.text;
+                                font-size: 11px;
+                                color: Theme.weak-text;
+                                vertical-alignment: center;
+                                height: parent.height;
+                            }
+                            Rectangle {
+                                y: parent.height - 1px;
+                                height: 1px;
+                                background: Theme.panel-border;
+                            }
+                            TouchArea {
+                                double-clicked => {
+                                    root.action("zoom-fit");
+                                }
+                            }
+                        }
+                        wave-area := Rectangle {
+                            vertical-stretch: 1;
+                            changed width => {
+                                root.wave-resized();
+                            }
+                            changed height => {
+                                root.wave-resized();
+                            }
+                            if !info.has-audio: Text {
+                                text: info.message;
+                                color: Theme.weak-text;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: parent.width / 1px;
+                                viewbox-height: parent.height / 1px;
+                                commands: root.wave-path;
+                                stroke: Theme.dark ? #6ea8ff : #2f6fdb;
+                                stroke-width: 1px;
+                            }
+                            // Outside In and Out is dimmed.
+                            Rectangle {
+                                x: 0;
+                                width: clamp(root.in-x, 0, parent.width);
+                                background: Theme.dark ? #00000090 : #ffffffb0;
+                            }
+                            Rectangle {
+                                x: clamp(root.out-x, 0, parent.width);
+                                width: parent.width - self.x;
+                                background: Theme.dark ? #00000090 : #ffffffb0;
+                            }
+                            Path {
+                                width: parent.width;
+                                height: parent.height;
+                                viewbox-width: parent.width / 1px;
+                                viewbox-height: parent.height / 1px;
+                                commands: root.fade-path;
+                                stroke: #ff9f0a;
+                                stroke-width: 2px;
+                            }
+                            // The cursor (where Space plays from).
+                            Rectangle {
+                                x: root.cursor-x;
+                                width: 1px;
+                                visible: root.cursor-x >= 0;
+                                background: Theme.text.transparentize(40%);
+                            }
+                            Rectangle {
+                                x: root.playhead-x - 1px;
+                                width: 2px;
+                                visible: root.playhead-x >= 0;
+                                background: Theme.dark ? #ffffff : #111111;
+                            }
+                            // In and Out: a line with its flag, or a tab at the edge.
+                            if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
+                                x: root.in-x - 1px;
+                                width: 2px;
+                                background: #ffd60a;
+                            }
+                            if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
+                                x: root.in-x;
+                                y: 0;
+                                width: in-flag.preferred-width + 10px;
+                                height: 16px;
+                                background: #ffd60a;
+                                in-flag := Text {
+                                    text: "IN";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #1a1a1a;
+                                }
+                            }
+                            if root.out-x >= 0 && root.out-x <= parent.width: Rectangle {
+                                x: root.out-x - 1px;
+                                width: 2px;
+                                background: #ffd60a;
+                            }
+                            if root.out-x >= 0 && root.out-x <= parent.width: Rectangle {
+                                x: root.out-x - self.width;
+                                y: 0;
+                                width: out-flag.preferred-width + 10px;
+                                height: 16px;
+                                background: #ffd60a;
+                                out-flag := Text {
+                                    text: "OUT";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #1a1a1a;
+                                }
+                            }
+                            if root.in-tab: Rectangle {
+                                x: 0;
+                                y: 0;
+                                width: in-tab-text.preferred-width + 14px;
+                                height: 18px;
+                                border-radius: 0;
+                                background: #ffd60a;
+                                in-tab-text := Text {
+                                    text: "◀ IN " + root.in-time;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #1a1a1a;
+                                }
+                            }
+                            if root.out-tab: Rectangle {
+                                x: parent.width - self.width;
+                                y: 0;
+                                width: out-tab-text.preferred-width + 14px;
+                                height: 18px;
+                                background: #ffd60a;
+                                out-tab-text := Text {
+                                    text: "OUT " + root.out-time + " ▶";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #1a1a1a;
+                                }
+                            }
+                            TouchArea {
+                                enabled: info.has-audio;
+                                mouse-cursor: default;
+                                pointer-event(e) => {
+                                    if e.button == PointerEventButton.left {
+                                        if e.kind == PointerEventKind.down {
+                                            root.wave-down(self.mouse-x, self.mouse-y, e.touch-finger-id != 0);
+                                        } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                                            root.wave-up(self.mouse-x, self.mouse-y);
+                                        }
+                                    }
+                                }
+                                moved => {
+                                    root.wave-move(self.mouse-x, self.mouse-y);
+                                }
+                                double-clicked => {
+                                    root.wave-double(self.mouse-x);
+                                }
+                                scroll-event(e) => {
+                                    root.wave-scroll(e.delta-x, e.delta-y, e.modifiers.control, e.modifiers.shift);
+                                    accept
+                                }
+                            }
+                        }
+                    }
+                }
+                // Meter: two bars, a hold mark on each.
+                Rectangle {
+                    width: 40px;
+                    border-radius: Theme.mac ? 9px : 4px;
+                    background: Theme.dark ? #15161a : #f4f5f7;
+                    border-width: 1px;
+                    border-color: Theme.panel-border;
+                    HorizontalLayout {
+                        padding: 7px;
+                        padding-top: 9px;
+                        padding-bottom: 9px;
+                        spacing: 4px;
+                        for ch in [
+                            { level: root.level-l, hold: root.hold-l, colour: root.level-l-colour },
+                            { level: root.level-r, hold: root.hold-r, colour: root.level-r-colour },
+                        ]: Rectangle {
+                            border-radius: 2px;
+                            background: Theme.text.transparentize(92%);
+                            Rectangle {
+                                y: parent.height * (1 - ch.level);
+                                height: parent.height * ch.level;
+                                border-radius: 2px;
+                                background: ch.colour;
+                            }
+                            Rectangle {
+                                visible: ch.hold > 0.01;
+                                y: parent.height * (1 - ch.hold) - 1px;
+                                height: 2px;
+                                background: ch.colour;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- trim in · transport · trim out ----
+            HorizontalLayout {
+                spacing: 10px;
+                TrimBox {
+                    title: Theme.mac ? "Trim In" : "Trim in";
+                    time: root.in-time;
+                    set-text: "Set (I)";
+                    nudge(d) => {
+                        root.nudge("in", d);
+                    }
+                    set => {
+                        root.action("in-set");
+                    }
+                }
+                Rectangle {
+                    width: 300px;
+                    border-radius: Theme.mac ? 9px : 4px;
+                    background: Theme.mac ? Theme.text.transparentize(94%) : Theme.panel;
+                    border-width: Theme.mac ? 0px : 1px;
+                    border-color: Theme.panel-border;
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 8px;
+                        alignment: space-between;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 30px;
+                                border-radius: 5px;
+                                background: #00000059;
+                                Text {
+                                    text: root.elapsed;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    color: #ffd60a;
+                                }
+                            }
+                            Rectangle {
+                                height: 30px;
+                                border-radius: 5px;
+                                background: #00000059;
+                                Text {
+                                    text: root.remaining;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    color: #64d2ff;
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            IconButton {
+                                label: "Back to In";
+                                icon: "M3.5 3v10M13 3.5L6.5 8L13 12.5Z";
+                                clicked => {
+                                    root.action("to-in");
+                                }
+                            }
+                            IconButton {
+                                label: "Loop";
+                                on: info.looping;
+                                icon: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+                                clicked => {
+                                    root.action("loop");
+                                }
+                            }
+                            IconButton {
+                                label: root.running ? "Pause" : "Play";
+                                icon: root.running ? "M5 3v10M11 3v10" : "M4.5 2.5L13 8L4.5 13.5Z";
+                                filled: !root.running;
+                                clicked => {
+                                    root.action("play");
+                                }
+                            }
+                            IconButton {
+                                label: "Stop";
+                                icon: "M4 4h8v8H4Z";
+                                filled: true;
+                                clicked => {
+                                    root.action("stop");
+                                }
+                            }
+                        }
+                    }
+                }
+                TrimBox {
+                    title: Theme.mac ? "Trim Out" : "Trim out";
+                    time: root.out-time;
+                    set-text: "Set (O)";
+                    nudge(d) => {
+                        root.nudge("out", d);
+                    }
+                    set => {
+                        root.action("out-set");
+                    }
+                }
+            }
+
+            // ---- settings: Sound | Cart ----
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: stretch;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 6px;
+                    alignment: start;
+                    Text {
+                        text: "Sound";
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
+                    Group {
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Output";
+                            Choice {
+                                value: info.output;
+                                open(x, y) => {
+                                    root.choice-menu("output", x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Gain";
+                            Slider {
+                                minimum: -12;
+                                maximum: 12;
+                                value <=> root.gain;
+                                changed(v) => {
+                                    root.gain-changed(v);
+                                }
+                            }
+                            Text {
+                                width: 64px;
+                                text: info.gain-text;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                                TouchArea {
+                                    double-clicked => {
+                                        root.reset("gain");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Pan";
+                            Slider {
+                                minimum: -1;
+                                maximum: 1;
+                                value <=> root.pan;
+                                changed(v) => {
+                                    root.pan-changed(v);
+                                }
+                            }
+                            Text {
+                                width: 64px;
+                                text: info.pan-text;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                                TouchArea {
+                                    double-clicked => {
+                                        root.reset("pan");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Speed";
+                            Slider {
+                                minimum: 0.25;
+                                maximum: 4;
+                                value <=> root.speed;
+                                changed(v) => {
+                                    root.speed-changed(v);
+                                }
+                            }
+                            Text {
+                                width: 64px;
+                                text: info.speed-text;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                                TouchArea {
+                                    double-clicked => {
+                                        root.reset("speed");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "Speed Bar" : "Speed bar";
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                PopButton {
+                                    y: (parent.height - self.height) / 2;
+                                    model: ["x0 · " + info.speed-x0];
+                                    current-index: 0;
+                                    open(x, y) => {
+                                        root.choice-menu("x0", x, y);
+                                    }
+                                }
+                                PopButton {
+                                    y: (parent.height - self.height) / 2;
+                                    model: ["x1 · " + info.speed-x1];
+                                    current-index: 0;
+                                    open(x, y) => {
+                                        root.choice-menu("x1", x, y);
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "Fade In" : "Fade in";
+                            Choice {
+                                value: info.fade-in;
+                                open(x, y) => {
+                                    root.choice-menu("fade-in", x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "Fade Out" : "Fade out";
+                            Choice {
+                                value: info.fade-out;
+                                open(x, y) => {
+                                    root.choice-menu("fade-out", x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Playback";
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Toggle {
+                                    text: "Loop";
+                                    icon: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+                                    on: info.looping;
+                                    toggled(on) => {
+                                        root.toggle("loop");
+                                    }
+                                }
+                                Toggle {
+                                    text: "Mute";
+                                    icon: "M2.5 6h3l4-3v10l-4-3h-3zM11.5 6l3 4M14.5 6l-3 4";
+                                    on: info.muted;
+                                    toggled(on) => {
+                                        root.toggle("mute");
+                                    }
+                                }
+                                Toggle {
+                                    text: "Hold";
+                                    icon: "M8 2.5v6M5 6.5v-2a3 3 0 0 1 6 0v6a4 4 0 0 1-8 0v-2";
+                                    on: info.hold;
+                                    toggled(on) => {
+                                        root.toggle("hold");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "On Retrigger" : "On retrigger";
+                            Choice {
+                                value: info.retrigger;
+                                open(x, y) => {
+                                    root.choice-menu("retrigger", x, y);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 6px;
+                    alignment: start;
+                    Text {
+                        text: "Cart";
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
+                    Group {
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Label";
+                            LabelField {
+                                text <=> root.label-text;
+                                edited(t) => {
+                                    root.label-edited(t);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Colour";
+                            HorizontalLayout {
+                                spacing: 5px;
+                                alignment: start;
+                                for c[i] in info.swatches: Rectangle {
+                                    width: 20px;
+                                    height: 20px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: Theme.mac ? 10px : 4px;
+                                    background: c;
+                                    border-width: i == info.colour ? 2px : 0px;
+                                    border-color: Theme.text;
+                                    TouchArea {
+                                        clicked => {
+                                            root.colour(i);
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    width: 1px;
+                                    height: 16px;
+                                    y: (parent.height - self.height) / 2;
+                                    background: Theme.panel-border;
+                                }
+                                Rectangle {
+                                    width: 20px;
+                                    height: 20px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: Theme.mac ? 10px : 4px;
+                                    background: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
+                                    border-width: info.colour < 0 ? 2px : 0px;
+                                    border-color: Theme.text;
+                                    TouchArea {
+                                        clicked => {
+                                            root.pick-colour();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "When It Starts" : "When it starts";
+                            Choice {
+                                value: info.starts;
+                                open(x, y) => {
+                                    root.choice-menu("starts", x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "When It Ends" : "When it ends";
+                            Choice {
+                                value: info.ends;
+                                open(x, y) => {
+                                    root.choice-menu("ends", x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Group";
+                            Choice {
+                                value: info.group;
+                                open(x, y) => {
+                                    root.choice-menu("group", x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Hotkey";
+                            HorizontalLayout {
+                                spacing: 8px;
+                                if info.learning: Text {
+                                    text: "Press a key or send MIDI… (Esc cancels)";
+                                    color: Theme.accent;
+                                    vertical-alignment: center;
+                                }
+                                if !info.learning && info.hotkey != "": Rectangle {
+                                    y: (parent.height - self.height) / 2;
+                                    height: 20px;
+                                    width: key-text.preferred-width + 14px;
+                                    border-radius: 4px;
+                                    background: #ffffffe0;
+                                    key-text := Text {
+                                        text: info.hotkey;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: info.cart-color;
+                                    }
+                                }
+                                if !info.learning && info.hotkey == "": Text {
+                                    text: "None";
+                                    color: Theme.weak-text;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
+                                SysButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: info.learning ? "Cancel" : "Learn";
+                                    clicked => {
+                                        root.action("learn");
+                                    }
+                                }
+                                SysButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "Clear";
+                                    enabled: info.hotkey != "";
+                                    clicked => {
+                                        root.action("clear-key");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac && info.show-midi: Rule { }
+                        if info.show-midi: FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "MIDI";
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: info.midi == "" ? "None" : info.midi;
+                                    color: info.midi == "" ? Theme.weak-text : Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                }
+                                SysButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "Clear";
+                                    enabled: info.midi != "";
+                                    clicked => {
+                                        root.action("clear-midi");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: Theme.mac ? "Audio File" : "Audio file";
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+                                SysButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "Replace…";
+                                    clicked => {
+                                        root.action("replace");
+                                    }
+                                }
+                                if info.missing: SysButton {
+                                    y: (parent.height - self.height) / 2;
+                                    text: "Locate…";
+                                    clicked => {
+                                        root.action("locate");
+                                    }
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: Theme.mac ? 104px : 112px;
+                            label: "Notes";
+                            LabelField {
+                                text <=> root.notes-text;
+                                edited(t) => {
+                                    root.notes-edited(t);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- OK / Cancel: Cancel then OK on a Mac, OK then Cancel on Windows ----
+            HorizontalLayout {
+                padding-top: 4px;
+                padding-bottom: 14px;
+                spacing: 8px;
+                alignment: end;
+                if Theme.mac: SysButton {
+                    text: "Cancel";
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+                SysButton {
+                    text: "OK";
+                    primary: true;
+                    clicked => {
+                        root.ok();
+                    }
+                }
+                if !Theme.mac: SysButton {
+                    text: "Cancel";
+                    clicked => {
+                        root.cancel();
+                    }
+                }
+            }
+        }
+    }
+
+    // The pop-up buttons' choices as a native menu (opened from Rust).
+    ctx := ContextMenuArea {
+        enabled: false;
+        Menu {
+            for it in root.popup-rows: MenuItem {
+                title: it.text;
+                enabled: it.enabled;
+                checkable: it.checked;
+                checked: it.checked;
+                activated => {
+                    root.popup-chosen(it.id);
+                }
+            }
+        }
+    }
+
+    init => {
+        keys.focus();
+    }
+}

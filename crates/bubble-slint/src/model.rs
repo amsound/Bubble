@@ -321,9 +321,9 @@ fn strings(v: Vec<String>) -> ModelRc<SharedString> {
     ))
 }
 
-fn fade_text(ms: u32) -> String {
+pub fn fade_text(ms: u32) -> String {
     if ms == 0 {
-        "zero".into()
+        "None".into()
     } else {
         format!("{:.1} s", ms as f32 / 1000.0)
     }
