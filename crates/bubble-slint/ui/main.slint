@@ -130,7 +130,6 @@ export component MainWindow inherits Window {
     callback qe-close();
     callback qe-label(string);
     callback qe-colour(int);
-    callback qe-hex(string);
     callback qe-gain(float);
     // A quick edit pop-up button was clicked: its field and where its menu opens.
     callback qe-choice-menu(string, length, length);
@@ -562,9 +561,6 @@ export component MainWindow inherits Window {
             }
             colour(i) => {
                 root.qe-colour(i);
-            }
-            hex(t) => {
-                root.qe-hex(t);
             }
             gain(v) => {
                 root.qe-gain(v);

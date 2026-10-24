@@ -34,7 +34,7 @@ component Tab inherits Rectangle {
     property <bool> held;
     border-radius: 5px;
     // The page you are on is the one inverted (neutral) tab; a page with something
-    // playing has a yellow bar along its top. The name never moves.
+    // playing has a yellow bar along its bottom. The name never moves.
     background: current ? Theme.text : ta.has-hover ? Theme.button-hover : Theme.button;
     clip: true;
     Text {
@@ -50,7 +50,7 @@ component Tab inherits Rectangle {
     }
     if page.playing: Rectangle {
         x: 0;
-        y: 0;
+        y: parent.height - self.height;
         width: parent.width;
         height: 5px;
         background: Theme.playing;

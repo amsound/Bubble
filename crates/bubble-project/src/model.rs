@@ -74,6 +74,15 @@ impl ExclusiveGroup {
             format!("G{} {}", index + 1, self.name.trim())
         }
     }
+
+    /// In lists and menus: "Group 1", or "Group 1: Name" when named.
+    pub fn display_name(&self, index: usize) -> String {
+        if self.name.trim().is_empty() {
+            format!("Group {}", index + 1)
+        } else {
+            format!("Group {}: {}", index + 1, self.name.trim())
+        }
+    }
 }
 
 impl Project {

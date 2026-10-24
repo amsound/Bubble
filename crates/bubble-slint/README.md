@@ -62,15 +62,17 @@ Done (main window):
       when the window loses focus.
 - [x] Quick edit as a popover beside the cart, with an arrow pointing at it (design
       "Quick edit: options as toggle buttons"), fading in: Cart Setup… (disabled until
-      ported) and Close; Label (one line, growing with its text), Colour (swatches, other
-      colour as #RRGGBB); Gain (−12…+12 dB, 0 in the middle, click the value for 0),
-      Output, Fade Out, Group (pop-up buttons opening a native menu, the current choice
-      checked), Hotkey (Learn, the key drawn as on the tile); Loop / Play Next / Stop All
-      toggle buttons with the tile's icons; Copy, Paste, Replace File…, Delete. Flat
-      system-like buttons (Slint's Mac style draws gradients). Right-clicking another
+      ported); Label (one line, growing with its text; Return or "|" for a new line),
+      Colour (swatches; any other colour in the system colour picker: the Colours panel,
+      followed live, on a Mac, the Colour dialog on Windows); Gain (−12…+12 dB, 0 in the
+      middle, double-click the slider or the value for 0 dB); Output, Fade Out, Group
+      ("Group 1"; pop-up buttons as wide as their choice on a Mac, opening a native menu
+      with the current choice checked); Hotkey (Learn takes one key, no modifiers; the
+      key drawn as on the tile); Loop / Play Next / Stop All toggle buttons with the
+      tile's icons; Copy, Paste, Replace File…, Delete. Flat system-like buttons (Slint's Mac style draws gradients). Right-clicking another
       cell while it is open moves it there (or opens that empty cell's menu).
 - [x] Bottom bar: page tabs (the current page is the inverted neutral tab; a page with
-      something playing has a yellow bar along its top; click, double-click rename, drag
+      something playing has a yellow bar along its bottom; click, double-click rename, drag
       to reorder, menu), add page, PAGE STOP (fades), ALL STOP (immediate), status line
       (click for Relink when files are missing), Small/Medium/Large heights with the
       design's text and button sizes (Medium is the first-run default on a touch screen).
@@ -151,8 +153,7 @@ Left:
       mode), 125/150/200% scale, the software renderer after minimise.
 - [ ] Hot-key labels from the current keyboard layout (I2).
 - [ ] From the design, not built yet: Alt-key access to the Windows menu bar (held back:
-      Alt+letter would clash with hot keys on Alt), an "other colour" picker beyond
-      #RRGGBB, a dashed outline for a cell receiving a file (Slint draws no dashes), and
+      Alt+letter would clash with hot keys on Alt), a dashed outline for a cell receiving a file (Slint draws no dashes), and
       blur behind popovers (Slint cannot blur; surfaces are solid).
 - [ ] The menu bar's own drop-down menus follow macOS's menu bar appearance, not
       Bubble's Light/Dark choice (no app can change that).

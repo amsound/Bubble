@@ -36,11 +36,11 @@ dispatch2 = "0.3"
 block2 = "0.6"
 # San Francisco's Text design as a static font (fonts.rs).
 allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSAppearance", "NSButton", "NSControl", "NSImage", "NSMenu", "NSMenuItem", "NSPanel", "NSPopUpButton", "NSResponder", "NSSavePanel", "NSText", "NSTextField", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSAppearance", "NSButton", "NSColor", "NSColorPanel", "NSColorSpace", "NSControl", "NSImage", "NSMenu", "NSMenuItem", "NSPanel", "NSPopUpButton", "NSResponder", "NSSavePanel", "NSText", "NSTextField", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSGeometry", "NSString", "NSURL", "NSUserDefaults"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_Controls_Dialogs", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 slint-build = "=1.18.1"

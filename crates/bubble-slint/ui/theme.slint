@@ -135,12 +135,15 @@ export component PopButton inherits Rectangle {
     callback open(length, length);
     property <bool> mac: Theme.mac;
     height: mac ? 22px : 32px;
-    horizontal-stretch: 1;
+    // A Mac pop-up button is as wide as its choice; Windows fills the row.
+    horizontal-stretch: mac ? 0 : 1;
+    preferred-width: row.preferred-width;
+    max-width: mac ? row.preferred-width : 100000px;
     border-radius: mac ? 5px : 4px;
     background: ta.pressed ? Theme.text.transparentize(mac ? 78% : 86%) : mac ? Theme.text.transparentize(88%) : Theme.button;
     border-width: mac ? 0px : 1px;
     border-color: Theme.panel-border;
-    HorizontalLayout {
+    row := HorizontalLayout {
         padding-left: mac ? 9px : 11px;
         padding-right: mac ? 7px : 11px;
         spacing: 8px;

@@ -29,11 +29,11 @@ use uuid::Uuid;
 
 use crate::alerts::{Alert, Alerts};
 use crate::model::{self, Selection};
-use crate::savepanel;
 use crate::{
     BusyRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys, menu,
     window,
 };
+use crate::{colour, savepanel};
 
 /// How often the window refreshes while carts play (the clock and progress bars).
 const PLAYING: Duration = Duration::from_millis(33);
@@ -121,6 +121,8 @@ pub struct App {
     /// The native alert on screen, and which prompt it asks.
     alerts: Alerts,
     alert_for: Option<Dialog>,
+    /// The system colour picker, for quick edit's other colour.
+    picker: colour::Picker,
     /// The system Save panel for a new session: open, its answer, and the Audio files
     /// question still to ask (Windows).
     save_open: bool,
@@ -435,12 +437,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
             a.qe_refresh();
         }
     });
-    on!(ui, app, on_qe_hex, |a, i, text| {
-        if let Some(rgb) = model::parse_rgb(Some(text.as_str())) {
-            a.qe_edit(i, move |c| c.color = Some(model::hex(rgb)));
-        }
-        a.qe_refresh();
-    });
     on!(ui, app, on_qe_gain, |a, i, v| {
         // 0 dB is easy to hit.
         let db = if v.abs() < 0.25 {
@@ -600,6 +596,7 @@ impl App {
             dialog: None,
             alerts: Alerts::new(),
             alert_for: None,
+            picker: colour::Picker::new(),
             save_open: false,
             save_tx,
             save_rx,
@@ -691,6 +688,17 @@ impl App {
         {
             self.alert_answer(d, i, &mut intents);
         }
+        // The system colour picker: the quick edit cart follows it.
+        if let Some(p) = self.picker.poll()
+            && let Some((r, g, b)) = p.rgb
+            && self.quick_edit.is_some()
+        {
+            let rgb = [r, g, b];
+            self.qe_edit(&mut intents, |c| {
+                c.color = (rgb != model::DEFAULT_CART_COLOR).then(|| model::hex(rgb))
+            });
+            self.qe_refresh();
+        }
         if let Ok(choice) = self.save_rx.try_recv() {
             self.save_open = false;
             self.save_chosen(choice, &mut intents);
@@ -720,7 +728,11 @@ impl App {
             || self.last_input.elapsed() < Duration::from_millis(600)
         {
             PLAYING
-        } else if snap.pending > 0 || self.core.job.is_some() || self.core.opening.is_some() {
+        } else if snap.pending > 0
+            || self.core.job.is_some()
+            || self.core.opening.is_some()
+            || self.picker.is_open()
+        {
             BUSY
         } else if self.core.midi.active_recently(150) {
             // Clears the MIDI activity light.
@@ -989,7 +1001,7 @@ impl App {
                 .groups
                 .iter()
                 .enumerate()
-                .map(|(i, g)| (g.id, g.label(i)))
+                .map(|(i, g)| (g.id, g.display_name(i)))
                 .collect()
         };
         use bubble_project::Control as K;
@@ -1009,7 +1021,7 @@ impl App {
         let mut sub: Vec<PopupItem> = groups
             .into_iter()
             .map(|(id, label)| {
-                let text = format!("{}: {label}", name("Stop Group", "Stop group"));
+                let text = format!("Stop {label}");
                 (Popup::Control(p, r, c, K::StopGroup, Some(id)), text, true)
             })
             .collect();
@@ -1523,6 +1535,7 @@ impl App {
     }
 
     fn close_quick_edit(&mut self) {
+        self.picker.close();
         self.quick_edit = None;
         self.qe_cart = None;
         self.qe_seen = None;
@@ -1662,6 +1675,13 @@ impl App {
             "gain-reset" => {
                 self.qe_edit(intents, |c| c.gain_db = 0.0);
                 self.qe_refresh();
+            }
+            "pick-colour" => {
+                if let (Some(ui), Some(cart)) = (self.ui.upgrade(), self.qe_cart.as_ref()) {
+                    let [r, g, b] = model::parse_rgb(cart.color.as_deref())
+                        .unwrap_or(model::DEFAULT_CART_COLOR);
+                    self.picker.open((r, g, b), ui.window());
+                }
             }
             _ => {}
         }

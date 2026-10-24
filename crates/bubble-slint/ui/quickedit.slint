@@ -1,8 +1,8 @@
 // Quick edit: the common cart settings in a popover inside the main window, beside the
 // cart (design: "Quick edit: options as toggle buttons"). Opened by right-click,
-// press-and-hold or Return in Edit mode; closed by Close, Esc or a click outside it.
+// press-and-hold or Return in Edit mode; closed by Esc or a click outside it.
 //
-//   Button 8                         [Cart Setup…] [Close]
+//   Button 8                         [Cart Setup…]
 //   Label   [Morning⏎News          ]
 //   Colour  ● ● ● ● ● ● ● ● ● ● | ◍
 //   Gain    ───────●──────   +1.5 dB
@@ -14,7 +14,7 @@
 //   [Copy] [Paste] [Replace File…]        [Delete]
 
 import { Slider } from "std-widgets.slint";
-import { Theme, TextCommand, Field, Panel, SysButton, PopButton } from "theme.slint";
+import { Theme, TextCommand, Panel, SysButton, PopButton } from "theme.slint";
 
 export struct QuickEdit {
     title: string,
@@ -170,17 +170,17 @@ export component QuickEditPanel inherits Panel {
     in property <QuickEdit> qe;
     callback label(string);
     callback colour(int);
-    callback hex(string);
     callback gain(float);
-    // "output", "fade" or "group", and the chosen index.
     // "output", "fade" or "group": open its choices at (x, y) in the window.
     callback choice-menu(string, length, length);
     // "loop", "next" or "stop-all".
     callback flag(string, bool);
-    // "done", "learn", "replace", "copy", "paste", "delete" or "gain-reset".
+    // "done", "learn", "replace", "copy", "paste", "delete", "gain-reset" or
+    // "pick-colour" (the system colour picker).
     callback action(string);
 
-    property <bool> more-colours;
+    // When the gain slider was last released (a double-click resets it).
+    property <duration> gain-release: -1s;
     // The arrow points at the cart: on the left edge (panel right of the cart) or the
     // right edge, this far down.
     in property <bool> arrow-left: true;
@@ -246,13 +246,6 @@ export component QuickEditPanel inherits Panel {
                 text: "Cart Setup…";
                 enabled: false;
             }
-            SysButton {
-                text: "Close";
-                primary: true;
-                clicked => {
-                    root.action("done");
-                }
-            }
         }
 
         Group {
@@ -265,11 +258,6 @@ export component QuickEditPanel inherits Panel {
                         edited(t) => {
                             root.label(t);
                         }
-                    }
-                    Text {
-                        text: Theme.mac ? "Shift-Return or | for a new line" : "Shift+Enter or | for a new line";
-                        font-size: 11px;
-                        color: Theme.weak-text;
                     }
                 }
             }
@@ -312,21 +300,12 @@ export component QuickEditPanel inherits Panel {
                             border-width: qe.color < 0 ? 2px : 0px;
                             border-color: Theme.text;
                         }
+                        // Any other colour, in the system colour picker.
                         TouchArea {
                             clicked => {
-                                root.more-colours = !root.more-colours;
+                                root.action("pick-colour");
                             }
                         }
-                    }
-                }
-            }
-            if root.more-colours: FieldRow {
-                label: "";
-                Field {
-                    text: qe.hex;
-                    placeholder-text: "#RRGGBB";
-                    accepted(t) => {
-                        root.hex(t);
                     }
                 }
             }
@@ -354,17 +333,26 @@ export component QuickEditPanel inherits Panel {
                         changed(v) => {
                             root.gain(v);
                         }
+                        // A double-click (two quick releases) goes back to 0 dB.
+                        released => {
+                            if animation-tick() - root.gain-release < 400ms {
+                                self.value = 0;
+                                root.action("gain-reset");
+                            }
+                            root.gain-release = animation-tick();
+                        }
                     }
                 }
                 Text {
                     width: 58px;
-                    text: (gain-slider.value >= 0 ? "+" : "") + round(gain-slider.value * 10) / 10 + " dB";
+                    text: (round(gain-slider.value * 10) > 0 ? "+" : "") + round(gain-slider.value * 10) / 10 + " dB";
                     color: Theme.text;
                     horizontal-alignment: right;
                     vertical-alignment: center;
                     TouchArea {
                         // Back to 0 dB.
-                        clicked => {
+                        double-clicked => {
+                            gain-slider.value = 0;
                             root.action("gain-reset");
                         }
                     }
@@ -381,6 +369,9 @@ export component QuickEditPanel inherits Panel {
                         root.choice-menu("output", x, y);
                     }
                 }
+                if Theme.mac: Rectangle {
+                    horizontal-stretch: 1;
+                }
             }
             if !qe.control && Theme.mac: Rule { }
             if !qe.control: FieldRow {
@@ -393,6 +384,9 @@ export component QuickEditPanel inherits Panel {
                         root.choice-menu("fade", x, y);
                     }
                 }
+                if Theme.mac: Rectangle {
+                    horizontal-stretch: 1;
+                }
             }
             if qe.show-group && !qe.control && Theme.mac: Rule { }
             if qe.show-group: FieldRow {
@@ -404,6 +398,9 @@ export component QuickEditPanel inherits Panel {
                     open(x, y) => {
                         root.choice-menu("group", x, y);
                     }
+                }
+                if Theme.mac: Rectangle {
+                    horizontal-stretch: 1;
                 }
             }
             if Theme.mac: Rule { }

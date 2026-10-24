@@ -365,7 +365,7 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
             .groups
             .iter()
             .enumerate()
-            .map(|(i, g)| g.label(i)),
+            .map(|(i, g)| g.display_name(i)),
     );
     let group = cart
         .group
