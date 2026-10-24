@@ -1111,13 +1111,12 @@ impl Controller {
         self.set_live_speed(cart, 1.0, ms);
     }
 
-    /// The action a newly learned trigger gets: a key or note behaves like a click
-    /// on the cart (toggle in the default mouse mode), so pressing it again stops.
+    /// The action a newly learned trigger gets: a key or note plays the cart, and
+    /// the cart's On Retrigger decides what pressing it again while it plays does
+    /// (Toggle stop: play/stop; Restart: play/restart). Clicks and touches follow the
+    /// session's mouse mode instead.
     pub fn default_trigger_action(&self) -> Action {
-        match self.project.settings.mouse_mode {
-            MouseMode::Toggle => Action::Toggle,
-            MouseMode::LeftPlayRightStop => Action::Play,
-        }
+        Action::Play
     }
 
     /// Changes what an existing binding does.

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use bubble_control::*;
 use bubble_engine::{Engine, EngineConfig, Mixer};
-use bubble_project::{Action, BindingSource, MidiChannel, MidiMessage, StopScope, Trim};
+use bubble_project::{Action, BindingSource, MidiChannel, MidiMessage, Retrigger, StopScope, Trim};
 use uuid::Uuid;
 
 const SR: u32 = 48_000;
@@ -554,10 +554,18 @@ fn hotkey_on_looping_cart_toggles_and_stays_stopped() {
     let cart = c
         .assign_file(0, 0, 0, &test_file("1kHz_16_48_AB_M18.wav"))
         .unwrap();
-    c.edit_cart(cart, |x| x.looping = true);
+    // A learned key plays; On Retrigger "Toggle stop" makes a second press stop.
+    c.edit_cart(cart, |x| {
+        x.looping = true;
+        x.retrigger = Some(Retrigger::ToggleStop);
+    });
     wait_ready(&mut c);
     let action = c.default_trigger_action();
-    assert_eq!(action, Action::Toggle, "learned keys behave like a click");
+    assert_eq!(
+        action,
+        Action::Play,
+        "learned keys play; On Retrigger does the rest"
+    );
     c.start_learn(cart, action);
     c.handle_input(&key("KeyL", true, false));
     for i in 0..6 {
@@ -1071,4 +1079,27 @@ fn long_files_stream_with_a_head_at_each_in_point() {
     let (a, b) = o.audio_bounds().unwrap();
     assert!(a < 0.01 && (b - 40.0).abs() < 0.01, "{a} {b}");
     assert!(o.max.iter().all(|x| *x > 0.4));
+}
+
+#[test]
+fn hotkey_follows_on_retrigger_restart() {
+    if missing_test_files() {
+        return;
+    }
+    // A learned key on a cart left at Restart: a second press restarts it.
+    let (mut c, mut m) = setup();
+    let cart = c
+        .assign_file(0, 0, 0, &test_file("1kHz_16_48_AB_M18.wav"))
+        .unwrap();
+    c.edit_cart(cart, |x| x.retrigger = Some(Retrigger::Restart));
+    wait_ready(&mut c);
+    c.start_learn(cart, c.default_trigger_action());
+    c.handle_input(&key("KeyR", true, false));
+    for _ in 0..3 {
+        c.handle_input(&key("KeyR", true, false));
+        run(&mut c, &mut m, 480);
+        c.handle_input(&key("KeyR", false, false));
+        run(&mut c, &mut m, 480);
+        assert_eq!(state(&c, cart), CartState::Playing);
+    }
 }

@@ -2194,7 +2194,7 @@ impl BubbleApp {
                 if ui
                     .button("Learn")
                     .on_hover_text(
-                        "The next key or MIDI message plays this cart; pressing it again stops it.",
+                        "The next key or MIDI message plays this cart; On Retrigger decides what pressing it again does.",
                     )
                     .clicked()
                 {
