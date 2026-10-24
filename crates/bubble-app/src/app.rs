@@ -788,7 +788,7 @@ impl eframe::App for BubbleApp {
             .apply(&ctx, snap.project.settings.display.font.as_deref());
         let dt = self.last_frame.elapsed().as_secs_f32();
         self.last_frame = Instant::now();
-        self.update_meters(&snap, dt);
+        self.update_meters(dt);
         self.child_focus = false;
         // Before poll_job, so audio a finished job adds is in the project by now.
         self.wav_check_when_idle();
@@ -1326,11 +1326,12 @@ impl BubbleApp {
     }
 
     /// PPM ballistics for carts whose meters are visible.
-    fn update_meters(&mut self, snap: &Snapshot, dt: f32) {
+    fn update_meters(&mut self, dt: f32) {
         let visible: Vec<Uuid> = self.dialogs.audio_setup.into_iter().collect();
         self.meters.retain(|id, _| visible.contains(id));
+        let peaks = self.take_peaks();
         for id in visible {
-            let peak = snap.peaks.get(&id).copied().unwrap_or_default();
+            let peak = peaks.get(&id).copied().unwrap_or_default();
             self.meters.entry(id).or_default().update(peak, dt);
         }
     }

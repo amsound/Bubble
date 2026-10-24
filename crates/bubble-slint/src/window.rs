@@ -295,3 +295,35 @@ pub fn on_main(f: impl FnOnce() + Send + 'static) {
     #[cfg(not(target_os = "macos"))]
     let _ = slint::invoke_from_event_loop(f);
 }
+
+/// Keeps a tool window (Cart Setup) in front of the main window until it is closed.
+/// macOS: the floating level, hidden while Bubble is in the background, as inspector
+/// windows are. Windows: owned by the main window, which it then always stays above.
+pub fn keep_above(child: &slint::Window, parent: &slint::Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let raw = |w: &slint::Window| w.window_handle().window_handle().map(|h| h.as_raw()).ok();
+    #[cfg(target_os = "macos")]
+    {
+        let _ = parent;
+        use objc2::rc::Retained;
+        use objc2_app_kit::{NSFloatingWindowLevel, NSView};
+        if let Some(RawWindowHandle::AppKit(h)) = raw(child)
+            && let Some(view) = unsafe { Retained::retain(h.ns_view.as_ptr() as *mut NSView) }
+            && let Some(win) = view.window()
+        {
+            win.setLevel(NSFloatingWindowLevel);
+            win.setHidesOnDeactivate(true);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GWLP_HWNDPARENT, SetWindowLongPtrW};
+        if let (Some(RawWindowHandle::Win32(c)), Some(RawWindowHandle::Win32(p))) =
+            (raw(child), raw(parent))
+        {
+            unsafe { SetWindowLongPtrW(c.hwnd.get() as _, GWLP_HWNDPARENT, p.hwnd.get()) };
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = (child, parent, raw);
+}

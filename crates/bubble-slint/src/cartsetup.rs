@@ -23,8 +23,11 @@ use uuid::Uuid;
 use crate::model;
 use crate::{PopupRow, SetupInfo, WaveMark};
 
-/// Pixels either side of a handle that grab it.
-const GRAB: f32 = 9.0;
+/// Pixels either side of a handle (or the playhead) that grab it.
+const GRAB: f32 = 12.0;
+/// The IN and OUT flags at the top of their lines also grab them.
+const FLAG_H: f32 = 22.0;
+const FLAG_W: f32 = 34.0;
 /// Width of the edge strip that scrolls while a handle is dragged into it.
 const EDGE: f32 = 32.0;
 /// Shortest In–Out (seconds).
@@ -39,6 +42,8 @@ enum Handle {
 #[derive(Clone, Copy, Debug)]
 enum Drag {
     Handle(Handle),
+    /// The playhead while playing: dragging it moves the audition.
+    Playhead,
     /// Dragging the waveform itself scrolls it.
     Pan {
         x: f32,
@@ -66,8 +71,6 @@ pub struct Setup {
     pub draft: Cart,
     /// The cart as it is in the session (what OK compares against).
     base: Cart,
-    /// Audition paused (held at speed 0).
-    paused: bool,
     // The view: `start` and `span` in seconds of the file.
     start: f64,
     span: f64,
@@ -159,7 +162,6 @@ impl Setup {
             id: cart.id,
             draft: cart.clone(),
             base: cart,
-            paused: false,
             start: 0.0,
             span: 0.0,
             dur: 0.0,
@@ -191,6 +193,13 @@ impl Setup {
         snap.runtime
             .get(&self.id)
             .is_some_and(|r| matches!(r.state, Cs::Playing | Cs::Stopping))
+    }
+
+    /// Paused here (held at speed 0): read from the cart itself, so it always matches.
+    fn paused(&self, snap: &Snapshot) -> bool {
+        snap.runtime
+            .get(&self.id)
+            .is_some_and(|r| matches!(r.state, Cs::Playing | Cs::Stopping) && r.speed < 0.005)
     }
 
     fn trims(&self) -> (f64, f64) {
@@ -251,10 +260,19 @@ impl Setup {
         (self.start + x as f64 / self.width() as f64 * self.span).clamp(0.0, self.dur)
     }
 
+    /// A little room either side of the file, so In and Out at its ends are clear of
+    /// the edges.
+    fn margin(&self) -> f64 {
+        self.dur * 0.025
+    }
+
     fn clamp_view(&mut self) {
+        let m = self.margin();
         let min_span = (self.dur / 4000.0).max(0.005).min(self.dur);
-        self.span = self.span.clamp(min_span, self.dur.max(min_span));
-        self.start = self.start.clamp(0.0, (self.dur - self.span).max(0.0));
+        self.span = self
+            .span
+            .clamp(min_span, (self.dur + 2.0 * m).max(min_span));
+        self.start = self.start.clamp(-m, (self.dur + m - self.span).max(-m));
     }
 
     /// Zooms by `factor` (above 1 zooms in), keeping `anchor` (seconds) where it is.
@@ -270,8 +288,9 @@ impl Setup {
     }
 
     fn zoom_fit(&mut self) {
-        self.start = 0.0;
-        self.span = self.dur;
+        let m = self.margin();
+        self.start = -m;
+        self.span = self.dur + 2.0 * m;
     }
 
     fn anchor(&self) -> f64 {
@@ -283,7 +302,7 @@ impl Setup {
 
     // ---- input from the window ----
 
-    pub fn wave_down(&mut self, x: f32, y: f32) {
+    pub fn wave_down(&mut self, x: f32, y: f32, snap: &Snapshot) {
         self.pointer = Some(x);
         self.press = x;
         self.moved = false;
@@ -293,16 +312,26 @@ impl Setup {
         let w = self.width();
         let (a, b) = self.trims();
         let (in_x, out_x) = (self.x_of(a), self.x_of(b));
-        // The tab of a handle that is off screen, pinned to its edge.
-        let tab = y < 22.0;
-        self.drag = Some(if tab && in_x < 0.0 && x < 110.0 {
-            Drag::Handle(Handle::In)
-        } else if tab && out_x > w && x > w - 110.0 {
-            Drag::Handle(Handle::Out)
-        } else {
-            let din = (x - in_x).abs();
-            let dout = (x - out_x).abs();
-            if din <= GRAB && din <= dout {
+        let top = y < FLAG_H;
+        let din = (x - in_x).abs();
+        let dout = (x - out_x).abs();
+        let dplay = self
+            .playhead(snap)
+            .map_or(f32::MAX, |t| (x - self.x_of(t)).abs());
+        self.drag = Some(
+            // A handle off screen is a tab pinned to its edge.
+            if top && in_x < 0.0 && x < 120.0 {
+                Drag::Handle(Handle::In)
+            } else if top && out_x > w && x > w - 120.0 {
+                Drag::Handle(Handle::Out)
+            // The flags: IN's to the right of its line, OUT's to the left.
+            } else if top && x >= in_x - 4.0 && x <= in_x + FLAG_W && (in_x - out_x).abs() > 1.0 {
+                Drag::Handle(Handle::In)
+            } else if top && x <= out_x + 4.0 && x >= out_x - FLAG_W {
+                Drag::Handle(Handle::Out)
+            } else if dplay <= GRAB && dplay < din.min(dout) {
+                Drag::Playhead
+            } else if din <= GRAB && din <= dout {
                 Drag::Handle(Handle::In)
             } else if dout <= GRAB {
                 Drag::Handle(Handle::Out)
@@ -311,8 +340,8 @@ impl Setup {
                     x,
                     start: self.start,
                 }
-            }
-        });
+            },
+        );
         if let Some(Drag::Handle(h)) = self.drag {
             self.last = h;
         }
@@ -327,6 +356,11 @@ impl Setup {
             Some(Drag::Handle(h)) if self.moved => {
                 let t = self.t_of(x);
                 self.move_handle(h, t, snap, intents);
+            }
+            Some(Drag::Playhead) if self.moved && self.playing(snap) => {
+                let (a, b) = self.trims();
+                let t = self.t_of(x).clamp(a, (b - MIN_LEN).max(a));
+                intents.push(Intent::Seek(self.id, t));
             }
             Some(Drag::Pan { x: x0, start }) => {
                 self.start = start - (x - x0) as f64 / self.width() as f64 * self.span;
@@ -431,7 +465,7 @@ impl Setup {
             (v * 10.0).round() / 10.0
         };
         self.draft.gain_db = db;
-        if self.playing(snap) && !self.paused {
+        if self.playing(snap) && !self.paused(snap) {
             intents.push(Intent::LiveGain(self.id, db, self.draft.muted));
         }
     }
@@ -451,7 +485,7 @@ impl Setup {
             (v * 200.0).round() / 200.0
         };
         self.draft.speed = v;
-        if self.playing(snap) && !self.paused {
+        if self.playing(snap) && !self.paused(snap) {
             intents.push(Intent::LiveSpeedRamp(self.id, v, 40));
         }
     }
@@ -476,7 +510,7 @@ impl Setup {
             }
             "mute" => {
                 self.draft.muted = !self.draft.muted;
-                if playing && !self.paused {
+                if playing && !self.paused(snap) {
                     intents.push(Intent::LiveGain(
                         self.id,
                         self.draft.gain_db,
@@ -528,28 +562,23 @@ impl Setup {
         let t = t.clamp(a, (b - MIN_LEN).max(a));
         if self.playing(snap) {
             intents.push(Intent::Seek(self.id, t));
-            if self.paused {
+            if self.paused(snap) {
                 intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
-                self.paused = false;
             }
         } else {
             intents.push(Intent::PreviewAt(self.draft.clone(), t));
-            self.paused = false;
         }
     }
 
     fn play_pause(&mut self, snap: &Snapshot, intents: &mut Vec<Intent>) {
-        if self.playing(snap) && !self.paused {
+        if self.playing(snap) && !self.paused(snap) {
             intents.push(Intent::LiveSpeedRamp(self.id, 0.0, 5));
-            self.paused = true;
         } else if self.playing(snap) {
             intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
-            self.paused = false;
         } else if let Some(t) = self.cursor {
             self.play_from(t, snap, intents);
         } else {
             intents.push(Intent::Preview(self.draft.clone()));
-            self.paused = false;
         }
     }
 
@@ -563,9 +592,29 @@ impl Setup {
                 }
             }
             "zoom-fit" => self.zoom_fit(),
-            "to-in" | "stop" => {
-                intents.push(Intent::KillCart(self.id));
-                self.paused = false;
+            "stop" => intents.push(Intent::KillCart(self.id)),
+            // Back to In: playing carries on from In (paused stays paused there);
+            // stopped, the next Play starts at In.
+            "to-in" => {
+                let (a, _) = self.trims();
+                if self.playing(snap) {
+                    intents.push(Intent::Seek(self.id, a));
+                }
+                self.cursor = None;
+                if a < self.start || a > self.start + self.span {
+                    self.start = a - self.span * 0.1;
+                    self.clamp_view();
+                }
+            }
+            "in-clear" => {
+                let (_, b) = self.trims();
+                self.set_trims(0.0, b, snap, intents);
+                self.last = Handle::In;
+            }
+            "out-clear" => {
+                let (a, _) = self.trims();
+                self.set_trims(a, self.dur, snap, intents);
+                self.last = Handle::Out;
             }
             "loop" => self.toggle("loop", snap, intents),
             "play" | "space" => self.play_pause(snap, intents),
@@ -811,6 +860,14 @@ impl Setup {
             message = "No audio file assigned.".into();
         }
         let has_audio = self.dur > 0.0;
+        // While playing, the view turns the page to keep the playhead in sight.
+        if let Some(t) = self.playhead(snap)
+            && self.drag.is_none()
+            && (t < self.start || t > self.start + self.span)
+        {
+            self.start = t - self.span * 0.05;
+            self.clamp_view();
+        }
 
         // The waveform for the part on screen.
         let (w, h) = (win.get_wave_width(), win.get_wave_height());
@@ -850,6 +907,8 @@ impl Setup {
         win.set_out_tab(has_audio && out_x > w);
         win.set_in_time(fmt_time(a).into());
         win.set_out_time(fmt_time(b).into());
+        win.set_in_chars(model::chars(&fmt_time(a)));
+        win.set_out_chars(model::chars(&fmt_time(b)));
         win.set_cursor_x(self.cursor.map_or(-100.0, |t| self.x_of(t)));
         let playhead = self.playhead(snap);
         win.set_playhead_x(playhead.map_or(-100.0, |t| self.x_of(t)));
@@ -862,20 +921,19 @@ impl Setup {
         // Transport and meter.
         let rt = snap.runtime.get(&self.id).copied();
         let playing = playhead.is_some();
-        if !playing {
-            self.paused = false;
-        }
         let (pos, rem) = match rt.filter(|_| playing) {
             Some(r) => (r.elapsed_s as f64, r.remaining_s as f64),
             None => (0.0, (b - a).max(0.0) / self.draft.speed.max(0.01) as f64),
         };
-        win.set_elapsed(fmt_time(pos).into());
-        win.set_remaining(format!("−{}", fmt_time(rem)).into());
-        win.set_running(playing && !self.paused);
+        win.set_elapsed(model::chars(&fmt_time(pos)));
+        win.set_remaining(model::chars(&format!("−{}", fmt_time(rem))));
+        win.set_running(playing && !self.paused(snap));
         let dt = self.last_meter.elapsed().as_secs_f32();
         self.last_meter = Instant::now();
-        self.ppm
-            .update(snap.peaks.get(&self.id).copied().unwrap_or_default(), dt);
+        self.ppm.update(
+            core.take_peaks().get(&self.id).copied().unwrap_or_default(),
+            dt,
+        );
         let (lv, hd) = (self.ppm.level(), self.ppm.hold());
         let colour = |db: f32| match zone(db) {
             2 => Color::from_rgb_u8(0xE5, 0x39, 0x35),
@@ -886,8 +944,8 @@ impl Setup {
         win.set_level_r(scale_pos(lv[1]));
         win.set_hold_l(scale_pos(hd[0]));
         win.set_hold_r(scale_pos(hd[1]));
-        win.set_level_l_colour(colour(lv[0]));
-        win.set_level_r_colour(colour(lv[1]));
+        win.set_hold_l_colour(colour(hd[0]));
+        win.set_hold_r_colour(colour(hd[1]));
 
         // The settings.
         let c = &self.draft;
@@ -995,6 +1053,9 @@ impl Setup {
         for col in 0..cols {
             let t0 = self.start + col as f64 / cols as f64 * self.span;
             let t1 = self.start + (col + 1) as f64 / cols as f64 * self.span;
+            if t1 <= 0.0 || t0 >= ov.duration_s {
+                continue;
+            }
             let i0 = ((t0 / ov.duration_s) * n as f64).floor().max(0.0) as usize;
             let i1 = (((t1 / ov.duration_s) * n as f64).ceil() as usize).clamp(i0 + 1, n);
             if i0 >= n {
@@ -1021,8 +1082,8 @@ impl Setup {
         ];
         let step = steps.iter().copied().find(|s| *s >= want).unwrap_or(600.0);
         let mut out = Vec::new();
-        let mut t = (self.start / step).ceil() * step;
-        while t <= self.start + self.span && out.len() < 40 {
+        let mut t = (self.start.max(0.0) / step).ceil() * step;
+        while t <= (self.start + self.span).min(self.dur) && out.len() < 40 {
             let m = (t / 60.0).floor();
             let sec = t - m * 60.0;
             let text = if step < 0.1 {

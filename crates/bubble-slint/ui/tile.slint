@@ -9,7 +9,7 @@
 // Input is reported, not acted on: the app decides what a press does in each mode.
 
 import { Spinner } from "std-widgets.slint";
-import { Theme } from "theme.slint";
+import { Theme, Clock } from "theme.slint";
 
 export enum CartState { empty, loading, missing, error, ready, playing, stopping }
 
@@ -32,6 +32,8 @@ export struct Tile {
     // "×0.75" when the speed is not 100%.
     speed: string,
     time: string,
+    // `time`, one string per character (see Clock).
+    time-chars: [string],
     progress: float,
     ending: bool,
     state: CartState,
@@ -265,13 +267,13 @@ export component TileView inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            if tile.state != CartState.missing && tile.state != CartState.error: Text {
-                text: tile.time;
-                font-size: time-size;
-                font-weight: root.playing ? 700 : 500;
-                color: tile.fg;
-                horizontal-alignment: right;
-                vertical-alignment: center;
+            // Digits in fixed cells, so the countdown never shifts as it changes.
+            if tile.state != CartState.missing && tile.state != CartState.error: Clock {
+                chars: tile.time-chars;
+                size: time-size;
+                weight: 600;
+                colour: tile.fg;
+                alignment: end;
                 horizontal-stretch: 0;
             }
         }

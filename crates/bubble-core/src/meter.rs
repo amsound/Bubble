@@ -1,16 +1,15 @@
 //! Peak programme meter (PPM) ballistics and scale for a cart's output, in dBFS; each
 //! interface draws it its own way.
 //!
-//! Ballistics follow the IEC 60268-10 Type I / BBC style used in broadcast PPMs:
-//! effectively instantaneous rise (the engine reports true sample peaks per audio
-//! block) and a slow fall of 20 dB in 1.7 s. Zones: green to −18 dBFS, orange to
-//! −10 dBFS, red above.
+//! Instantaneous rise (the engine reports true sample peaks per audio block) and a
+//! quick fall of 20 dB in 0.6 s, so the meter follows the audio closely; the peak
+//! hold stays a second. Zones: green to −18 dBFS, orange to −10 dBFS, red above.
 
 pub const FLOOR_DB: f32 = -60.0;
-/// Fall rate: 20 dB in 1.7 s.
-const FALL_DB_PER_S: f32 = 20.0 / 1.7;
+/// Fall rate: 20 dB in 0.6 s.
+const FALL_DB_PER_S: f32 = 20.0 / 0.6;
 /// Peak-hold markers fall after this long.
-const HOLD_S: f32 = 1.5;
+const HOLD_S: f32 = 1.0;
 /// Scale marks (dBFS).
 pub const TICKS: &[f32] = &[0.0, -10.0, -18.0, -60.0];
 
@@ -102,12 +101,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rises_instantly_and_falls_20_db_in_1_7_s() {
+    fn rises_instantly_and_falls_20_db_in_0_6_s() {
         let mut m = Ppm::default();
         m.update((0.5, 0.25), 0.02);
         assert!((m.level()[0] - (-6.02)).abs() < 0.01);
         assert!((m.level()[1] - (-12.04)).abs() < 0.01);
-        for _ in 0..17 {
+        for _ in 0..6 {
             m.update((0.0, 0.0), 0.1);
         }
         assert!((m.level()[0] - (-26.02)).abs() < 0.05, "{}", m.level()[0]);

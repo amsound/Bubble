@@ -117,8 +117,6 @@ pub struct Snapshot {
     pub asset_info: HashMap<Uuid, String>,
     pub can_undo: bool,
     pub can_redo: bool,
-    /// Output peaks per playing cart since the last frame (linear).
-    pub peaks: HashMap<Uuid, (f32, f32)>,
 }
 
 #[derive(Clone)]
@@ -152,6 +150,10 @@ pub struct Prompts {
 /// them; change them through the methods.
 pub struct Core {
     pub ctrl: Arc<Mutex<Controller>>,
+    /// Output peaks per playing cart (linear), gathered by every snapshot and kept
+    /// until a meter takes them: a snapshot taken for another reason must not lose
+    /// them.
+    peaks: Mutex<HashMap<Uuid, (f32, f32)>>,
     /// One running stream per output device (output A's device first).
     pub audio: Vec<AudioOutput>,
     /// The device each stream was asked for ("" = system default), parallel to `audio`.
@@ -221,6 +223,7 @@ impl Core {
         )));
         Core {
             ctrl,
+            peaks: Mutex::new(HashMap::new()),
             audio: Vec::new(),
             audio_keys: Vec::new(),
             watch: Default::default(),
@@ -422,8 +425,20 @@ impl Core {
         };
     }
 
+    /// The peaks seen since the last call (linear, per playing cart), for a meter.
+    pub fn take_peaks(&self) -> HashMap<Uuid, (f32, f32)> {
+        let fresh = self.lock().take_cart_peaks();
+        let mut acc = self.peaks.lock().unwrap_or_else(|e| e.into_inner());
+        merge_peaks(&mut acc, fresh);
+        std::mem::take(&mut *acc)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let mut c = self.lock();
+        merge_peaks(
+            &mut self.peaks.lock().unwrap_or_else(|e| e.into_inner()),
+            c.take_cart_peaks(),
+        );
         c.tick();
         let project = c.project().clone();
         let mut asset_info = HashMap::new();
@@ -466,7 +481,6 @@ impl Core {
         Snapshot {
             can_undo: c.can_undo(),
             can_redo: c.can_redo(),
-            peaks: c.take_cart_peaks(),
             runtime: c.runtime(),
             page: c.current_page(),
             dirty: c.is_dirty(),
@@ -948,5 +962,14 @@ impl Core {
         self.save_prefs();
         self.midi = MidiInputs::empty();
         self.open_midi();
+    }
+}
+
+/// Keeps the larger peak of each channel per cart.
+fn merge_peaks(acc: &mut HashMap<Uuid, (f32, f32)>, fresh: HashMap<Uuid, (f32, f32)>) {
+    for (id, (l, r)) in fresh {
+        let e = acc.entry(id).or_default();
+        e.0 = e.0.max(l);
+        e.1 = e.1.max(r);
     }
 }

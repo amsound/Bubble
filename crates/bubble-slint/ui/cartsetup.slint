@@ -13,7 +13,7 @@
 //                                                                       [Cancel] [OK]
 
 import { Slider } from "std-widgets.slint";
-import { Theme, TextCommand, SysButton, PopButton, PopupRow } from "theme.slint";
+import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock } from "theme.slint";
 import { LabelField, FieldRow, Rule, Group, Toggle } from "quickedit.slint";
 
 // A time on the ruler.
@@ -90,10 +90,12 @@ component IconButton inherits Rectangle {
 // Trim In / Trim Out: the time, − and + nudges, and Set (at the cursor or playhead).
 component TrimBox inherits Rectangle {
     in property <string> title;
-    in property <string> time;
+    in property <[string]> time;
     in property <string> set-text;
     callback nudge(float);
     callback set();
+    // Back to the start (In) or end (Out) of the file.
+    callback clear();
     horizontal-stretch: 1;
     border-radius: Theme.mac ? 9px : 4px;
     background: Theme.mac ? Theme.text.transparentize(94%) : Theme.panel;
@@ -103,9 +105,21 @@ component TrimBox inherits Rectangle {
         padding: 10px;
         spacing: 8px;
         alignment: space-between;
-        Text {
-            text: root.title;
-            color: Theme.weak-text;
+        HorizontalLayout {
+            Text {
+                text: root.title;
+                color: Theme.weak-text;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            SysButton {
+                text: "Clear";
+                clicked => {
+                    root.clear();
+                }
+            }
         }
         HorizontalLayout {
             spacing: 6px;
@@ -114,12 +128,13 @@ component TrimBox inherits Rectangle {
                 height: Theme.mac ? 28px : 32px;
                 border-radius: Theme.mac ? 5px : 4px;
                 background: Theme.mac ? Theme.text.transparentize(90%) : Theme.window-bg;
-                Text {
-                    x: 9px;
-                    text: root.time;
-                    font-size: 17px;
-                    color: Theme.text;
-                    vertical-alignment: center;
+                HorizontalLayout {
+                    padding-left: 9px;
+                    alignment: start;
+                    Clock {
+                        chars: root.time;
+                        size: 17px;
+                    }
                 }
             }
             SysButton {
@@ -170,9 +185,9 @@ export component CartSetupWindow inherits Window {
     title: window-title;
     icon: window-icon;
     preferred-width: 980px;
-    preferred-height: 780px;
-    min-width: 820px;
-    min-height: 600px;
+    preferred-height: 840px;
+    min-width: 860px;
+    min-height: 660px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
 
@@ -195,19 +210,21 @@ export component CartSetupWindow inherits Window {
     in property <bool> out-tab;
     in property <string> in-time;
     in property <string> out-time;
+    in property <[string]> in-chars;
+    in property <[string]> out-chars;
     in property <length> cursor-x: -100px;
     in property <length> playhead-x: -100px;
-    // The meter: level and hold per channel, 0 (−60 dBFS) to 1 (0 dBFS), and its zone
-    // colours.
+    // The meter: level and hold per channel, 0 (−60 dBFS) to 1 (0 dBFS); each hold
+    // mark takes its zone's colour.
     in property <float> level-l;
     in property <float> level-r;
     in property <float> hold-l;
     in property <float> hold-r;
-    in property <color> level-l-colour;
-    in property <color> level-r-colour;
-    // Transport readouts and state.
-    in property <string> elapsed;
-    in property <string> remaining;
+    in property <color> hold-l-colour;
+    in property <color> hold-r-colour;
+    // Transport readouts and state (one string per character, see Clock).
+    in property <[string]> elapsed;
+    in property <[string]> remaining;
     in property <bool> running;
 
     // Native menu rows for the pop-up buttons, and where it opens.
@@ -235,7 +252,8 @@ export component CartSetupWindow inherits Window {
     callback colour(int);
     callback pick-colour();
     // "learn", "clear-key", "clear-midi", "replace", "locate", "top-and-tail",
-    // "zoom-fit", "to-in", "loop", "play", "stop", "in-set", "out-set".
+    // "zoom-fit", "to-in", "loop", "play", "stop", "in-set", "out-set", "in-clear",
+    // "out-clear".
     callback action(string);
     callback nudge(string, float);
     // The waveform: press (x, y, touch), move, release, double-click, scroll
@@ -247,8 +265,13 @@ export component CartSetupWindow inherits Window {
     callback wave-scroll(length, length, bool, bool);
     callback wave-resized();
     // Keys not taken by a text field: "space", "i", "o", "p", "left", "right",
-    // "zoom-in", "zoom-out", "escape"; shift held.
+    // "zoom-in", "zoom-out", "return" (OK), "escape" and ⌘. (Cancel); shift held.
     callback key(string, bool);
+
+    // When each slider was last released: two quick releases (a double-click) reset it.
+    property <duration> gain-release: -1s;
+    property <duration> pan-release: -1s;
+    property <duration> speed-release: -1s;
 
     public function open-popup() {
         ctx.show({ x: root.popup-x, y: root.popup-y });
@@ -267,6 +290,10 @@ export component CartSetupWindow inherits Window {
             }
             if zoom-mod && e.text == "-" {
                 root.key("zoom-out", false);
+                return accept;
+            }
+            if zoom-mod && e.text == "." {
+                root.key("escape", false);
                 return accept;
             }
             if e.modifiers.meta || e.modifiers.control || e.modifiers.alt {
@@ -300,6 +327,10 @@ export component CartSetupWindow inherits Window {
                 root.key("escape", false);
                 return accept;
             }
+            if e.text == Key.Return {
+                root.key("return", false);
+                return accept;
+            }
             reject
         }
 
@@ -311,6 +342,14 @@ export component CartSetupWindow inherits Window {
             // ---- header ----
             HorizontalLayout {
                 spacing: 10px;
+                // The cart's colour as it will be: the draft shows here before OK.
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 7px;
+                    background: info.cart-color;
+                }
                 Text {
                     text: info.name;
                     font-size: 15px;
@@ -441,12 +480,12 @@ export component CartSetupWindow inherits Window {
                             if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
                                 x: root.in-x;
                                 y: 0;
-                                width: in-flag.preferred-width + 10px;
-                                height: 16px;
+                                width: in-flag.preferred-width + 14px;
+                                height: 20px;
                                 background: #ffd60a;
                                 in-flag := Text {
                                     text: "IN";
-                                    font-size: 10px;
+                                    font-size: 11px;
                                     font-weight: 700;
                                     color: #1a1a1a;
                                 }
@@ -459,12 +498,12 @@ export component CartSetupWindow inherits Window {
                             if root.out-x >= 0 && root.out-x <= parent.width: Rectangle {
                                 x: root.out-x - self.width;
                                 y: 0;
-                                width: out-flag.preferred-width + 10px;
-                                height: 16px;
+                                width: out-flag.preferred-width + 14px;
+                                height: 20px;
                                 background: #ffd60a;
                                 out-flag := Text {
                                     text: "OUT";
-                                    font-size: 10px;
+                                    font-size: 11px;
                                     font-weight: 700;
                                     color: #1a1a1a;
                                 }
@@ -534,23 +573,35 @@ export component CartSetupWindow inherits Window {
                         padding-top: 9px;
                         padding-bottom: 9px;
                         spacing: 4px;
+                        // Green to −18 dBFS (half way up), orange to −10 (three
+                        // quarters), red above: each bar lit up to its level.
                         for ch in [
-                            { level: root.level-l, hold: root.hold-l, colour: root.level-l-colour },
-                            { level: root.level-r, hold: root.hold-r, colour: root.level-r-colour },
+                            { level: root.level-l, hold: root.hold-l, hold-colour: root.hold-l-colour },
+                            { level: root.level-r, hold: root.hold-r, hold-colour: root.hold-r-colour },
                         ]: Rectangle {
                             border-radius: 2px;
                             background: Theme.text.transparentize(92%);
+                            clip: true;
                             Rectangle {
+                                y: parent.height * (1 - min(ch.level, 0.5));
+                                height: parent.height * min(ch.level, 0.5);
+                                background: #43a047;
+                            }
+                            if ch.level > 0.5: Rectangle {
+                                y: parent.height * (1 - min(ch.level, 0.75));
+                                height: parent.height * (min(ch.level, 0.75) - 0.5);
+                                background: #fb8c00;
+                            }
+                            if ch.level > 0.75: Rectangle {
                                 y: parent.height * (1 - ch.level);
-                                height: parent.height * ch.level;
-                                border-radius: 2px;
-                                background: ch.colour;
+                                height: parent.height * (ch.level - 0.75);
+                                background: #e53935;
                             }
                             Rectangle {
                                 visible: ch.hold > 0.01;
                                 y: parent.height * (1 - ch.hold) - 1px;
                                 height: 2px;
-                                background: ch.colour;
+                                background: ch.hold-colour;
                             }
                         }
                     }
@@ -562,13 +613,16 @@ export component CartSetupWindow inherits Window {
                 spacing: 10px;
                 TrimBox {
                     title: Theme.mac ? "Trim In" : "Trim in";
-                    time: root.in-time;
+                    time: root.in-chars;
                     set-text: "Set (I)";
                     nudge(d) => {
                         root.nudge("in", d);
                     }
                     set => {
                         root.action("in-set");
+                    }
+                    clear => {
+                        root.action("in-clear");
                     }
                 }
                 Rectangle {
@@ -587,22 +641,24 @@ export component CartSetupWindow inherits Window {
                                 height: 30px;
                                 border-radius: 5px;
                                 background: #00000059;
-                                Text {
-                                    text: root.elapsed;
-                                    font-size: 18px;
-                                    font-weight: 600;
-                                    color: #ffd60a;
+                                Clock {
+                                    alignment: center;
+                                    chars: root.elapsed;
+                                    size: 18px;
+                                    weight: 600;
+                                    colour: #ffd60a;
                                 }
                             }
                             Rectangle {
                                 height: 30px;
                                 border-radius: 5px;
                                 background: #00000059;
-                                Text {
-                                    text: root.remaining;
-                                    font-size: 18px;
-                                    font-weight: 600;
-                                    color: #64d2ff;
+                                Clock {
+                                    alignment: center;
+                                    chars: root.remaining;
+                                    size: 18px;
+                                    weight: 600;
+                                    colour: #64d2ff;
                                 }
                             }
                         }
@@ -644,13 +700,16 @@ export component CartSetupWindow inherits Window {
                 }
                 TrimBox {
                     title: Theme.mac ? "Trim Out" : "Trim out";
-                    time: root.out-time;
+                    time: root.out-chars;
                     set-text: "Set (O)";
                     nudge(d) => {
                         root.nudge("out", d);
                     }
                     set => {
                         root.action("out-set");
+                    }
+                    clear => {
+                        root.action("out-clear");
                     }
                 }
             }
@@ -660,6 +719,10 @@ export component CartSetupWindow inherits Window {
                 spacing: 12px;
                 alignment: stretch;
                 VerticalLayout {
+                    // Fixed halves: both columns ask for the same small size and share
+                    // the rest equally, so what the pop-ups show never moves them.
+                    min-width: 200px;
+                    preferred-width: 200px;
                     horizontal-stretch: 1;
                     spacing: 6px;
                     alignment: start;
@@ -690,6 +753,12 @@ export component CartSetupWindow inherits Window {
                                 changed(v) => {
                                     root.gain-changed(v);
                                 }
+                                released => {
+                                    if animation-tick() - root.gain-release < 400ms {
+                                        root.reset("gain");
+                                    }
+                                    root.gain-release = animation-tick();
+                                }
                             }
                             Text {
                                 width: 64px;
@@ -715,6 +784,12 @@ export component CartSetupWindow inherits Window {
                                 changed(v) => {
                                     root.pan-changed(v);
                                 }
+                                released => {
+                                    if animation-tick() - root.pan-release < 400ms {
+                                        root.reset("pan");
+                                    }
+                                    root.pan-release = animation-tick();
+                                }
                             }
                             Text {
                                 width: 64px;
@@ -739,6 +814,12 @@ export component CartSetupWindow inherits Window {
                                 value <=> root.speed;
                                 changed(v) => {
                                     root.speed-changed(v);
+                                }
+                                released => {
+                                    if animation-tick() - root.speed-release < 400ms {
+                                        root.reset("speed");
+                                    }
+                                    root.speed-release = animation-tick();
                                 }
                             }
                             Text {
@@ -848,6 +929,8 @@ export component CartSetupWindow inherits Window {
                 }
 
                 VerticalLayout {
+                    min-width: 200px;
+                    preferred-width: 200px;
                     horizontal-stretch: 1;
                     spacing: 6px;
                     alignment: start;

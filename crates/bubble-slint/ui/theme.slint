@@ -178,8 +178,29 @@ export component PopButton inherits Rectangle {
     }
     ta := TouchArea {
         clicked => {
-            root.open(root.absolute-position.x, root.absolute-position.y + root.height + 3px);
+            // A Mac pop-up menu opens over its button (so it never runs off the bottom);
+            // Windows opens it below.
+            root.open(root.absolute-position.x, Theme.mac ? root.absolute-position.y : root.absolute-position.y + root.height + 3px);
         }
+    }
+}
+
+// A time whose digits keep their place as they change: each character in its own
+// cell (Slint draws no tabular figures). `chars` from Rust, one string per character.
+export component Clock inherits HorizontalLayout {
+    in property <[string]> chars;
+    in property <length> size: 17px;
+    in property <int> weight: 400;
+    in property <color> colour: Theme.text;
+    spacing: 0;
+    for c in root.chars: Text {
+        text: c;
+        width: (c == ":" || c == ".") ? root.size * 0.3 : (c == "−" || c == "-") ? root.size * 0.48 : root.size * 0.62;
+        font-size: root.size;
+        font-weight: root.weight;
+        color: root.colour;
+        horizontal-alignment: center;
+        vertical-alignment: center;
     }
 }
 

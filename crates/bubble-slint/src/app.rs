@@ -466,13 +466,15 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
                 } else {
                     a.close_setup(false, i);
                 }
+            } else if name.as_str() == "return" {
+                a.close_setup(true, i);
             } else if let Some(s) = &mut a.setup {
                 s.key(name.as_str(), shift, &snap, i);
             }
         });
     });
-    on_setup!(win, me, on_wave_down, |s, a, _snap, _i, x, y, _touch| {
-        s.wave_down(x, y);
+    on_setup!(win, me, on_wave_down, |s, a, snap, _i, x, y, _touch| {
+        s.wave_down(x, y, &snap);
     });
     on_setup!(win, me, on_wave_move, |s, a, snap, i, x, _y| {
         s.wave_move(x, &snap, i);
@@ -515,13 +517,25 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
         }
     });
 
-    // Pinch: a trackpad (macOS) and two fingers on a touch screen.
+    // Pinch: a trackpad (macOS) and two fingers on a touch screen. While Learn
+    // waits, keys go to the controller as they do from the main window.
     let me3 = me.clone();
     win.window().on_winit_window_event(move |_w, ev| {
         let Some(app) = me3.upgrade() else {
             return EventResult::Propagate;
         };
         match ev {
+            WindowEvent::KeyboardInput { event, .. } => {
+                let learning = with(&app, |a| a.lock().learning().is_some()).unwrap_or(false);
+                if !learning {
+                    return EventResult::Propagate;
+                }
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    let (pressed, repeat) = (event.state == ElementState::Pressed, event.repeat);
+                    act(&app, move |a, i| a.key(code, pressed, repeat, i));
+                }
+                EventResult::PreventDefault
+            }
             WindowEvent::PinchGesture { delta, .. } => {
                 let d = *delta;
                 act(&app, move |a, _| {
@@ -943,7 +957,11 @@ impl App {
             self.apply_intents(intents);
             snap = self.core.snapshot();
         }
-        self.core.files.launch(&ui.window().window_handle());
+        // File panels hang on Cart Setup while it is open (it stays in front).
+        match &self.setup {
+            Some(s) => self.core.files.launch(&s.win.window().window_handle()),
+            None => self.core.files.launch(&ui.window().window_handle()),
+        }
         self.core.autosave();
         if self.place.due() {
             self.core.save_prefs();
@@ -1810,6 +1828,7 @@ impl App {
         win.set_window_icon(window::icon());
         wire_setup(&win, &self.me);
         let _ = win.show();
+        window::keep_above(win.window(), ui.window());
         self.setup = Some(cartsetup::Setup::new(win, cart));
     }
 

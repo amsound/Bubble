@@ -111,7 +111,9 @@ pub fn tile_text(cart: &Cart, project: &Project, rt: &CartRuntime) -> TileText {
         flags.push("⟲".into());
     }
     let shown_speed = if playing { rt.speed } else { cart.speed };
-    let sped = (shown_speed - 1.0).abs() > 0.005;
+    // Held at speed 0 (paused in Cart Setup) is paused, not a speed change.
+    let paused = playing && rt.speed < 0.005;
+    let sped = !paused && (shown_speed - 1.0).abs() > 0.005;
     if sped {
         flags.push(format!("×{shown_speed:.2}"));
     }

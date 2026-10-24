@@ -130,6 +130,31 @@ pub mod icon {
     pub const HOLD: &str = "M6 14V6.5a1.5 1.5 0 0 1 3 0V9h1.5a2 2 0 0 1 2 2v3";
     pub const MIDI: &str = "M8 2a6 6 0 1 0 0.01 0zM5 8h1.2M7.4 5.5h1.2M9.8 8h1.2M6 10.6h1M9 10.6h1";
     pub const CHANGED: &str = "M8 2.5l6 11H2zM8 6.5v3M8 11.2v.8";
+    pub const PAUSE: &str = "M5.5 3.5v9M10.5 3.5v9";
+}
+
+/// A time as one string per character, for `Clock`; one shared model per distinct
+/// text, so an unchanged time is not a new model (Slint compares models by identity).
+pub fn chars(text: &str) -> ModelRc<SharedString> {
+    thread_local! {
+        static CACHE: std::cell::RefCell<std::collections::HashMap<String, ModelRc<SharedString>>> =
+            Default::default();
+    }
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() > 4000 {
+            c.clear();
+        }
+        c.entry(text.to_string())
+            .or_insert_with(|| {
+                ModelRc::new(VecModel::from(
+                    text.chars()
+                        .map(|ch| SharedString::from(ch.to_string()))
+                        .collect::<Vec<_>>(),
+                ))
+            })
+            .clone()
+    })
 }
 
 /// One shared model per distinct icon row. Slint compares models by identity, so a
@@ -198,6 +223,11 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         icons.push(icon::MIDI.into());
     }
     let playing = matches!(rt.state, Cs::Playing | Cs::Stopping);
+    // Paused in Cart Setup (held at speed 0): a pause mark, not a speed.
+    let paused = playing && rt.speed < 0.005;
+    if paused {
+        icons.push(icon::PAUSE.into());
+    }
     let speed = if playing { rt.speed } else { cart.speed };
     Tile {
         has_cart: true,
@@ -215,12 +245,17 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         .into(),
         rerouted,
         icons: icon_model(icons),
-        speed: if !control && (speed - 1.0).abs() > 0.005 {
+        speed: if !control && !paused && (speed - 1.0).abs() > 0.005 {
             format!("×{speed:.2}")
         } else {
             String::new()
         }
         .into(),
+        time_chars: chars(if rt.state == Cs::Loading {
+            ""
+        } else {
+            &text.time
+        }),
         time: if rt.state == Cs::Loading {
             String::new()
         } else {
