@@ -1,5 +1,5 @@
 // Bubble's main window: menus, busy popover, cart wall, bottom bar, quick edit, popup
-// menus and dialogs. State comes from Rust (`src/app.rs`); input goes back as
+// menus. State comes from Rust (`src/app.rs`); input goes back as
 // callbacks, and Rust decides what it does.
 
 import { Palette, Spinner, ProgressIndicator, Button } from "std-widgets.slint";
@@ -7,9 +7,8 @@ import { Theme, TextCommand, FlatButton, Panel } from "theme.slint";
 import { TileView, Tile, LabelStyle, CartState } from "tile.slint";
 import { BottomBar, PageTab, StatusItem } from "bar.slint";
 import { QuickEditPanel, QuickEdit } from "quickedit.slint";
-import { DialogView, DialogInfo, DialogRow, DialogButton } from "dialogs.slint";
 
-export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit, DialogInfo, DialogRow, DialogButton }
+export { Theme, TextCommand, Tile, LabelStyle, CartState, PageTab, StatusItem, QuickEdit }
 
 // A menu entry; a separator has the separator title (see `src/menu.rs`).
 export struct MenuEntryData {
@@ -98,9 +97,6 @@ export component MainWindow inherits Window {
     // Where the quick-edit arrow points (the cart's middle), and on which side.
     in property <length> qe-point-y;
     in property <bool> qe-arrow-left: true;
-    in property <[int]> dialog-gen;
-    in property <DialogInfo> dialog;
-    in property <bool> dialog-ok: true;
     in property <[PopupRow]> popup-rows;
     in property <string> popup-sub-title;
     in property <[PopupRow]> popup-sub;
@@ -142,12 +138,6 @@ export component MainWindow inherits Window {
     callback qe-choice-menu(string, length, length);
     callback qe-flag(string, bool);
     callback qe-action(string);
-    callback dialog-button(int);
-    callback dialog-row-action(int, int);
-    callback dialog-row-check(int, bool);
-    callback dialog-name-edited(string);
-    callback dialog-name-accepted();
-    callback dialog-choose-folder();
     callback new-session();
     callback open-session();
 
@@ -673,45 +663,6 @@ export component MainWindow inherits Window {
             wrap: word-wrap;
             color: Theme.text;
             font-size: 12px;
-        }
-    }
-
-    // ---- dialogs ----
-    for g in dialog-gen: Rectangle {
-        property <bool> shown;
-        init => {
-            self.shown = true;
-        }
-        background: self.shown ? Theme.shade : transparent;
-        animate background {
-            duration: 150ms;
-        }
-        TouchArea { }
-        DialogView {
-            x: (root.width - self.width) / 2;
-            // Floats a little above the middle of the window, fading in.
-            y: max(12px, (root.height - self.height) / 3);
-            icon: root.window-icon;
-            info: root.dialog;
-            ok: root.dialog-ok;
-            button(i) => {
-                root.dialog-button(i);
-            }
-            row-action(i, j) => {
-                root.dialog-row-action(i, j);
-            }
-            row-check(i, on) => {
-                root.dialog-row-check(i, on);
-            }
-            name-edited(t) => {
-                root.dialog-name-edited(t);
-            }
-            name-accepted => {
-                root.dialog-name-accepted();
-            }
-            choose-folder => {
-                root.dialog-choose-folder();
-            }
         }
     }
 

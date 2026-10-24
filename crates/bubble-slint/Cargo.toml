@@ -21,6 +21,8 @@ slint = { version = "=1.18.1", features = ["unstable-winit-030", "raw-window-han
 mouse_position = "0.1.4"
 # "Copy Details" in a problem alert.
 arboard = "3"
+# The main window as the owner of native alerts and the Save panel.
+raw-window-handle = "0.6"
 rfd.workspace = true
 uuid.workspace = true
 
@@ -31,14 +33,14 @@ slint = { version = "=1.18.1", features = ["renderer-skia"] }
 # Settings… and a Window menu) and native alerts (same versions winit already uses).
 objc2 = "0.6"
 dispatch2 = "0.3"
+block2 = "0.6"
 # San Francisco's Text design as a static font (fonts.rs).
 allsorts = { version = "0.15", default-features = false, features = ["flate2_rust"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAlert", "NSApplication", "NSAppearance", "NSButton", "NSControl", "NSImage", "NSMenu", "NSMenuItem", "NSResponder", "NSView"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSString", "NSUserDefaults"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSAlert", "NSApplication", "NSAppearance", "NSButton", "NSControl", "NSImage", "NSMenu", "NSMenuItem", "NSPanel", "NSPopUpButton", "NSResponder", "NSSavePanel", "NSText", "NSTextField", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSGeometry", "NSString", "NSURL", "NSUserDefaults"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
-raw-window-handle = "0.6"
 
 [build-dependencies]
 slint-build = "=1.18.1"

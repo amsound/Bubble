@@ -31,6 +31,9 @@ pub struct NewSession {
     pub location: PathBuf,
     pub then: AfterCreate,
     pub error: Option<String>,
+    /// The new session's Audio files setting: convert what is added to WAV (not used
+    /// for Save As, which keeps the session's own settings).
+    pub convert_to_wav: bool,
 }
 
 pub enum JobResult {
@@ -99,6 +102,7 @@ impl Core {
             location: self.session_root(),
             then,
             error: None,
+            convert_to_wav: false,
         });
     }
 
@@ -287,10 +291,11 @@ impl Core {
             }
         };
         let name = bubble_project::session::clean_name(&ns.name);
+        let wav = ns.convert_to_wav;
         match ns.then {
-            AfterCreate::Empty => intents.push(Intent::CreateSession(file, name)),
+            AfterCreate::Empty => intents.push(Intent::CreateSession(file, name, wav)),
             AfterCreate::Assign(p, r, c, files) => {
-                intents.push(Intent::CreateSession(file.clone(), name));
+                intents.push(Intent::CreateSession(file.clone(), name, wav));
                 // Copy into the new session once it exists (next frame).
                 let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
                 let label = "Copying files into the session…".to_string();
@@ -314,6 +319,23 @@ impl Core {
                         ..Default::default()
                     };
                     match dta_import::import_file(&src, &out, &opts, false) {
+                        Ok(_) if wav => {
+                            // The Audio files choice made with the new session.
+                            let set = bubble_project::io::load(&out)
+                                .map_err(|e| e.to_string())
+                                .and_then(|mut p| {
+                                    p.settings.convert_to_wav = true;
+                                    bubble_project::io::save(&mut p, &out)
+                                        .map_err(|e| e.to_string())
+                                });
+                            match set {
+                                Ok(()) => JobResult::Imported(out),
+                                Err(e) => JobResult::Failed(format!(
+                                    "Imported {}, but could not set it to convert to WAV:\n{e}",
+                                    src.display()
+                                )),
+                            }
+                        }
                         Ok(_) => JobResult::Imported(out),
                         Err(e) => {
                             JobResult::Failed(format!("Could not import {}:\n{e}", src.display()))

@@ -1030,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "allsorts",
  "arboard",
+ "block2 0.6.2",
  "bubble-control",
  "bubble-core",
  "bubble-project",

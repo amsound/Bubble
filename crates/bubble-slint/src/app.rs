@@ -29,9 +29,10 @@ use uuid::Uuid;
 
 use crate::alerts::{Alert, Alerts};
 use crate::model::{self, Selection};
+use crate::savepanel;
 use crate::{
-    BusyRow, DialogButton, DialogInfo, DialogRow, MainWindow, PageTab, PopupRow, StatusItem,
-    TextCommand, Theme, Tile, keys, menu, window,
+    BusyRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys, menu,
+    window,
 };
 
 /// How often the window refreshes while carts play (the clock and progress bars).
@@ -79,16 +80,11 @@ enum Dialog {
     ConfirmDiscard,
     ImportChoice,
     NewSession,
-    ConvertOffer,
     Relink,
     DeletePage,
-}
-
-impl Dialog {
-    /// Shown as the system's own alert (the rest are still drawn by Bubble).
-    fn native(self) -> bool {
-        !matches!(self, Dialog::NewSession | Dialog::ConvertOffer)
-    }
+    /// Windows: the new session's Audio files setting, asked after the Save dialog
+    /// (the Mac asks it inside the Save panel).
+    AudioFiles,
 }
 
 pub struct App {
@@ -122,8 +118,12 @@ pub struct App {
     /// The native alert on screen, and which prompt it asks.
     alerts: Alerts,
     alert_for: Option<Dialog>,
-    dialog_sig: String,
-    dialog_gen: i32,
+    /// The system Save panel for a new session: open, its answer, and the Audio files
+    /// question still to ask (Windows).
+    save_open: bool,
+    save_tx: std::sync::mpsc::Sender<Option<savepanel::Choice>>,
+    save_rx: std::sync::mpsc::Receiver<Option<savepanel::Choice>>,
+    ask_audio: bool,
     confirm_close: bool,
     allow_close: bool,
     relink: bool,
@@ -464,27 +464,6 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_qe_action, |a, i, action| {
         a.qe_action(action.as_str(), i);
     });
-    // Dialogs.
-    on!(ui, app, on_dialog_button, |a, i, idx| {
-        a.dialog_button(idx as usize, i);
-    });
-    on!(ui, app, on_dialog_row_action, |a, i, row, action| {
-        a.dialog_row(row as usize, action as usize, i);
-    });
-    on!(ui, app, on_dialog_name_edited, |a, _i, text| {
-        if let Some(ns) = &mut a.core.prompts.new_session {
-            ns.name = text.to_string();
-        }
-    });
-    on!(ui, app, on_dialog_name_accepted, |a, i| {
-        if a.dialog == Some(Dialog::NewSession) {
-            a.dialog_button(0, i);
-        }
-    });
-    on!(ui, app, on_dialog_choose_folder, |a, _i| {
-        a.files.request(Purpose::ChooseFolder);
-    });
-
     // Closing with unsaved changes asks first.
     let a = app.clone();
     ui.window().on_close_requested(move || {
@@ -592,6 +571,7 @@ impl App {
         ui.set_tiles(ModelRc::from(tiles.clone()));
         ui.set_pages(ModelRc::from(pages.clone()));
         ui.set_status(ModelRc::from(status.clone()));
+        let (save_tx, save_rx) = std::sync::mpsc::channel();
         App {
             core,
             ui: ui.as_weak(),
@@ -618,8 +598,10 @@ impl App {
             dialog: None,
             alerts: Alerts::new(),
             alert_for: None,
-            dialog_sig: String::new(),
-            dialog_gen: 0,
+            save_open: false,
+            save_tx,
+            save_rx,
+            ask_audio: false,
             confirm_close: false,
             allow_close: false,
             relink: false,
@@ -705,6 +687,10 @@ impl App {
             && let Some(d) = self.alert_for.take()
         {
             self.alert_answer(d, i, &mut intents);
+        }
+        if let Ok(choice) = self.save_rx.try_recv() {
+            self.save_open = false;
+            self.save_chosen(choice, &mut intents);
         }
         if !intents.is_empty() {
             self.apply_intents(intents);
@@ -1693,10 +1679,10 @@ impl App {
             Some(Dialog::ConfirmDiscard)
         } else if p.import_choice.is_some() {
             Some(Dialog::ImportChoice)
+        } else if self.ask_audio && p.new_session.is_some() {
+            Some(Dialog::AudioFiles)
         } else if p.new_session.is_some() {
             Some(Dialog::NewSession)
-        } else if p.convert_offer.is_some() {
-            Some(Dialog::ConvertOffer)
         } else if self.delete_page.is_some() {
             Some(Dialog::DeletePage)
         } else if self.relink {
@@ -1706,134 +1692,6 @@ impl App {
         }
     }
 
-    fn dialog_info(&self, d: Dialog, snap: &Snapshot) -> DialogInfo {
-        let strings = |v: &[&str]| {
-            ModelRc::new(VecModel::from(
-                v.iter()
-                    .map(|s| (*s).into())
-                    .collect::<Vec<slint::SharedString>>(),
-            ))
-        };
-        let rows = |v: Vec<DialogRow>| ModelRc::new(VecModel::from(v));
-        let mut info = DialogInfo {
-            kind: format!("{d:?}").into(),
-            ..Default::default()
-        };
-        let p = &self.core.prompts;
-        match d {
-            Dialog::Error => {
-                info.title = "Problem".into();
-                info.body = p.error.clone().unwrap_or_default().into();
-                info.selectable = true;
-                info.buttons = strings(&["OK", "Copy"]);
-            }
-            Dialog::ConfirmClose => {
-                info.title = "Quit Bubble?".into();
-                info.body = "The project has unsaved changes.".into();
-                info.buttons = strings(&["Save and Quit", "Cancel", "Quit Without Saving"]);
-            }
-            Dialog::Recover => {
-                info.title = "Recover Unsaved Work".into();
-                info.body = "Bubble found unsaved changes from a previous session:".into();
-                info.rows = rows(
-                    p.recover
-                        .iter()
-                        .map(|(file, project)| DialogRow {
-                            text: bubble_core::app::session::file_name(
-                                project.as_ref().unwrap_or(file),
-                            )
-                            .into(),
-                            actions: strings(&["Restore", "Discard"]),
-                            ..Default::default()
-                        })
-                        .collect(),
-                );
-                info.note = "Restoring does not overwrite the project file until you save.".into();
-            }
-            Dialog::ConfirmDiscard => {
-                info.title = "Unsaved Changes".into();
-                info.body = "The current project has unsaved changes.".into();
-                info.buttons = strings(&["Save First", "Cancel", "Discard Changes"]);
-            }
-            Dialog::ImportChoice => {
-                let name = p
-                    .import_choice
-                    .as_deref()
-                    .map(bubble_core::app::session::file_name)
-                    .unwrap_or_default();
-                info.title = format!("Import {name}").into();
-                info.buttons = strings(&["Add to Current Session", "Cancel", "New Session…"]);
-            }
-            Dialog::NewSession => {
-                if let Some(ns) = &p.new_session {
-                    let (title, button) = match ns.then {
-                        AfterCreate::Import(_) => ("Import into a New Session", "Import"),
-                        AfterCreate::SaveAs => ("Save Session As", "Save"),
-                        _ => ("New Session", "Create"),
-                    };
-                    info.title = title.into();
-                    info.has_name = true;
-                    info.name = ns.name.as_str().into();
-                    info.location = ns.location.display().to_string().into();
-                    info.error = ns.error.clone().unwrap_or_default().into();
-                    info.buttons = strings(&[button, "Cancel"]);
-                }
-            }
-            Dialog::ConvertOffer => {
-                let n = p.convert_offer.as_ref().map_or(0, Vec::len);
-                let rate = self.core.prefs.rate() as f32 / 1000.0;
-                info.title = "Convert to WAV".into();
-                info.body = format!(
-                    "{n} audio file{} in this session {} not WAV at {rate} kHz yet. Convert \
-                     {} now? The originals stay in the Audio folder.",
-                    if n == 1 { "" } else { "s" },
-                    if n == 1 { "is" } else { "are" },
-                    if n == 1 { "it" } else { "them" },
-                )
-                .into();
-                info.buttons = strings(&["Convert", "Not Now"]);
-            }
-            Dialog::DeletePage => {
-                let page = self.delete_page.unwrap_or(0);
-                let name_ = snap
-                    .project
-                    .pages
-                    .get(page)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                info.title = format!("Delete the page \u{201c}{name_}\u{201d}?").into();
-                info.body = "Its carts are removed with it. Undo brings them back.".into();
-                info.buttons = strings(&["Delete", "Cancel"]);
-            }
-            Dialog::Relink => {
-                info.title = "Missing Files".into();
-                if snap.missing.is_empty() {
-                    info.body = "All audio files were found.".into();
-                }
-                info.rows = rows(
-                    snap.missing
-                        .iter()
-                        .map(|a| DialogRow {
-                            text: snap
-                                .project
-                                .asset(*a)
-                                .map(|x| x.path.clone())
-                                .unwrap_or_default()
-                                .into(),
-                            actions: strings(&["Locate…"]),
-                            ..Default::default()
-                        })
-                        .collect(),
-                );
-                info.note =
-                    "Locating one file also relinks other missing files that moved together."
-                        .into();
-                info.buttons = strings(&["Close"]);
-            }
-        }
-        info
-    }
-
     fn show_dialog(&mut self, ui: &MainWindow, snap: &Snapshot) {
         // A session set to Convert to WAV converts without asking (chosen with it).
         if let Some(files) = self.core.prompts.convert_offer.take() {
@@ -1841,78 +1699,44 @@ impl App {
         }
         let d = self.current_dialog();
         self.dialog = d;
-        // The system's own alert; one at a time, never over a file dialog.
-        if let Some(d) = d.filter(|d| d.native()) {
-            if !self.dialog_sig.is_empty() {
-                self.dialog_sig.clear();
-                ui.set_dialog_gen(ModelRc::default());
-                self.not_typing();
-            }
-            if !self.alerts.is_open() && !self.core.files.is_open() {
-                let alert = self.native_alert(d, snap);
-                self.alert_for = Some(d);
-                self.alerts
-                    .show(alert, ui.window(), self.core.repaint.clone());
+        let busy = self.alerts.is_open() || self.save_open || self.core.files.is_open();
+        // New Session, Save As, Import: the system Save panel.
+        if d == Some(Dialog::NewSession) {
+            if !busy && let Some(ns) = &self.core.prompts.new_session {
+                let (title, button) = match ns.then {
+                    AfterCreate::Import(_) => ("Import into a New Session", "Import"),
+                    AfterCreate::SaveAs => ("Save Session As", "Save"),
+                    _ => ("New Session", "Create"),
+                };
+                let req = savepanel::Request {
+                    title: title.into(),
+                    button: button.into(),
+                    name: ns.name.clone(),
+                    location: ns.location.clone(),
+                    ask_audio: !matches!(ns.then, AfterCreate::SaveAs),
+                };
+                self.save_open = true;
+                let tx = self.save_tx.clone();
+                let wake = self.core.repaint.clone();
+                savepanel::show(
+                    req,
+                    ui.window(),
+                    Box::new(move |c| {
+                        let _ = tx.send(c);
+                        wake();
+                    }),
+                );
             }
             return;
         }
-        let Some(d) = d else {
-            if !self.dialog_sig.is_empty() {
-                self.dialog_sig.clear();
-                ui.set_dialog_gen(ModelRc::default());
-                self.not_typing();
-            }
-            return;
-        };
-        let mut info = self.dialog_info(d, snap);
-        // Don't Save / Quit Without Saving / Discard: far left on a Mac.
-        let destructive = match d {
-            Dialog::ConfirmClose | Dialog::ConfirmDiscard => Some(2),
-            _ => None,
-        };
-        let (left, right) = button_order(
-            &info
-                .buttons
-                .iter()
-                .map(|b| b.to_string())
-                .collect::<Vec<_>>(),
-            destructive,
-            cfg!(target_os = "macos"),
-        );
-        info.left = ModelRc::new(VecModel::from(left));
-        info.right = ModelRc::new(VecModel::from(right));
-        // Rebuilt only when what it shows changes (not while a name is typed).
-        let name = std::mem::take(&mut info.name);
-        let sig = format!(
-            "{}|{}|{}|{}|{}|{}|{}",
-            info.kind,
-            info.title,
-            info.body,
-            info.error,
-            info.location,
-            info.rows
-                .iter()
-                .map(|r| format!("{}:{}", r.text, r.checked))
-                .collect::<Vec<_>>()
-                .join(","),
-            info.buttons.iter().collect::<Vec<_>>().join(",")
-        );
-        info.name = name;
-        ui.set_dialog_ok(match d {
-            Dialog::NewSession => self
-                .core
-                .prompts
-                .new_session
-                .as_ref()
-                .is_some_and(|ns| !bubble_project::session::clean_name(&ns.name).is_empty()),
-            _ => true,
-        });
-        if sig != self.dialog_sig {
-            self.dialog_sig = sig;
-            self.not_typing();
-            ui.set_dialog(info);
-            self.dialog_gen += 1;
-            ui.set_dialog_gen(ModelRc::new(VecModel::from(vec![self.dialog_gen])));
+        // The system's own alert; one at a time, never over a file dialog.
+        if let Some(d) = d
+            && !busy
+        {
+            let alert = self.native_alert(d, snap);
+            self.alert_for = Some(d);
+            self.alerts
+                .show(alert, ui.window(), self.core.repaint.clone());
         }
     }
 
@@ -1999,6 +1823,26 @@ impl App {
                     ..Default::default()
                 }
             }
+            Dialog::AudioFiles => {
+                let n = p
+                    .new_session
+                    .as_ref()
+                    .map(|ns| ns.name.clone())
+                    .unwrap_or_default();
+                Alert {
+                    title: format!("How should \u{201c}{n}\u{201d} keep its audio files?"),
+                    info: "Convert to WAV converts each file once, when it is added, so the \
+                           session opens faster on slower computers. Playback is the same \
+                           either way."
+                        .into(),
+                    buttons: vec![
+                        name("Keep as Imported", "Keep as imported"),
+                        name("Convert to WAV", "Convert to WAV"),
+                    ],
+                    links: true,
+                    ..Default::default()
+                }
+            }
             Dialog::DeletePage => {
                 let page = self.delete_page.unwrap_or(0);
                 let n = snap
@@ -2056,6 +1900,50 @@ impl App {
         }
     }
 
+    /// The Save panel closed: create the session there, or ask Audio files first.
+    fn save_chosen(&mut self, choice: Option<savepanel::Choice>, intents: &mut Vec<Intent>) {
+        let Some(c) = choice else {
+            self.core.prompts.new_session = None;
+            return;
+        };
+        let Some(dir) = c.path.parent().map(|p| p.to_path_buf()) else {
+            return;
+        };
+        // The name as typed (a Mac panel may add no extension; drop one if it did).
+        let typed = c
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let name = typed.strip_suffix(".bubble").unwrap_or(&typed).to_string();
+        self.core.set_session_location(dir);
+        let Some(ns) = &mut self.core.prompts.new_session else {
+            return;
+        };
+        ns.name = name;
+        let ask = !matches!(ns.then, AfterCreate::SaveAs);
+        match c.convert {
+            Some(wav) => {
+                ns.convert_to_wav = wav;
+                self.create_new_session(intents);
+            }
+            None if ask => self.ask_audio = true,
+            None => self.create_new_session(intents),
+        }
+    }
+
+    /// Creates the session; if that fails (a session already there), says why.
+    fn create_new_session(&mut self, intents: &mut Vec<Intent>) {
+        self.core.create_session(intents);
+        if let Some(ns) = self.core.prompts.new_session.take() {
+            let why = ns.error.unwrap_or_default();
+            self.core.prompts.error = Some(format!(
+                "Bubble couldn\u{2019}t create the session \u{201c}{}\u{201d}.\n{why}",
+                ns.name
+            ));
+        }
+    }
+
     /// A native alert was answered: the same as pressing that button in the prompt.
     fn alert_answer(&mut self, d: Dialog, i: usize, intents: &mut Vec<Intent>) {
         self.dialog = Some(d);
@@ -2070,6 +1958,13 @@ impl App {
                 self.core.prompts.error = None;
             }
             Dialog::Recover => self.dialog_row(0, i, intents),
+            Dialog::AudioFiles => {
+                self.ask_audio = false;
+                if let Some(ns) = &mut self.core.prompts.new_session {
+                    ns.convert_to_wav = i == 1;
+                    self.create_new_session(intents);
+                }
+            }
             Dialog::Relink => {
                 // Locate… opens the Open panel for the first missing file; whatever is
                 // still missing after it stays in the status line (click to come back).
@@ -2143,21 +2038,8 @@ impl App {
                     }
                 }
             }
-            (Dialog::NewSession, 0) => {
-                let ok = p
-                    .new_session
-                    .as_ref()
-                    .is_some_and(|ns| !bubble_project::session::clean_name(&ns.name).is_empty());
-                if ok {
-                    self.core.create_session(intents);
-                }
-            }
-            (Dialog::NewSession, _) => p.new_session = None,
-            (Dialog::ConvertOffer, 0) => {
-                let files = p.convert_offer.take().unwrap_or_default();
-                self.core.start_conversion(files);
-            }
-            (Dialog::ConvertOffer, _) => p.convert_offer = None,
+            // The Save panel answers these (save_chosen, alert_answer).
+            (Dialog::NewSession | Dialog::AudioFiles, _) => {}
             (Dialog::Relink, _) => self.relink = false,
             (Dialog::DeletePage, i) => {
                 if let Some(p) = self.delete_page.take()
@@ -2301,34 +2183,6 @@ impl App {
             self.core.write_autosave();
         }
     }
-}
-
-/// Dialog buttons in the platform's order. `buttons` lists the main button first and
-/// Cancel last. Windows: right-aligned in that order. Mac: the main button rightmost,
-/// Cancel to its left, and a destructive button (Don't Save) at the far left.
-fn button_order(
-    buttons: &[String],
-    destructive: Option<usize>,
-    mac: bool,
-) -> (Vec<DialogButton>, Vec<DialogButton>) {
-    let b = |i: usize| DialogButton {
-        text: buttons[i].as_str().into(),
-        index: i as i32,
-    };
-    if !mac {
-        return (Vec::new(), (0..buttons.len()).map(b).collect());
-    }
-    let left = destructive
-        .filter(|d| *d < buttons.len())
-        .map(b)
-        .into_iter()
-        .collect();
-    let right = (0..buttons.len())
-        .rev()
-        .filter(|i| Some(*i) != destructive)
-        .map(b)
-        .collect();
-    (left, right)
 }
 
 /// Replaces only the rows that changed (all of them if the length changed).

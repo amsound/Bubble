@@ -77,8 +77,9 @@ pub enum Intent {
     Input(InputEvent),
     Open(PathBuf),
     Save,
-    /// Start a new, empty session saved at this file (its folder already exists).
-    CreateSession(PathBuf, String),
+    /// Start a new, empty session saved at this file (its folder already exists), with
+    /// its name and whether audio added to it is converted to WAV.
+    CreateSession(PathBuf, String, bool),
     SaveAsWith(PathBuf, Vec<(Uuid, PathBuf)>),
     Retarget(Vec<(Uuid, PathBuf)>),
     /// Assets converted to WAV: repoint them and rescale their trims.
@@ -651,8 +652,11 @@ impl Core {
                     c.apply_conversions(&done);
                     Ok(())
                 }
-                Intent::CreateSession(file, name) => {
+                Intent::CreateSession(file, name, wav) => {
                     c.replace_project(Controller::new_project(&name), None);
+                    if wav {
+                        c.edit_settings(|s| s.convert_to_wav = true);
+                    }
                     self.select = Some(None);
                     match c.save_as(&file) {
                         Ok(()) => {

@@ -17,6 +17,7 @@ mod fonts;
 mod keys;
 mod menu;
 mod model;
+mod savepanel;
 mod window;
 
 slint::include_modules!();

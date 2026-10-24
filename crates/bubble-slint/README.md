@@ -27,13 +27,14 @@ widgets use Slint's cupertino style on macOS and fluent elsewhere (chosen in `bu
 | `ui/main.slint` | The window: menu bar, busy popover, cart wall, quick edit, dialogs, context menus |
 | `ui/tile.slint` | One cart tile, laid out as the egui tile |
 | `ui/bar.slint` | Bottom bar: Edit/Show, page tabs, status line, STOP PAGE, STOP ALL |
-| `ui/quickedit.slint`, `ui/dialogs.slint` | Quick edit panel; the core's prompts as in-window dialogs |
+| `ui/quickedit.slint` | Quick edit panel |
 | `ui/theme.slint` | Light/dark colours, the text field that reports focus, flat buttons, pop-up buttons |
 | `src/app.rs` | Input → `Intent`s, the per-frame core work, everything shown |
 | `src/model.rs` | Snapshot → tiles, tabs, status, quick edit (text from `bubble_core::view`) |
 | `src/menu.rs` | `bubble_core::menu` (the egui app's menu model) as Slint `MenuBar` data |
 | `src/keys.rs` | Physical keys → hot-key names, the same names the egui app stored |
 | `src/window.rs` | Window place, appearance (title bar and menus), the Mac app and Window menus, pointer during OS drags |
+| `src/alerts.rs`, `src/savepanel.rs` | The core's prompts as native alerts; the system Save panel for new sessions |
 | `src/fonts.rs` | The system UI font as the system draws it (San Francisco Text on macOS) |
 
 Shared with the egui app through `bubble-core`: the menu model and the settings commands
@@ -90,6 +91,10 @@ Done (main window):
       alert), Import, problems (bold headline, detail, Copy Details), Missing Files
       (then the system Open panel headed "Locate “file”"). A session set to Convert to
       WAV converts without asking. Paste Attributes is an Edit submenu (both interfaces).
+      New Session, Save As and Import into a new session use the system Save panel (a
+      sheet on a Mac, with "Audio files: Keep as imported / Convert to WAV" in it for a
+      new session; on Windows the Save dialog, then an alert asking Audio files). The
+      chosen folder becomes the default for the next one. Bubble draws no dialogs.
       Alerts and native menus open after the current handler returns (main dispatch
       queue on macOS): a menu opened inside a Slint timer panicked with a cart playing.
 - [x] OS file drop onto a cell via the winit hook, targeted at the cell under the
@@ -138,8 +143,6 @@ Left:
 - [ ] macOS open-file events (double-click a session in Finder, F5) and Windows file
       types; logging out skips the unsaved-changes question (an autosave is kept and
       offered for recovery).
-- [ ] New Session / Save As as the system Save panel, with "Audio files: Keep as
-      imported / Convert to WAV" in it (still Bubble's own form, the last drawn dialog).
 - [ ] Test on Windows (TaskDialog alerts not yet seen on Windows): touch on the Surface, the native Win32 menu (Alt access, dark
       mode), 125/150/200% scale, the software renderer after minimise.
 - [ ] Hot-key labels from the current keyboard layout (I2).
