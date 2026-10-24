@@ -139,17 +139,19 @@ pub fn matches(source: &BindingSource, ev: &InputEvent) -> Hit {
     }
 }
 
-/// A binding source that would match this event (used by "learn" mode).
+/// The binding source "learn" mode makes from this event.
 pub fn source_from_event(ev: &InputEvent) -> Option<BindingSource> {
     match ev {
+        // A hotkey is one key on its own: modifiers held while learning are not part
+        // of it.
         InputEvent::Key {
             code,
-            modifiers,
             pressed: true,
             repeat: false,
+            ..
         } => Some(BindingSource::Key {
             key: code.clone(),
-            modifiers: modifiers.clone(),
+            modifiers: Vec::new(),
         }),
         InputEvent::Midi { event, .. } => {
             let message = match event.message {

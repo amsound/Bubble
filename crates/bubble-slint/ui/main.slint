@@ -85,8 +85,8 @@ export component MainWindow inherits Window {
     // Where the busy popover was dragged to, from top centre.
     property <length> busy-dx;
     property <length> busy-dy;
-    // 0 none, 1 no session (New/Open), 2 an empty session (hints).
-    in property <int> empty-card;
+    // No session yet (a first launch): the mark with New Session and Open.
+    in property <bool> empty-card;
     // The cell files are dragged over (-1: none).
     in property <int> drop-index: -1;
     // Quick edit: shown while `qe-gen` has one entry; a new model rebuilds it.
@@ -399,9 +399,9 @@ export component MainWindow inherits Window {
         }
     }
 
-    // An empty session shows the mark and how to start. Only the buttons take clicks:
-    // the cells underneath still take clicks and drops.
-    if empty-card != 0 && drop-index < 0: Panel {
+    // No session yet: the mark and how to start. Only the buttons take clicks: the
+    // cells underneath still take clicks and drops.
+    if empty-card && drop-index < 0: Panel {
         width: min(460px, root.wall-w - 24px);
         height: min(300px, root.wall-h - 24px);
         x: (root.width - self.width) / 2;
@@ -422,7 +422,7 @@ export component MainWindow inherits Window {
                 color: Theme.text;
                 horizontal-alignment: center;
             }
-            if root.empty-card == 1: HorizontalLayout {
+            HorizontalLayout {
                 alignment: center;
                 spacing: 12px;
                 FlatButton {
@@ -442,19 +442,6 @@ export component MainWindow inherits Window {
                     clicked => {
                         root.open-session();
                     }
-                }
-            }
-            if root.empty-card == 2: VerticalLayout {
-                spacing: 4px;
-                for line in [
-                    "Drop audio files onto the grid, or double-click a cell.",
-                    "Right-click a cart (or press and hold) for quick edits.",
-                    "Audio ▸ Outputs chooses where carts play.",
-                ]: Text {
-                    text: line;
-                    font-size: 14px;
-                    color: Theme.weak-text;
-                    horizontal-alignment: center;
                 }
             }
         }

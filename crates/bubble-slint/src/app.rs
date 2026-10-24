@@ -144,6 +144,11 @@ pub struct App {
     /// The last input: the engine reports a cart as playing a moment after the press,
     /// so the window refreshes at the playing rate for a while after any input.
     last_input: Instant,
+    /// When something last played. Play Next starts the next cart as the last one
+    /// ends, and the engine reports it playing a moment later: in between nothing
+    /// plays, so the playing rate is kept a little longer, or that tile would wait
+    /// for the idle refresh.
+    last_playing: Instant,
 }
 
 impl std::ops::Deref for App {
@@ -616,6 +621,7 @@ impl App {
             interval: IDLE,
             timer: std::rc::Weak::new(),
             last_input: Instant::now(),
+            last_playing: Instant::now(),
         }
     }
 
@@ -708,9 +714,14 @@ impl App {
             .runtime
             .values()
             .any(|r| matches!(r.state, Cs::Playing | Cs::Stopping));
+        if playing {
+            self.last_playing = Instant::now();
+        }
         self.interval = if self.drag_hover {
             DRAGGING
-        } else if playing || self.last_input.elapsed() < Duration::from_millis(600) {
+        } else if self.last_playing.elapsed() < Duration::from_secs(2)
+            || self.last_input.elapsed() < Duration::from_millis(600)
+        {
             PLAYING
         } else if snap.pending > 0 || self.core.job.is_some() || self.core.opening.is_some() {
             BUSY
@@ -777,13 +788,8 @@ impl App {
             ui.set_label_style(style);
         }
         ui.set_edit_mode(self.edit_mode);
-        ui.set_empty_card(if snap.project.carts().next().is_some() {
-            0
-        } else if snap.path.is_none() {
-            1
-        } else {
-            2
-        });
+        // No session yet (a first launch): the mark with New Session and Open.
+        ui.set_empty_card(snap.path.is_none() && snap.project.carts().next().is_none());
         let drop = if self.drag_hover {
             window::pointer_in_window(ui).map_or(-1, |(x, y)| ui.invoke_cell_at(x, y))
         } else {
