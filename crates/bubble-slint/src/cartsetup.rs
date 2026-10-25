@@ -114,7 +114,7 @@ fn seconds_text(ms: u32) -> String {
     }
 }
 
-fn retrigger_text(r: Retrigger) -> &'static str {
+pub(crate) fn retrigger_text(r: Retrigger) -> &'static str {
     match r {
         Retrigger::Restart => "Restart",
         Retrigger::Overlap => "Overlap",

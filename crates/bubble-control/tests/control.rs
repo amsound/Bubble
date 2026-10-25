@@ -534,9 +534,9 @@ fn copy_paste_cart_and_paste_attributes() {
 }
 
 #[test]
-fn new_project_defaults_minus_10_db_and_eight_groups() {
+fn new_project_has_eight_groups_and_the_machine_minus_10_db() {
     let p = Controller::new_project("x");
-    assert_eq!(p.settings.master_gain_db, -10.0);
+    assert_eq!(bubble_control::Machine::default().output_level_db, -10.0);
     assert_eq!(p.groups.len(), 8);
     assert_eq!(p.groups[0].label(0), "G1");
     let mut g = p.groups[2].clone();

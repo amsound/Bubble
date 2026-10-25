@@ -310,12 +310,12 @@ pub fn convert(
         ));
     }
     // The reference "gain offset" attenuates the whole output (0 or −10 dB) so carts
-    // can be raised above 0 dB: exactly the project's master gain. Cart gains stay as stored.
-    let master = (-session.gain_offset as f32).clamp(GAIN_MIN_DB, GAIN_MAX_DB);
-    project.settings.master_gain_db = master;
+    // can be raised above 0 dB. Bubble sets that output level on each machine, not in
+    // the session, so it is reported rather than imported. Cart gains stay as stored.
+    let offset = (-session.gain_offset as f32).clamp(GAIN_MIN_DB, GAIN_MAX_DB);
     session_warnings.push(format!(
-        "reference gain offset {} dB imported as master gain {master} dB; cart gains kept as stored",
-        -session.gain_offset
+        "reference gain offset {offset} dB not imported: Bubble's output level is set on \
+         each computer (Audio ▸ Output Level, −10 dB by default); cart gains kept as stored"
     ));
     if !session.options.hotkeys_on {
         session_warnings.push(

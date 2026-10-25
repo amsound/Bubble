@@ -73,9 +73,6 @@ impl Validator {
         if p.pages.is_empty() {
             self.err("pages", "a project needs at least one page");
         }
-        if !(GAIN_MIN_DB..=GAIN_MAX_DB).contains(&p.settings.master_gain_db) {
-            self.err("settings.master_gain_db", "out of range −60…+12 dB");
-        }
         let d = &p.settings.display;
         if !(0.25..=4.0).contains(&d.label_size) || !(0.25..=4.0).contains(&d.small_size) {
             self.err("settings.display", "text sizes must be 0.25–4");

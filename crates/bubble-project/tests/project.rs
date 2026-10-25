@@ -282,3 +282,26 @@ proptest! {
         prop_assert_eq!(p, back);
     }
 }
+
+#[test]
+fn cell_numbers_count_on_across_pages() {
+    let mut p = Project::new("x");
+    p.pages.push(Page::new("Page 2", 3, 5));
+    p.pages.push(Page::new("Page 3", 2, 2));
+    assert_eq!(p.cell_number(0, 0, 0), 1);
+    assert_eq!(p.cell_number(0, 3, 5), 24);
+    assert_eq!(p.cell_number(1, 0, 0), 25);
+    assert_eq!(p.cell_number(1, 2, 4), 39);
+    assert_eq!(p.cell_number(2, 1, 1), 43);
+}
+
+#[test]
+fn settings_moved_to_the_machine_survive_in_extra() {
+    let json = r#"{"default_fade_out_ms": 100, "master_gain_db": 0.0, "limiter": false,
+                   "mouse_mode": "left_play_right_stop", "numbering": "per_page"}"#;
+    let s: bubble_project::ProjectSettings = serde_json::from_str(json).unwrap();
+    assert_eq!(s.extra["master_gain_db"], 0.0);
+    assert_eq!(s.extra["limiter"], false);
+    let back = serde_json::to_value(&s).unwrap();
+    assert_eq!(back["mouse_mode"], "left_play_right_stop");
+}

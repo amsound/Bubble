@@ -20,6 +20,7 @@ mod keys;
 mod menu;
 mod model;
 mod savepanel;
+mod settings;
 mod window;
 
 slint::include_modules!();

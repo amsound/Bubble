@@ -148,6 +148,27 @@ pub struct Controller {
     /// Key and time of the last checkpoint, for coalescing rapid edits.
     last_checkpoint: Option<(String, std::time::Instant)>,
     batch: bool,
+    machine: Machine,
+}
+
+/// Settings that belong to this machine rather than the session (Bubble's
+/// preferences): what the room's outputs need, and how the operator clicks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Machine {
+    /// Attenuation of everything Bubble plays (dB).
+    pub output_level_db: f32,
+    pub limiter: bool,
+    pub mouse_mode: MouseMode,
+}
+
+impl Default for Machine {
+    fn default() -> Self {
+        Machine {
+            output_level_db: bubble_project::DEFAULT_MASTER_GAIN_DB,
+            limiter: true,
+            mouse_mode: MouseMode::Toggle,
+        }
+    }
 }
 
 const UNDO_DEPTH: usize = 100;
@@ -166,7 +187,8 @@ pub enum ReassignScope {
     All,
     Page(usize),
     Group(Uuid),
-    /// Buttons `first..=last` (1-based, reading order) on a page.
+    /// Buttons `first..=last` on a page, by the numbers on their tiles (which count on
+    /// from the pages before, `Project::cell_number`).
     Buttons {
         page: usize,
         first: u32,
@@ -227,6 +249,7 @@ impl Controller {
             redo: Vec::new(),
             last_checkpoint: None,
             batch: false,
+            machine: Machine::default(),
         };
         c.rebuild_keys();
         c
@@ -413,9 +436,21 @@ impl Controller {
         }
     }
 
+    pub fn machine(&self) -> Machine {
+        self.machine
+    }
+
+    /// This machine's output level, limiter and mouse mode (from the preferences).
+    pub fn set_machine(&mut self, m: Machine) {
+        if m != self.machine {
+            self.machine = m;
+            self.apply_master();
+        }
+    }
+
     fn apply_master(&mut self) {
-        let gain = db_to_gain(self.project.settings.master_gain_db);
-        let limiter = self.project.settings.limiter;
+        let gain = db_to_gain(self.machine.output_level_db);
+        let limiter = self.machine.limiter;
         self.send(EngineCommand::SetMaster { gain });
         self.send(EngineCommand::SetLimiter { enabled: limiter });
     }
@@ -631,7 +666,7 @@ impl Controller {
 
     /// Mouse/touch press on a cart.
     pub fn pointer_down(&mut self, cart: Uuid, button: MouseButton) {
-        match (self.project.settings.mouse_mode, button) {
+        match (self.machine.mouse_mode, button) {
             (MouseMode::Toggle, MouseButton::Primary) => {
                 if self.resume_if_slowed(cart) {
                 } else if self.is_playing(cart).is_some() {
@@ -1750,11 +1785,14 @@ impl Controller {
     ) -> usize {
         self.checkpoint("reassign-outputs");
         let mut n = 0;
+        let starts: Vec<u32> = (0..self.project.pages.len())
+            .map(|p| self.project.cell_number(p, 0, 0))
+            .collect();
         for (pi, page) in self.project.pages.iter_mut().enumerate() {
             let cols = page.cols as u32;
             for cell in &mut page.cells {
                 let c = &mut cell.cart;
-                let number = cell.row as u32 * cols + cell.col as u32 + 1;
+                let number = starts[pi] + cell.row as u32 * cols + cell.col as u32;
                 let in_scope = match scope {
                     ReassignScope::All => true,
                     ReassignScope::Page(p) => *p == pi,

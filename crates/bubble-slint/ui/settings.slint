@@ -1,0 +1,1044 @@
+// Settings (this computer) and Session Settings (this session), each in its own
+// window, in sections chosen at the top. Changes take effect as they are made, except
+// the outputs, sample rate and buffer size: applying those restarts audio, so they
+// wait for Apply. Everything shown comes from Rust (src/settings.rs).
+//
+//   Settings:          [ General | Audio | MIDI ]
+//     General: Appearance, Page Bar Size, Mouse, New Sessions In
+//     Audio:   Output Level, Safety Limiter; Outputs (A, B, …); Sample Rate, Buffer Size
+//     MIDI:    MIDI Input, the ports
+//   Session Settings:  [ General | Tiles | Groups | Pages ]
+//     General: Name, Audio Files; Default Fade-Out, Default On Retrigger, Ending
+//              Warning; Same Hotkey on Several Carts, Hotkeys Act On
+//     Tiles:   Typeface, Label Size, Small Text Size, Horizontal, Vertical
+//     Groups:  G1, G2, … with names and how many carts each has
+//     Pages:   each page's name, grid and cart numbers
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme, TextCommand, SysButton, PopupRow } from "theme.slint";
+import { LabelField, FieldRow, Rule, Group } from "quickedit.slint";
+import { SetupSlider, Choice, ClearX } from "cartsetup.slint";
+
+export struct OutputRow {
+    letter: string,
+    alias: string,
+    device: string,
+    channels: string,
+    // Set up here but not applied yet, or not opened (the reason).
+    note: string,
+}
+
+export struct PortRow {
+    name: string,
+    on: bool,
+}
+
+export struct GroupRow {
+    label: string,
+    name: string,
+    carts: string,
+}
+
+export struct PageRow {
+    name: string,
+    grid: string,
+    numbers: string,
+}
+
+// One choice of several, side by side (the sections at the top, alignment).
+component Segmented inherits Rectangle {
+    in property <[string]> model;
+    in property <int> current;
+    callback chosen(int);
+    height: Theme.mac ? 24px : 32px;
+    border-radius: Theme.mac ? 6px : 4px;
+    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
+    border-width: Theme.mac ? 0px : 1px;
+    border-color: Theme.panel-border;
+    horizontal-stretch: 0;
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        for item[i] in root.model: Rectangle {
+            min-width: label.preferred-width + 28px;
+            border-radius: Theme.mac ? 5px : 3px;
+            background: i == root.current ? (Theme.mac ? (Theme.dark ? #636366 : #ffffff) : Theme.accent)
+                : ta.has-hover ? Theme.text.transparentize(92%) : transparent;
+            drop-shadow-blur: i == root.current && Theme.mac ? 2px : 0px;
+            drop-shadow-color: #00000040;
+            label := Text {
+                text: item;
+                color: i == root.current && !Theme.mac ? #ffffff : Theme.text;
+                font-weight: i == root.current ? 600 : 400;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            ta := TouchArea {
+                clicked => {
+                    root.chosen(i);
+                }
+            }
+        }
+    }
+}
+
+// An on/off switch (Mac and Windows 11 both draw one for a setting).
+component Switch inherits Rectangle {
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: Theme.mac ? 32px : 40px;
+    height: Theme.mac ? 18px : 20px;
+    border-radius: self.height / 2;
+    background: on ? (Theme.mac ? #0a84ff : Theme.accent) : Theme.mac ? Theme.text.transparentize(82%) : transparent;
+    border-width: on || Theme.mac ? 0px : 1px;
+    border-color: Theme.text.transparentize(40%);
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: switch;
+    accessible-checked: on;
+    Rectangle {
+        property <length> d: Theme.mac ? parent.height - 4px : (root.on ? 12px : 10px);
+        width: d;
+        height: d;
+        x: root.on ? parent.width - d - (parent.height - d) / 2 : (parent.height - d) / 2;
+        y: (parent.height - d) / 2;
+        border-radius: d / 2;
+        background: Theme.mac ? #ffffff : (root.on ? #ffffff : Theme.text.transparentize(30%));
+        drop-shadow-blur: Theme.mac ? 2px : 0px;
+        drop-shadow-color: #00000050;
+        animate x { duration: 120ms; }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.toggled(!root.on);
+        }
+    }
+}
+
+// A section's heading above its group.
+component Heading inherits Text {
+    font-weight: 700;
+    color: Theme.text;
+}
+
+// A small explanation under a group.
+component Note inherits Text {
+    color: Theme.weak-text;
+    font-size: Theme.mac ? 11px : 12px;
+    wrap: word-wrap;
+}
+
+// The parts both windows share: the section bar, the scrolling page, the pop-up menu.
+component SettingsFrame inherits VerticalLayout {
+    in property <[string]> sections;
+    in-out property <int> section;
+    callback section-chosen(int);
+    HorizontalLayout {
+        padding: 12px;
+        padding-bottom: 10px;
+        alignment: Theme.mac ? center : start;
+        vertical-stretch: 0;
+        Segmented {
+            model: root.sections;
+            current: root.section;
+            chosen(i) => {
+                root.section = i;
+                root.section-chosen(i);
+            }
+        }
+    }
+    Rectangle {
+        height: 1px;
+        vertical-stretch: 0;
+        background: Theme.dark ? #ffffff14 : Theme.panel-border;
+    }
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            alignment: start;
+            @children
+        }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    in property <image> window-icon;
+    title: "Settings";
+    icon: window-icon;
+    preferred-width: 640px;
+    preferred-height: 560px;
+    min-width: 560px;
+    min-height: 380px;
+    background: Theme.window-bg;
+    default-font-family: Theme.ui-font;
+    property <length> label-width: Theme.mac ? 132px : 148px;
+
+    in-out property <int> section;
+    // General
+    in property <string> appearance;
+    in property <string> bar-size;
+    in property <string> mouse;
+    in property <string> session-folder;
+    // Audio
+    in-out property <float> level;
+    in property <string> level-text;
+    in property <bool> limiter;
+    in property <[OutputRow]> outputs;
+    in property <bool> can-add-output;
+    in property <string> rate;
+    in property <string> buffer;
+    // Outputs, sample rate or buffer size changed but not applied.
+    in property <bool> audio-changed;
+    in property <string> audio-problem;
+    in property <bool> scanning;
+    // MIDI
+    in property <bool> midi-on;
+    in property <bool> all-ports;
+    in property <[PortRow]> ports;
+    // The pop-up buttons' native menu.
+    in property <[PopupRow]> popup-rows;
+    in property <length> popup-x;
+    in property <length> popup-y;
+
+    callback section-chosen(int);
+    // A pop-up button: "appearance", "bar", "mouse", "rate", "buffer", or an
+    // output's "device" / "channels" (with its row).
+    callback choice-menu(string, int, length, length);
+    callback popup-chosen(int);
+    callback level-changed(float);
+    callback level-reset();
+    // "limiter", "midi", "all-ports", or a "port" (with its row).
+    callback toggle(string, int);
+    callback alias-edited(int, string);
+    // "choose-folder", "add-output", "remove-output" (row), "rescan", "apply",
+    // "revert", "rescan-midi".
+    callback action(string, int);
+    callback key(string);
+
+    public function open-popup() {
+        ctx.show({ x: root.popup-x, y: root.popup-y });
+    }
+    public function text-command(name: string) {
+        TextCommand.name = name;
+        TextCommand.seq += 1;
+    }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.key("escape");
+                return accept;
+            }
+            if e.modifiers.control && e.text == "w" {
+                root.key("escape");
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            SettingsFrame {
+                sections: ["General", "Audio", "MIDI"];
+                section <=> root.section;
+                section-chosen(i) => {
+                    root.section-chosen(i);
+                }
+
+                // ---- General ----
+                if root.section == 0: VerticalLayout {
+                    spacing: 8px;
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: "Appearance";
+                            Choice {
+                                value: root.appearance;
+                                open(x, y) => {
+                                    root.choice-menu("appearance", 0, x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Page Bar Size" : "Page bar size";
+                            Choice {
+                                value: root.bar-size;
+                                open(x, y) => {
+                                    root.choice-menu("bar", 0, x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Clicking a Cart" : "Clicking a cart";
+                            Choice {
+                                value: root.mouse;
+                                open(x, y) => {
+                                    root.choice-menu("mouse", 0, x, y);
+                                }
+                            }
+                        }
+                    }
+                    Note {
+                        text: "In Show mode a right-click stops a cart either way.";
+                    }
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "New Sessions In" : "New sessions in";
+                            Text {
+                                text: root.session-folder;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            SysButton {
+                                text: Theme.mac ? "Choose…" : "Choose…";
+                                clicked => {
+                                    root.action("choose-folder", 0);
+                                }
+                            }
+                        }
+                    }
+                    Note {
+                        text: "Where New Session suggests saving. Keep sessions in a folder that is not synced to the cloud.";
+                    }
+                }
+
+                // ---- Audio ----
+                if root.section == 1: VerticalLayout {
+                    spacing: 8px;
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Output Level" : "Output level";
+                            SetupSlider {
+                                minimum: -40;
+                                maximum: 0;
+                                value <=> root.level;
+                                changed(v) => {
+                                    root.level-changed(v);
+                                }
+                                reset => {
+                                    root.level-reset();
+                                }
+                            }
+                            Text {
+                                width: 64px;
+                                text: root.level-text;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Safety Limiter" : "Safety limiter";
+                            HorizontalLayout {
+                                alignment: start;
+                                Switch {
+                                    y: (parent.height - self.height) / 2;
+                                    on: root.limiter;
+                                    toggled => {
+                                        root.toggle("limiter", 0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Note {
+                        text: "Output level lowers everything Bubble plays on this computer; −10 dB (the default, double-click the knob) leaves room to raise single carts. The limiter stops the outputs clipping.";
+                    }
+
+                    HorizontalLayout {
+                        padding-top: 8px;
+                        Heading {
+                            text: "Outputs";
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.scanning ? "  Looking for audio devices…" : "";
+                            color: Theme.weak-text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        SysButton {
+                            text: Theme.mac ? "Rescan Devices" : "Rescan devices";
+                            clicked => {
+                                root.action("rescan", 0);
+                            }
+                        }
+                    }
+                    Group {
+                        for o[i] in root.outputs: VerticalLayout {
+                            if i > 0 && Theme.mac: Rule { }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                padding-left: Theme.mac ? 10px : 0px;
+                                padding-right: Theme.mac ? 10px : 0px;
+                                padding-top: Theme.mac ? 6px : 0px;
+                                padding-bottom: Theme.mac ? 6px : 0px;
+                                Rectangle {
+                                    width: 24px;
+                                    height: 24px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 5px;
+                                    background: Theme.text.transparentize(85%);
+                                    Text {
+                                        text: o.letter;
+                                        font-weight: 700;
+                                        color: Theme.text;
+                                    }
+                                }
+                                LabelField {
+                                    width: 120px;
+                                    single-line: true;
+                                    text: o.alias;
+                                    edited(t) => {
+                                        root.alias-edited(i, t);
+                                    }
+                                }
+                                Choice {
+                                    horizontal-stretch: 1;
+                                    value: o.device;
+                                    open(x, y) => {
+                                        root.choice-menu("device", i, x, y);
+                                    }
+                                }
+                                Choice {
+                                    value: o.channels;
+                                    open(x, y) => {
+                                        root.choice-menu("channels", i, x, y);
+                                    }
+                                }
+                                ClearX {
+                                    y: (parent.height - self.height) / 2;
+                                    label: "Remove Output " + o.letter;
+                                    clicked => {
+                                        root.action("remove-output", i);
+                                    }
+                                }
+                            }
+                            if o.note != "": Text {
+                                x: Theme.mac ? 42px : 32px;
+                                text: o.note;
+                                color: Theme.warn;
+                                font-size: Theme.mac ? 11px : 12px;
+                            }
+                        }
+                        if root.outputs.length == 0: Text {
+                            x: 10px;
+                            height: 32px;
+                            text: "No outputs: Bubble plays on the system default.";
+                            color: Theme.weak-text;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        SysButton {
+                            text: Theme.mac ? "Add Output" : "Add output";
+                            enabled: root.can-add-output;
+                            clicked => {
+                                root.action("add-output", 0);
+                            }
+                        }
+                    }
+                    Note {
+                        text: "Carts choose an output by letter. The name shows after the letter (\"Output B - PA\"). A cart on a letter this computer has not set up plays on Output A.";
+                    }
+
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Sample Rate" : "Sample rate";
+                            Choice {
+                                value: root.rate;
+                                open(x, y) => {
+                                    root.choice-menu("rate", 0, x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Buffer Size" : "Buffer size";
+                            Choice {
+                                value: root.buffer;
+                                open(x, y) => {
+                                    root.choice-menu("buffer", 0, x, y);
+                                }
+                            }
+                        }
+                    }
+                    if root.audio-problem != "": Text {
+                        text: root.audio-problem;
+                        color: Theme.warn;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // ---- MIDI ----
+                if root.section == 2: VerticalLayout {
+                    spacing: 8px;
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "MIDI Input" : "MIDI input";
+                            HorizontalLayout {
+                                alignment: start;
+                                Switch {
+                                    y: (parent.height - self.height) / 2;
+                                    on: root.midi-on;
+                                    toggled => {
+                                        root.toggle("midi", 0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-top: 8px;
+                        Heading {
+                            text: "Ports";
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        SysButton {
+                            text: Theme.mac ? "Rescan Ports" : "Rescan ports";
+                            clicked => {
+                                root.action("rescan-midi", 0);
+                            }
+                        }
+                    }
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "All Ports" : "All ports";
+                            HorizontalLayout {
+                                alignment: start;
+                                Switch {
+                                    y: (parent.height - self.height) / 2;
+                                    on: root.all-ports;
+                                    enabled: root.midi-on;
+                                    toggled => {
+                                        root.toggle("all-ports", 0);
+                                    }
+                                }
+                            }
+                        }
+                        for p[i] in root.ports: VerticalLayout {
+                            if Theme.mac: Rule { }
+                            FieldRow {
+                                label-width: root.label-width;
+                                label: p.name;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Switch {
+                                        y: (parent.height - self.height) / 2;
+                                        on: p.on;
+                                        enabled: root.midi-on && !root.all-ports;
+                                        toggled => {
+                                            root.toggle("port", i);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if root.ports.length == 0: VerticalLayout {
+                            if Theme.mac: Rule { }
+                            Text {
+                                x: 10px;
+                                height: 32px;
+                                text: "No MIDI ports found.";
+                                color: Theme.weak-text;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                    Note {
+                        text: "Learn in Cart Setup takes a note from any open port. With All Ports on, a device plugged in later is used too.";
+                    }
+                }
+            }
+
+            // Outputs, sample rate and buffer size wait for Apply (it restarts audio).
+            if root.audio-changed: Rectangle {
+                vertical-stretch: 0;
+                background: Theme.accent.transparentize(82%);
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: "Applying restarts audio: anything playing stops.";
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        wrap: word-wrap;
+                    }
+                    if Theme.mac: SysButton {
+                        text: "Revert";
+                        clicked => {
+                            root.action("revert", 0);
+                        }
+                    }
+                    SysButton {
+                        text: "Apply";
+                        primary: true;
+                        clicked => {
+                            root.action("apply", 0);
+                        }
+                    }
+                    if !Theme.mac: SysButton {
+                        text: "Revert";
+                        clicked => {
+                            root.action("revert", 0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ctx := ContextMenuArea {
+        enabled: false;
+        Menu {
+            for it in root.popup-rows: MenuItem {
+                title: it.text;
+                enabled: it.enabled;
+                checkable: it.checked;
+                checked: it.checked;
+                activated => {
+                    root.popup-chosen(it.id);
+                }
+            }
+        }
+    }
+
+    init => {
+        keys.focus();
+    }
+}
+
+export component SessionSettingsWindow inherits Window {
+    in property <image> window-icon;
+    in property <string> window-title: "Session Settings";
+    title: window-title;
+    icon: window-icon;
+    preferred-width: 600px;
+    preferred-height: 540px;
+    min-width: 520px;
+    min-height: 380px;
+    background: Theme.window-bg;
+    default-font-family: Theme.ui-font;
+    property <length> label-width: Theme.mac ? 168px : 184px;
+
+    in-out property <int> section;
+    // General
+    in-out property <string> name-text;
+    in property <string> audio-files;
+    in property <string> fade;
+    in property <string> retrigger;
+    in property <string> warning;
+    in property <string> duplicates;
+    in property <string> scope;
+    // Tiles
+    in property <string> typeface;
+    in-out property <float> label-size;
+    in-out property <float> small-size;
+    in property <string> label-size-text;
+    in property <string> small-size-text;
+    in property <int> h-align;
+    in property <int> v-align;
+    // Groups, Pages
+    in property <[GroupRow]> groups;
+    in property <[PageRow]> pages;
+    in property <bool> can-delete-page;
+    // The pop-up buttons' native menu.
+    in property <[PopupRow]> popup-rows;
+    in property <length> popup-x;
+    in property <length> popup-y;
+
+    callback section-chosen(int);
+    // "audio-files", "fade", "retrigger", "warning", "duplicates", "scope",
+    // "typeface", or a page's "grid" (with its row).
+    callback choice-menu(string, int, length, length);
+    callback popup-chosen(int);
+    // "name", or a "group" / "page" name (with its row).
+    callback edited(string, int, string);
+    // "label-size", "small-size".
+    callback slider(string, float);
+    callback reset(string);
+    // "h-align" / "v-align" (with the choice).
+    callback chose(string, int);
+    // "add-group", "remove-group" (row), "add-page", "delete-page" (row).
+    callback action(string, int);
+    callback key(string);
+
+    public function open-popup() {
+        ctx.show({ x: root.popup-x, y: root.popup-y });
+    }
+    public function text-command(name: string) {
+        TextCommand.name = name;
+        TextCommand.seq += 1;
+    }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.key("escape");
+                return accept;
+            }
+            if e.modifiers.control && e.text == "w" {
+                root.key("escape");
+                return accept;
+            }
+            reject
+        }
+        SettingsFrame {
+            sections: ["General", "Tiles", "Groups", "Pages"];
+            section <=> root.section;
+            section-chosen(i) => {
+                root.section-chosen(i);
+            }
+
+            // ---- General ----
+            if root.section == 0: VerticalLayout {
+                spacing: 8px;
+                Group {
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: "Name";
+                        LabelField {
+                            single-line: true;
+                            text <=> root.name-text;
+                            edited(t) => {
+                                root.edited("name", 0, t);
+                            }
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Audio Files" : "Audio files";
+                        Choice {
+                            value: root.audio-files;
+                            open(x, y) => {
+                                root.choice-menu("audio-files", 0, x, y);
+                            }
+                        }
+                    }
+                }
+                Note {
+                    text: "Convert to WAV converts each file once, when it is added, so the session opens faster on slower computers. Playback is the same either way.";
+                }
+                Heading {
+                    text: "New Carts";
+                }
+                Group {
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Fade-Out" : "Fade-out";
+                        Choice {
+                            value: root.fade;
+                            open(x, y) => {
+                                root.choice-menu("fade", 0, x, y);
+                            }
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "On Retrigger" : "On retrigger";
+                        Choice {
+                            value: root.retrigger;
+                            open(x, y) => {
+                                root.choice-menu("retrigger", 0, x, y);
+                            }
+                        }
+                    }
+                }
+                Note {
+                    text: "A cart left on Default follows these. Its own setting in Cart Setup wins.";
+                }
+                Heading {
+                    text: "Playing";
+                }
+                Group {
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Ending Warning" : "Ending warning";
+                        Choice {
+                            value: root.warning;
+                            open(x, y) => {
+                                root.choice-menu("warning", 0, x, y);
+                            }
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Same Hotkey on Several" : "Same hotkey on several";
+                        Choice {
+                            value: root.duplicates;
+                            open(x, y) => {
+                                root.choice-menu("duplicates", 0, x, y);
+                            }
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Hotkeys Act On" : "Hotkeys act on";
+                        Choice {
+                            value: root.scope;
+                            open(x, y) => {
+                                root.choice-menu("scope", 0, x, y);
+                            }
+                        }
+                    }
+                }
+                Note {
+                    text: "Ending warning turns a tile red this long before its cart ends.";
+                }
+            }
+
+            // ---- Tiles ----
+            if root.section == 1: VerticalLayout {
+                spacing: 8px;
+                Group {
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: "Typeface";
+                        Choice {
+                            value: root.typeface;
+                            open(x, y) => {
+                                root.choice-menu("typeface", 0, x, y);
+                            }
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Label Size" : "Label size";
+                        SetupSlider {
+                            minimum: 0.5;
+                            maximum: 3;
+                            log-scale: true;
+                            value <=> root.label-size;
+                            changed(v) => {
+                                root.slider("label-size", v);
+                            }
+                            reset => {
+                                root.reset("label-size");
+                            }
+                        }
+                        Text {
+                            width: 48px;
+                            text: root.label-size-text;
+                            color: Theme.text;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Small Text Size" : "Small text size";
+                        SetupSlider {
+                            minimum: 0.5;
+                            maximum: 3;
+                            log-scale: true;
+                            value <=> root.small-size;
+                            changed(v) => {
+                                root.slider("small-size", v);
+                            }
+                            reset => {
+                                root.reset("small-size");
+                            }
+                        }
+                        Text {
+                            width: 48px;
+                            text: root.small-size-text;
+                            color: Theme.text;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: "Horizontal";
+                        HorizontalLayout {
+                            alignment: start;
+                            Segmented {
+                                y: (parent.height - self.height) / 2;
+                                model: ["Left", "Centre", "Right"];
+                                current: root.h-align;
+                                chosen(i) => {
+                                    root.chose("h-align", i);
+                                }
+                            }
+                        }
+                    }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: "Vertical";
+                        HorizontalLayout {
+                            alignment: start;
+                            Segmented {
+                                y: (parent.height - self.height) / 2;
+                                model: ["Top", "Centre", "Bottom"];
+                                current: root.v-align;
+                                chosen(i) => {
+                                    root.chose("v-align", i);
+                                }
+                            }
+                        }
+                    }
+                }
+                Note {
+                    text: "Small text is the number, group, hotkey, time and icons. Double-click a knob for 100%. The tiles change as you go.";
+                }
+            }
+
+            // ---- Groups ----
+            if root.section == 2: VerticalLayout {
+                spacing: 8px;
+                Group {
+                    for g[i] in root.groups: VerticalLayout {
+                        if i > 0 && Theme.mac: Rule { }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            padding-left: Theme.mac ? 10px : 0px;
+                            padding-right: Theme.mac ? 10px : 0px;
+                            padding-top: Theme.mac ? 6px : 0px;
+                            padding-bottom: Theme.mac ? 6px : 0px;
+                            Text {
+                                width: 64px;
+                                text: g.label;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                            }
+                            LabelField {
+                                single-line: true;
+                                text: g.name;
+                                edited(t) => {
+                                    root.edited("group", i, t);
+                                }
+                            }
+                            Text {
+                                width: 64px;
+                                text: g.carts;
+                                color: Theme.weak-text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                            ClearX {
+                                y: (parent.height - self.height) / 2;
+                                label: "Remove " + g.label;
+                                clicked => {
+                                    root.action("remove-group", i);
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    SysButton {
+                        text: Theme.mac ? "Add Group" : "Add group";
+                        clicked => {
+                            root.action("add-group", 0);
+                        }
+                    }
+                }
+                Note {
+                    text: "Starting a cart stops the other carts in its group. A named group shows as \"G1 Name\" on the tile. Removing a group leaves its carts in none.";
+                }
+            }
+
+            // ---- Pages ----
+            if root.section == 3: VerticalLayout {
+                spacing: 8px;
+                Group {
+                    for p[i] in root.pages: VerticalLayout {
+                        if i > 0 && Theme.mac: Rule { }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            padding-left: Theme.mac ? 10px : 0px;
+                            padding-right: Theme.mac ? 10px : 0px;
+                            padding-top: Theme.mac ? 6px : 0px;
+                            padding-bottom: Theme.mac ? 6px : 0px;
+                            LabelField {
+                                single-line: true;
+                                text: p.name;
+                                edited(t) => {
+                                    root.edited("page", i, t);
+                                }
+                            }
+                            Choice {
+                                value: p.grid;
+                                open(x, y) => {
+                                    root.choice-menu("grid", i, x, y);
+                                }
+                            }
+                            Text {
+                                width: 80px;
+                                text: p.numbers;
+                                color: Theme.weak-text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                            ClearX {
+                                y: (parent.height - self.height) / 2;
+                                label: "Delete " + p.name;
+                                clicked => {
+                                    root.action("delete-page", i);
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    SysButton {
+                        text: Theme.mac ? "Add Page" : "Add page";
+                        clicked => {
+                            root.action("add-page", 0);
+                        }
+                    }
+                }
+                Note {
+                    text: "Cart numbers count on from page to page. A grid cannot shrink past the carts on it: move or clear them first.";
+                }
+            }
+        }
+    }
+
+    ctx := ContextMenuArea {
+        enabled: false;
+        Menu {
+            for it in root.popup-rows: MenuItem {
+                title: it.text;
+                enabled: it.enabled;
+                checkable: it.checked;
+                checked: it.checked;
+                activated => {
+                    root.popup-chosen(it.id);
+                }
+            }
+        }
+    }
+
+    init => {
+        keys.focus();
+    }
+}

@@ -11,31 +11,7 @@ use super::BubbleApp;
 use crate::native::{WindowSpec, native_window};
 use crate::prefs::OutputPref;
 
-/// Channels taken on `device` by `list` (index = channel).
-pub(super) fn used(list: &[OutputPref], device: &str, channels: u16) -> Vec<bool> {
-    let mut u = vec![false; channels as usize];
-    for o in list.iter().filter(|o| o.device == device) {
-        for c in o.first_channel..o.first_channel + o.channels {
-            if let Some(x) = u.get_mut(c as usize) {
-                *x = true;
-            }
-        }
-    }
-    u
-}
-
-/// First channel of `len` consecutive free channels.
-pub(super) fn free_run(used: &[bool], len: usize) -> Option<u16> {
-    (0..used.len().saturating_sub(len - 1))
-        .find(|&s| used[s..s + len].iter().all(|u| !u))
-        .map(|s| s as u16)
-}
-
-/// Device order (system default first), then channel.
-pub(super) fn sort_outputs(list: &mut [OutputPref], devices: &[String]) {
-    let pos = |d: &str| devices.iter().position(|x| x == d).unwrap_or(usize::MAX);
-    list.sort_by_key(|o| (pos(&o.device), o.first_channel, o.channels));
-}
+pub(super) use bubble_core::outputs::{free_run, sort_outputs, used};
 
 pub(super) struct OutputsDraft {
     pub list: Vec<OutputPref>,
@@ -283,18 +259,7 @@ impl BubbleApp {
             self.scan_devices();
         }
         if apply {
-            // Letters are positions in this list, so removing or reordering outputs
-            // changes them: carts follow their output to its new letter, and carts on a
-            // removed output go to Output A (one undo step).
-            let map = letter_changes(&self.prefs.effective_outputs(), &draft.list);
-            if !map.is_empty() {
-                let n = self.lock().remap_outputs(&map);
-                crate::log::info(&format!("outputs changed: {map:?}; {n} cart(s) updated"));
-            }
-            self.prefs.outputs = draft.list.clone();
-            self.prefs.outputs_custom_order = draft.custom_order;
-            self.save_prefs();
-            self.open_audio();
+            self.set_outputs(draft.list.clone(), draft.custom_order);
         }
         if open {
             self.dialogs.outputs = Some(draft);
@@ -458,11 +423,15 @@ impl BubbleApp {
         };
         let n = self.prefs.effective_outputs().len().max(1);
         let labels: Vec<String> = (0..n).map(|i| self.output_label(i, false)).collect();
-        let page_cells = snap
-            .project
-            .pages
-            .get(snap.page)
-            .map_or(1, |p| p.rows as u32 * p.cols as u32);
+        // The page's tile numbers (they count on from the pages before).
+        let page_first = snap.project.cell_number(snap.page, 0, 0);
+        let page_last = page_first
+            + snap
+                .project
+                .pages
+                .get(snap.page)
+                .map_or(0, |p| p.rows as u32 * p.cols as u32)
+                .saturating_sub(1);
         let mut go = false;
         let mut close = false;
         let (open, f) = native_window(
@@ -520,10 +489,14 @@ impl BubbleApp {
                                 ui.radio_value(&mut d.scope, 3, "Buttons");
                                 ui.add_enabled_ui(d.scope == 3, |ui| {
                                     ui.add(
-                                        egui::DragValue::new(&mut d.first).range(1..=page_cells),
+                                        egui::DragValue::new(&mut d.first)
+                                            .range(page_first..=page_last),
                                     );
                                     ui.label("to");
-                                    ui.add(egui::DragValue::new(&mut d.last).range(1..=page_cells));
+                                    ui.add(
+                                        egui::DragValue::new(&mut d.last)
+                                            .range(page_first..=page_last),
+                                    );
                                     ui.label(RichText::new("on this page").weak());
                                 });
                             });
@@ -607,32 +580,10 @@ mod tests {
     }
 }
 
-/// Old letter → new letter for every output whose letter changes between `old` and
-/// `new` (matched by device and channels); removed outputs map to "A".
-fn letter_changes(
-    old: &[crate::prefs::OutputPref],
-    new: &[crate::prefs::OutputPref],
-) -> std::collections::HashMap<String, String> {
-    let same = |a: &crate::prefs::OutputPref, b: &crate::prefs::OutputPref| {
-        a.device == b.device && a.first_channel == b.first_channel && a.channels == b.channels
-    };
-    old.iter()
-        .enumerate()
-        .filter_map(|(i, o)| {
-            let from = bubble_project::output_letter(i);
-            let to = new.iter().position(|n| same(o, n)).map_or_else(
-                || bubble_project::output_letter(0),
-                bubble_project::output_letter,
-            );
-            (from != to).then(|| (from.to_string(), to.to_string()))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod letter_tests {
-    use super::letter_changes;
     use crate::prefs::OutputPref;
+    use bubble_core::outputs::letter_changes;
 
     fn out(device: &str, first: u16) -> OutputPref {
         OutputPref {

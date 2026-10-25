@@ -221,7 +221,7 @@ impl Core {
             Controller::new_project("Untitled"),
             None,
         )));
-        Core {
+        let core = Core {
             ctrl,
             peaks: Mutex::new(HashMap::new()),
             audio: Vec::new(),
@@ -263,7 +263,22 @@ impl Core {
             wav_check: None,
             saved_at: None,
             repaint,
-        }
+        };
+        core.apply_machine();
+        core
+    }
+
+    /// Gives the controller this machine's output level, limiter and mouse mode.
+    pub fn apply_machine(&self) {
+        let m = self.prefs.machine();
+        self.lock().set_machine(m);
+    }
+
+    /// Changes this machine's output level, limiter or mouse mode, and keeps it.
+    pub fn edit_machine(&mut self, f: impl FnOnce(&mut Prefs)) {
+        f(&mut self.prefs);
+        self.apply_machine();
+        self.save_prefs();
     }
 
     /// Start-up: crash reporting, audio, MIDI, recovery of unsaved work, and the
@@ -814,6 +829,10 @@ impl Core {
                     project.pages.len(),
                     project.assets.len()
                 ));
+                if self.prefs.adopt_from_session(&project.settings) {
+                    crate::log::info("output level, limiter or mouse mode taken from the session");
+                    self.apply_machine();
+                }
                 self.loading_since = Some(Instant::now());
                 self.cloud_checked = None;
                 self.cloud_alerted = false;

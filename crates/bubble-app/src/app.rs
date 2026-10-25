@@ -1145,6 +1145,7 @@ impl BubbleApp {
                 edit_mode: self.edit_mode,
                 selected: self.selected.filter(|id| snap.project.cart(*id).is_some()),
                 paste_target: self.target_cell(snap),
+                settings_window: false,
             },
         )
     }
@@ -1244,6 +1245,7 @@ impl BubbleApp {
             }
             Cmd::ReassignOutputs => {
                 if self.dialogs.reassign.is_none() {
+                    let first = snap.project.cell_number(snap.page, 0, 0);
                     let cells = snap
                         .project
                         .pages
@@ -1254,8 +1256,8 @@ impl BubbleApp {
                         to: 0,
                         scope: 0,
                         group: None,
-                        first: 1,
-                        last: cells,
+                        first,
+                        last: first + cells - 1,
                     });
                 }
                 crate::native::raise(ctx, "reassign");
@@ -1673,7 +1675,7 @@ impl BubbleApp {
                         .is_some_and(|c| snap.learning.is_some_and(|l| l.cart == c.cart.id)),
                     drop_hover: self.drag_hover.is_some_and(|p| rect.contains(p)),
                     edit_mode: self.edit_mode,
-                    number: Some(row * page.cols + col + 1),
+                    number: Some(snap.project.cell_number(snap.page, row, col) as u16),
                     rerouted: cell.is_some_and(|c| self.is_rerouted(&c.cart.output)),
                 };
                 match cell {
@@ -1926,7 +1928,7 @@ impl BubbleApp {
         let button = snap
             .project
             .cart_position(id)
-            .and_then(|(p, r, c)| snap.project.pages.get(p).map(|pg| r * pg.cols + c + 1))
+            .map(|(p, r, c)| snap.project.cell_number(p, r, c))
             .unwrap_or(0);
         const W: f32 = 340.0;
         const LABEL_W: f32 = 64.0;
@@ -2541,21 +2543,24 @@ impl BubbleApp {
                         .num_columns(2)
                         .spacing([12.0, 8.0])
                         .show(ui, |ui| {
-                            ui.label("Output level");
+                            // Set on this computer, not in the session.
+                            ui.label("Output level (this computer)");
+                            let mut level = self.prefs.machine().output_level_db;
                             ui.horizontal(|ui| {
                                 ui.add(
-                                    egui::Slider::new(&mut st.master_gain_db, -40.0..=0.0)
+                                    egui::Slider::new(&mut level, -40.0..=0.0)
                                         .suffix(" dB")
                                         .step_by(0.5),
                                 );
-                                if (st.master_gain_db - bubble_project::DEFAULT_MASTER_GAIN_DB)
-                                    .abs()
-                                    > 0.01
+                                if (level - bubble_project::DEFAULT_MASTER_GAIN_DB).abs() > 0.01
                                     && ui.small_button("−10 dB").clicked()
                                 {
-                                    st.master_gain_db = bubble_project::DEFAULT_MASTER_GAIN_DB;
+                                    level = bubble_project::DEFAULT_MASTER_GAIN_DB;
                                 }
                             });
+                            if (level - self.prefs.machine().output_level_db).abs() > 1e-4 {
+                                self.edit_machine(|p| p.output_level_db = Some(level));
+                            }
                             ui.end_row();
                             ui.label("Default fade-out");
                             {
@@ -2821,7 +2826,7 @@ impl BubbleApp {
             let number = snap
                 .project
                 .cart_position(id)
-                .and_then(|(p, r, c)| snap.project.pages.get(p).map(|pg| r * pg.cols + c + 1));
+                .map(|(p, r, c)| snap.project.cell_number(p, r, c));
             let title = format!(
                 "Btn{}  {}  {:.0}%",
                 number.unwrap_or(0),

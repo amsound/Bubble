@@ -12,6 +12,7 @@ pub mod log;
 pub mod menu;
 pub mod meter;
 pub mod midi;
+pub mod outputs;
 pub mod prefs;
 pub mod view;
 

@@ -134,6 +134,19 @@ impl Project {
             .find(|c| c.id == id)
     }
 
+    /// A cell's number as shown on its tile: counted on from the pages before it, in
+    /// reading order (page 1 of 4 × 6 is 1–24, page 2 starts at 25).
+    pub fn cell_number(&self, page: usize, row: u16, col: u16) -> u32 {
+        let before: u32 = self
+            .pages
+            .iter()
+            .take(page)
+            .map(|p| p.rows as u32 * p.cols as u32)
+            .sum();
+        let cols = self.pages.get(page).map_or(1, |p| p.cols as u32);
+        before + row as u32 * cols + col as u32 + 1
+    }
+
     /// (page index, row, col) of a cart.
     pub fn cart_position(&self, id: Uuid) -> Option<(usize, u16, u16)> {
         self.carts()
@@ -180,6 +193,7 @@ pub enum Retrigger {
     Ignore,
 }
 
+/// What a click on a cart does. Set per machine (`Prefs`), not per session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MouseMode {
@@ -209,28 +223,14 @@ pub enum Scope {
     CurrentPage,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Numbering {
-    #[default]
-    PerPage,
-    Continuous,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProjectSettings {
     pub default_fade_out_ms: u32,
     pub default_retrigger: Retrigger,
-    pub mouse_mode: MouseMode,
     pub duplicate_binding_policy: DuplicatePolicy,
     pub binding_scope: Scope,
-    pub numbering: Numbering,
     pub ending_warning_s: f32,
-    /// Global output attenuation (REF "gain offset"). Default −10 dB leaves headroom
-    /// so individual carts can be raised by up to +10 dB.
-    pub master_gain_db: f32,
-    pub limiter: bool,
     /// Audio brought into the session is converted to WAV at the engine's sample
     /// rate, so opening the session needs no decoding or resampling.
     pub convert_to_wav: bool,
@@ -240,6 +240,9 @@ pub struct ProjectSettings {
     pub extra: Extra,
 }
 
+/// Default output level (per machine, `Prefs`): −10 dB leaves headroom so individual
+/// carts can be raised by up to +10 dB. Sessions written before it moved to the machine
+/// carry it as `settings.master_gain_db` (kept in `extra`).
 pub const DEFAULT_MASTER_GAIN_DB: f32 = -10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -294,13 +297,9 @@ impl Default for ProjectSettings {
         Self {
             default_fade_out_ms: 100,
             default_retrigger: Retrigger::Restart,
-            mouse_mode: MouseMode::Toggle,
             duplicate_binding_policy: DuplicatePolicy::Ganged,
             binding_scope: Scope::Global,
-            numbering: Numbering::PerPage,
             ending_warning_s: 3.0,
-            master_gain_db: DEFAULT_MASTER_GAIN_DB,
-            limiter: true,
             convert_to_wav: false,
             display: Display::default(),
             extra: Extra::new(),

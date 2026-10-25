@@ -171,8 +171,8 @@ pub fn icon() -> slint::Image {
 
 /// Brings Slint's default macOS app menu in line with the Mac: Quit (⌘Q) closes the
 /// window, so it asks about unsaved changes like the close button does; a Settings…
-/// item (⌘,; disabled until the settings windows are in this interface); and a Window
-/// menu. Slint rebuilds the menu bar when the menus change, so this is checked on
+/// item for this computer's settings (`on_settings`; ⌘, is Session Settings, in the
+/// Session menu); and a Window menu. Slint rebuilds the menu bar when the menus change, so this is checked on
 /// every refresh and only acts when its changes are missing.
 #[cfg(target_os = "macos")]
 pub fn patch_app_menu() {
@@ -231,17 +231,23 @@ pub fn patch_app_menu() {
     }
     let settings = NSString::from_str("Settings…");
     if app_menu.itemWithTitle(&settings).is_none() && app_menu.numberOfItems() >= 2 {
-        // An action nothing answers, so the menu shows the item greyed out (an item
-        // with no action is enabled).
-        // SAFETY: a plain selector; nothing in the responder chain implements it.
+        // SAFETY: openSettings: is implemented by `SettingsTarget`, kept alive below
+        // (a menu item does not retain its target).
         let item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 mtm.alloc(),
                 &settings,
-                Some(sel!(bubbleSettingsNotYetHere:)),
-                &NSString::from_str(","),
+                Some(sel!(openSettings:)),
+                &NSString::from_str(""),
             )
         };
+        let target = SETTINGS_TARGET.with(|t| {
+            t.borrow_mut()
+                .get_or_insert_with(|| SettingsTarget::new(mtm))
+                .clone()
+        });
+        // SAFETY: the target answers the item's action.
+        unsafe { item.setTarget(Some(&target)) };
         app_menu.insertItem_atIndex(&item, 2);
         app_menu.insertItem_atIndex(&NSMenuItem::separatorItem(mtm), 3);
     }
@@ -271,6 +277,51 @@ pub fn patch_app_menu() {
 
 #[cfg(not(target_os = "macos"))]
 pub fn patch_app_menu() {}
+
+#[cfg(target_os = "macos")]
+objc2::define_class!(
+    /// Answers Bubble ▸ Settings… by running the handler `on_settings` set.
+    #[unsafe(super(objc2::runtime::NSObject))]
+    #[thread_kind = objc2::MainThreadOnly]
+    #[name = "BubbleSettingsTarget"]
+    struct SettingsTarget;
+
+    impl SettingsTarget {
+        #[unsafe(method(openSettings:))]
+        fn open_settings(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ON_SETTINGS.with(|f| {
+                if let Some(f) = f.borrow().as_ref() {
+                    f();
+                }
+            });
+        }
+    }
+);
+
+#[cfg(target_os = "macos")]
+impl SettingsTarget {
+    fn new(mtm: objc2::MainThreadMarker) -> objc2::rc::Retained<Self> {
+        use objc2::MainThreadOnly;
+        // SAFETY: NSObject's init, on a freshly allocated object.
+        unsafe { objc2::msg_send![Self::alloc(mtm), init] }
+    }
+}
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    static SETTINGS_TARGET: std::cell::RefCell<Option<objc2::rc::Retained<SettingsTarget>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+thread_local! {
+    static ON_SETTINGS: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// What Bubble ▸ Settings… does (macOS; elsewhere it is File ▸ Settings…).
+pub fn on_settings(f: impl Fn() + 'static) {
+    ON_SETTINGS.with(|s| *s.borrow_mut() = Some(Box::new(f)));
+}
 
 /// Whether this computer has a touch screen (Windows tablets such as the Surface).
 #[cfg(windows)]

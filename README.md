@@ -25,7 +25,7 @@ Shortcuts are shown for macOS; on Windows use Ctrl for ⌘ and Alt for ⌥.
 | Open anything | File → Open… (⌘O) takes Bubble sessions, SpotOn sessions (`.dta`) and packages (`.pkg`). With a session open, a SpotOn file can be added to it (its pages are appended, its audio copied into Audio/) or opened as a new session. |
 | Add audio | Drop files on a cell (they land on the cell under the pointer), double-click an empty cell, or right-click → Assign. Every file is copied into the session's Audio folder first, so a session is always one self-contained folder. |
 | Save | ⌘S; File → Save Session As… makes a new session folder with copies of its audio. The window title shows the session and when it was last saved. |
-| Play / stop | Click or touch a cart (again to stop, with its fade). Session → Mouse switches to left-plays/right-stops. |
+| Play / stop | Click or touch a cart (again to stop, with its fade). Left-plays/right-stops can be chosen per computer (Settings ▸ General in Bubble Slint; Session → Mouse in the egui app). |
 | Stop | **STOP ALL** in the bottom bar cuts everything immediately; Esc and Audio → Stop All (fade) fade out; **STOP PAGE** fades the page. A fading cart shows a purple border. |
 | Control buttons | Right-click an empty cell → Control Button → Stop Group (G1…), Stop This Page, Stop All. Red "Stop" tile with its group shown; triggers by click, touch, key or MIDI like any cart. |
 | Select / navigate | Click selects (and plays); in edit mode arrow keys move the selection and Return opens quick edit. |
@@ -35,7 +35,8 @@ Shortcuts are shown for macOS; on Windows use Ctrl for ⌘ and Alt for ⌥.
 | Speed | Speed preset 25–400 %; Cart → Speed Bar… opens the floating bar (x1, slider, x0; right-click x0/x1 for ramp times). A cart stopped by x0 starts again from its In point. |
 | Triggers | "Learn" in quick edit or Cart Setup, then press a key or send MIDI. Plays and, pressed again, stops; change to Play (restart) or Stop per trigger. Shown on the tile. |
 | Pages | Tabs along the bottom: click to show, double-click to rename, drag to reorder, right-click for Copy / Paste Page and more. View → Page Bar Size for touch screens. |
-| Session settings | Session → Session Settings… (⌘,): name, output level, fades, ending warning, audio files (keep as imported or convert to WAV), tile font/sizes/alignment, exclusive groups. |
+| Session settings | Session → Session Settings… (⌘,): name, audio files (keep as imported or convert to WAV), default fade-out and On Retrigger for new carts, ending warning, hotkey rules, tile font/sizes/alignment, exclusive groups, and (Bubble Slint) each page's name and grid. Cart numbers count on from page to page. |
+| Computer settings | Bubble Slint: Bubble → Settings… on a Mac, File → Settings… on Windows: appearance, page bar size, clicking a cart, the new-session folder; output level and safety limiter, outputs, sample rate and buffer size (applied together, as that restarts audio); MIDI ports. Output level, limiter and mouse belong to the computer, not the session (D-42). |
 | Outputs | Audio → Outputs…: tick stereo pairs, mono channels or 5.1 blocks per device (channels are shared out as a pool), alias and order them; Apply. Outputs are lettered A, B, … in device/channel order unless reordered. Audio → Reassign Cart Outputs… moves carts from one output to another for all pages, this page, a group or a range of buttons. |
 | Appearance | View → Appearance: Follow System (default), Light or Dark. The main window reopens where it was last left (position, size, maximised). |
 | Show mode | EDIT / SHOW button at the bottom left, or ⌘E: Show mode locks editing. |
@@ -46,6 +47,7 @@ Sessions are folders: `Name.bubble` (JSON, paths relative to it) and `Audio/`. M
 
 - [Decisions](docs/decisions.md): what was decided and why.
 - [Platform status](docs/platform-status.md): what has been tested where.
+- Test builds: every change to `main` is built for Windows (x64, ARM64) and macOS by GitHub Actions and put on the **Test build** pre-release (Releases page). Unsigned and for testing only; released versions are listed separately.
 
 ## Licence
 

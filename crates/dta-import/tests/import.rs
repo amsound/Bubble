@@ -176,7 +176,6 @@ fn missing_asset_is_reported_with_its_original_path() {
         assert_eq!(project.pages.len(), 8);
         assert!(project.pages.iter().all(|p| (p.rows, p.cols) == (3, 5)));
         assert_eq!(project.pages[7].name, "8");
-        assert_eq!(project.settings.master_gain_db, -10.0);
         assert_eq!(project.settings.default_fade_out_ms, 100);
         let cell = &project.pages[0].cells[0];
         assert_eq!((cell.row, cell.col), (0, 1));

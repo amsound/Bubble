@@ -89,7 +89,7 @@ pub fn page_view(core: &Core, snap: &Snapshot, sel: &Selection) -> PageView {
     let mut tiles = Vec::new();
     for row in 0..page.rows {
         for col in 0..page.cols {
-            let number = (row * page.cols + col + 1) as i32;
+            let number = snap.project.cell_number(snap.page, row, col) as i32;
             let copying = sel.copying == Some((snap.page, row, col));
             let Some(cell) = page.cell(row, col) else {
                 ids.push(None);
@@ -407,7 +407,7 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
     let button = snap
         .project
         .cart_position(cart.id)
-        .and_then(|(p, r, c)| snap.project.pages.get(p).map(|pg| r * pg.cols + c + 1))
+        .map(|(p, r, c)| snap.project.cell_number(p, r, c))
         .unwrap_or(0);
     let rgb = parse_rgb(cart.color.as_deref()).unwrap_or(DEFAULT_CART_COLOR);
     let outputs = core.output_labels(&cart.output);

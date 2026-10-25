@@ -33,7 +33,7 @@ use crate::{
     BusyRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys, menu,
     window,
 };
-use crate::{cartsetup, colour, savepanel};
+use crate::{cartsetup, colour, savepanel, settings};
 
 /// How often the window refreshes while carts play (the clock and progress bars).
 const PLAYING: Duration = Duration::from_millis(33);
@@ -62,8 +62,10 @@ enum Popup {
     StopPage(usize),
     AddPage,
     RemovePage(usize),
-    /// Shown but not available here yet.
-    NotHere,
+    /// A page's grid (rows, columns), checked when it is the current size.
+    Grid(usize, u16, u16, bool),
+    /// Session Settings ▸ Pages.
+    PageSettings,
     /// A quick edit pop-up's choice ("output", "fade" or "group", and its index).
     Choice(&'static str, usize),
 }
@@ -129,6 +131,9 @@ pub struct App {
     /// The Cart Setup window, and its close button asking about unkept edits.
     setup: Option<cartsetup::Setup>,
     setup_close_ask: bool,
+    /// The Settings (this computer) and Session Settings windows, while open.
+    settings: Option<settings::Settings>,
+    session_settings: Option<settings::SessionSettings>,
     /// This app, for windows opened later to call back into.
     me: std::rc::Weak<RefCell<App>>,
     /// The system Save panel for a new session: open, its answer, and the Audio files
@@ -254,6 +259,19 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     }
     wire(&ui, &app);
     hook_window_events(&ui, &app);
+    {
+        // Bubble ▸ Settings… (macOS). The menu's action runs inside AppKit's menu
+        // handling: open the window just after.
+        let a = Rc::downgrade(&app);
+        window::on_settings(move || {
+            let a = a.clone();
+            slint::Timer::single_shot(Duration::ZERO, move || {
+                if let Some(app) = a.upgrade() {
+                    act(&app, |a, i| a.command(Cmd::Settings, i));
+                }
+            });
+        });
+    }
 
     ui.show()?;
     // The first tick runs at once (the session opening, the window's place).
@@ -569,6 +587,190 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
     });
 }
 
+/// The text command an Edit menu command becomes while a field has the keyboard ("" =
+/// a cart command, which does nothing then).
+fn edit_text(cmd: &Cmd) -> Option<&'static str> {
+    match cmd {
+        Cmd::Cut => Some("cut"),
+        Cmd::Copy => Some("copy"),
+        Cmd::Paste => Some("paste"),
+        Cmd::Undo => Some("undo"),
+        Cmd::Redo => Some("redo"),
+        Cmd::PasteAttributes(_) | Cmd::DuplicateCart | Cmd::ClearCart => Some(""),
+        _ => None,
+    }
+}
+
+/// A tool window's callbacks act on its state (`settings`, `session_settings`), taken
+/// out of the app while they run.
+macro_rules! on_tool {
+    ($win:expr, $me:expr, $field:ident, $method:ident, |$s:ident, $a:ident, $i:ident $(, $arg:ident)*| $body:block) => {{
+        let me = $me.clone();
+        $win.$method(move |$($arg),*| {
+            if let Some(app) = me.upgrade() {
+                act(&app, move |$a, $i| {
+                    if let Some(taken) = $a.$field.take() {
+                        #[allow(unused_mut)]
+                        let mut $s = taken;
+                        $body
+                        if $a.$field.is_none() {
+                            $a.$field = Some($s);
+                        }
+                    }
+                });
+            }
+        });
+    }};
+}
+
+/// What both settings windows do the same way: Esc or the close button closes them,
+/// and the main menu bar stays (a Mac has one; Slint would swap in an empty one).
+fn wire_tool_window(w: &slint::Window, me: &std::rc::Weak<RefCell<App>>, session: bool) {
+    let me2 = me.clone();
+    w.on_close_requested(move || {
+        if let Some(app) = me2.upgrade() {
+            act(&app, move |a, _| a.close_tool(session));
+        }
+        slint::CloseRequestResponse::HideWindow
+    });
+    w.on_winit_window_event(move |_w, ev| {
+        if let WindowEvent::Focused(true) = ev {
+            window::restore_menu();
+        }
+        EventResult::Propagate
+    });
+}
+
+fn wire_settings(win: &crate::SettingsWindow, me: &std::rc::Weak<RefCell<App>>) {
+    wire_tool_window(win.window(), me, false);
+    // Esc closes it (⌘W too).
+    let me2 = me.clone();
+    win.on_key(move |_| {
+        if let Some(app) = me2.upgrade() {
+            act(&app, |a, _| {
+                if let Some(s) = &a.settings {
+                    let _ = s.win.hide();
+                }
+                a.close_tool(false);
+            });
+        }
+    });
+    on_tool!(
+        win,
+        me,
+        settings,
+        on_choice_menu,
+        |s, a, _i, field, row, x, y| {
+            s.choices(field.as_str(), row.max(0) as usize, &a.core);
+            s.win.set_popup_x(x);
+            s.win.set_popup_y(y);
+            settings::open_menu(&s.win, |w| w.invoke_open_popup());
+        }
+    );
+    on_tool!(win, me, settings, on_popup_chosen, |s, a, i, id| {
+        if let Some(cmd) = s.chosen(id, &a.core) {
+            a.command(cmd, i);
+        }
+    });
+    on_tool!(win, me, settings, on_level_changed, |s, a, _i, v| {
+        s.level(v, &mut a.core);
+    });
+    on_tool!(win, me, settings, on_level_reset, |s, a, _i| {
+        s.level(bubble_project::DEFAULT_MASTER_GAIN_DB, &mut a.core);
+        s.win.set_level(bubble_project::DEFAULT_MASTER_GAIN_DB);
+    });
+    on_tool!(win, me, settings, on_toggle, |s, a, i, what, row| {
+        match s.toggle(what.as_str(), row.max(0) as usize, &a.core) {
+            Some(cmd) => a.command(cmd, i),
+            None if what.as_str() == "all-ports" => {
+                settings::Settings::ports_one_by_one(&mut a.core)
+            }
+            None => {}
+        }
+    });
+    on_tool!(win, me, settings, on_alias_edited, |s, a, _i, row, t| {
+        s.alias(row.max(0) as usize, t.as_str(), &mut a.core);
+    });
+    on_tool!(win, me, settings, on_action, |s, a, i, what, row| {
+        if what.as_str() == "choose-folder" {
+            a.core.files.request(Purpose::ChooseFolder);
+        } else if let Some(cmd) = s.action(what.as_str(), row.max(0) as usize, &mut a.core) {
+            a.command(cmd, i);
+        }
+    });
+}
+
+fn wire_session_settings(win: &crate::SessionSettingsWindow, me: &std::rc::Weak<RefCell<App>>) {
+    wire_tool_window(win.window(), me, true);
+    let me2 = me.clone();
+    win.on_key(move |_| {
+        if let Some(app) = me2.upgrade() {
+            act(&app, |a, _| {
+                if let Some(s) = &a.session_settings {
+                    let _ = s.win.hide();
+                }
+                a.close_tool(true);
+            });
+        }
+    });
+    on_tool!(
+        win,
+        me,
+        session_settings,
+        on_choice_menu,
+        |s, a, _i, field, row, x, y| {
+            let snap = a.core.snapshot();
+            s.choices(field.as_str(), row.max(0) as usize, &snap);
+            s.win.set_popup_x(x);
+            s.win.set_popup_y(y);
+            settings::open_menu(&s.win, |w| w.invoke_open_popup());
+        }
+    );
+    on_tool!(win, me, session_settings, on_popup_chosen, |s, a, i, id| {
+        let snap = a.core.snapshot();
+        s.chosen(id, &snap, i);
+    });
+    on_tool!(
+        win,
+        me,
+        session_settings,
+        on_edited,
+        |s, a, i, field, row, text| {
+            let snap = a.core.snapshot();
+            s.edited(field.as_str(), row.max(0) as usize, text.as_str(), &snap, i);
+        }
+    );
+    on_tool!(win, me, session_settings, on_slider, |s, a, i, field, v| {
+        let snap = a.core.snapshot();
+        s.slider(field.as_str(), v, &snap, i);
+    });
+    on_tool!(win, me, session_settings, on_reset, |s, a, i, field| {
+        let snap = a.core.snapshot();
+        s.reset(field.as_str(), &snap, i);
+    });
+    on_tool!(win, me, session_settings, on_chose, |s, a, i, field, v| {
+        let snap = a.core.snapshot();
+        s.chose(field.as_str(), v, &snap, i);
+    });
+    on_tool!(
+        win,
+        me,
+        session_settings,
+        on_action,
+        |s, a, i, what, row| {
+            let snap = a.core.snapshot();
+            if what.as_str() == "delete-page" {
+                // Asks first, as the tab's Delete Page… does.
+                if snap.project.pages.len() > 1 {
+                    a.delete_page = Some(row.max(0) as usize);
+                }
+            } else {
+                s.action(what.as_str(), row.max(0) as usize, &snap, i);
+            }
+        }
+    );
+}
+
 fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_menu_activated, |a, i, id| {
         if let Some(cmd) = usize::try_from(id)
@@ -841,6 +1043,8 @@ impl App {
             picker_setup: false,
             setup: None,
             setup_close_ask: false,
+            settings: None,
+            session_settings: None,
             me: std::rc::Weak::new(),
             save_open: false,
             save_tx,
@@ -961,11 +1165,23 @@ impl App {
             self.apply_intents(intents);
             snap = self.core.snapshot();
         }
-        // File panels hang on Cart Setup while it is open (it stays in front).
-        match &self.setup {
-            Some(s) => self.core.files.launch(&s.win.window().window_handle()),
-            None => self.core.files.launch(&ui.window().window_handle()),
+        if let Some(s) = &mut self.settings {
+            s.poll_save(&mut self.core);
         }
+        // File panels hang on Cart Setup while it is open (it stays in front), or on
+        // Settings when it asked (Choose… for the new-session folder).
+        let parent = if let Some(s) = &self.setup {
+            s.win.window().window_handle()
+        } else if let Some(s) = self
+            .settings
+            .as_ref()
+            .filter(|s| window::is_key(s.win.window()))
+        {
+            s.win.window().window_handle()
+        } else {
+            ui.window().window_handle()
+        };
+        self.core.files.launch(&parent);
         self.core.autosave();
         if self.place.due() {
             self.core.save_prefs();
@@ -1079,6 +1295,14 @@ impl App {
         self.show_quick_edit(ui, snap);
         self.show_dialog(ui, snap);
         self.show_setup(ui, snap);
+        if let Some(s) = &mut self.settings {
+            settings::share_theme!(ui, s.win);
+            s.show(&self.core);
+        }
+        if let Some(s) = &mut self.session_settings {
+            settings::share_theme!(ui, s.win);
+            s.show(snap);
+        }
     }
 
     /// What the busy popover lists: the running job or the session being opened, then
@@ -1095,10 +1319,9 @@ impl App {
             });
         }
         if let Some(j) = &self.core.job {
-            let detail = j.cell.and_then(|(p, r, c)| {
-                let cols = snap.project.pages.get(p)?.cols;
-                Some(format!("to cell {}", r * cols + c + 1))
-            });
+            let detail = j
+                .cell
+                .map(|(p, r, c)| format!("to cell {}", snap.project.cell_number(p, r, c)));
             rows.push(BusyRow {
                 text: j.label.trim_end_matches('…').to_string().into(),
                 detail: detail.unwrap_or_default().into(),
@@ -1131,6 +1354,7 @@ impl App {
                 edit_mode: self.edit_mode,
                 selected: self.selection(snap),
                 paste_target: self.paste_target(snap),
+                settings_window: true,
             },
         );
         let sig = model.signature();
@@ -1306,19 +1530,36 @@ impl App {
         self.show_popup(head, Some((sub_title, sub)), Vec::new(), x, y);
     }
 
-    /// The page tab's menu: concise, one level, Delete last and set apart.
+    /// The page tab's menu: concise, one submenu (Grid Size), Delete last and set apart.
     fn page_menu(&mut self, page: usize, x: f32, y: f32) {
-        let multi = self.lock().project().pages.len() > 1;
-        let items = vec![
-            (Popup::Rename(page), name("Rename…", "Rename…"), true),
-            (
-                Popup::NotHere,
-                name(
-                    "Page Settings… (not in this interface yet)",
-                    "Page settings… (not in this interface yet)",
-                ),
-                false,
-            ),
+        let snap = self.core.snapshot();
+        let multi = snap.project.pages.len() > 1;
+        let (rows, cols) = snap
+            .project
+            .pages
+            .get(page)
+            .map_or((4, 6), |p| (p.rows, p.cols));
+        let mut sizes = bubble_core::menu::GRID_SIZES.to_vec();
+        if !sizes.contains(&(rows, cols)) {
+            sizes.push((rows, cols));
+            sizes.sort();
+        }
+        let mut grid: Vec<PopupItem> = sizes
+            .into_iter()
+            .map(|(r, c)| {
+                (
+                    Popup::Grid(page, r, c, (r, c) == (rows, cols)),
+                    bubble_core::menu::grid_label(r, c),
+                    bubble_core::menu::grid_fits(&snap, page, r, c),
+                )
+            })
+            .collect();
+        grid.extend([
+            (Popup::Separator, String::new(), false),
+            (Popup::PageSettings, name("Other…", "Other…"), true),
+        ]);
+        let head = vec![(Popup::Rename(page), name("Rename…", "Rename…"), true)];
+        let tail = vec![
             (Popup::Separator, String::new(), false),
             (Popup::CopyPage(page), name("Copy Page", "Copy page"), true),
             (
@@ -1336,7 +1577,13 @@ impl App {
                 multi,
             ),
         ];
-        self.show_popup(items, None, Vec::new(), x, y);
+        self.show_popup(
+            head,
+            Some((name("Grid Size", "Grid size"), grid)),
+            tail,
+            x,
+            y,
+        );
     }
 
     /// Shows a native context menu at (x, y): `head`, then an optional submenu, then
@@ -1356,6 +1603,7 @@ impl App {
                 .into_iter()
                 .map(|(p, text, enabled)| {
                     let separator = matches!(p, Popup::Separator);
+                    let checked = matches!(p, Popup::Grid(.., true));
                     all.push(p);
                     PopupRow {
                         id: all.len() as i32 - 1,
@@ -1365,7 +1613,7 @@ impl App {
                             text.into()
                         },
                         enabled: enabled && !separator,
-                        checked: false,
+                        checked,
                     }
                 })
                 .collect();
@@ -1437,7 +1685,11 @@ impl App {
             return;
         };
         match p {
-            Popup::Separator | Popup::NotHere => {}
+            Popup::Separator => {}
+            Popup::Grid(page, r, c, _) => intents.push(Intent::ResizePage(page, r, c)),
+            Popup::PageSettings => {
+                self.open_session_settings(Some(3));
+            }
             Popup::Choice(field, i) => {
                 self.qe_choice(field, i as i32, intents);
                 self.qe_refresh();
@@ -1623,8 +1875,31 @@ impl App {
         if bubble_core::menu::apply_common(&mut self.core, &cmd, &snap, intents) {
             return;
         }
-        // While typing, the edit commands act on the text field: Cart Setup's when it
-        // has the keyboard.
+        // While typing, the edit commands act on the text field of the window that has
+        // the keyboard: Settings, Session Settings or Cart Setup.
+        if let Some(t) = edit_text(&cmd) {
+            let tool = |w: &slint::Window, typing: bool| window::is_key(w) && typing;
+            if let Some(s) = self
+                .settings
+                .as_ref()
+                .filter(|s| tool(s.win.window(), s.win.global::<TextCommand>().get_typing()))
+            {
+                if !t.is_empty() {
+                    s.win.invoke_text_command(t.into());
+                }
+                return;
+            }
+            if let Some(s) = self
+                .session_settings
+                .as_ref()
+                .filter(|s| tool(s.win.window(), s.win.global::<TextCommand>().get_typing()))
+            {
+                if !t.is_empty() {
+                    s.win.invoke_text_command(t.into());
+                }
+                return;
+            }
+        }
         let setup_typing = self.setup.as_ref().filter(|s| {
             window::is_key(s.win.window()) && s.win.global::<TextCommand>().get_typing()
         });
@@ -1738,7 +2013,8 @@ impl App {
             }
             Cmd::ToggleEditMode => self.edit_mode = !self.edit_mode,
             Cmd::AddPage => intents.push(Intent::AddPage),
-            Cmd::RemovePage => intents.push(Intent::RemovePage(snap.page)),
+            // Delete Page… asks first.
+            Cmd::RemovePage => self.delete_page = Some(snap.page),
             Cmd::PlaySelected => {
                 if let Some(id) = sel {
                     intents.push(Intent::Trigger(id));
@@ -1784,13 +2060,11 @@ impl App {
                 }
             }
             // Windows not in this interface yet (their menu items are disabled).
-            Cmd::SpeedBar
-            | Cmd::Outputs
-            | Cmd::ReassignOutputs
-            | Cmd::ProjectSettings
-            | Cmd::PageSettings
-            | Cmd::ShowLog
-            | Cmd::ShowDiagnostics => {}
+            Cmd::Settings => self.open_settings(None),
+            Cmd::Outputs => self.open_settings(Some(1)),
+            Cmd::ProjectSettings => self.open_session_settings(None),
+            Cmd::PageSettings => self.open_session_settings(Some(3)),
+            Cmd::SpeedBar | Cmd::ReassignOutputs | Cmd::ShowLog | Cmd::ShowDiagnostics => {}
             // Handled by `apply_common`.
             _ => {}
         }
@@ -1907,6 +2181,72 @@ impl App {
         }
         s.show(&mut self.core, snap);
         self.setup = Some(s);
+    }
+
+    // ---- Settings and Session Settings ----
+
+    /// Opens Settings (this computer), at a section if given, or brings it to the front.
+    fn open_settings(&mut self, section: Option<i32>) {
+        if let Some(s) = &self.settings {
+            if let Some(i) = section {
+                s.win.set_section(i);
+            }
+            let _ = s.win.show();
+            return;
+        }
+        let (Ok(win), Some(ui)) = (crate::SettingsWindow::new(), self.ui.upgrade()) else {
+            return;
+        };
+        settings::share_theme!(ui, win);
+        win.set_window_icon(window::icon());
+        if let Some(i) = section {
+            win.set_section(i);
+        }
+        window::remember_menu();
+        wire_settings(&win, &self.me);
+        self.core.scan_devices();
+        let mut s = settings::Settings::new(win, &self.core);
+        s.show(&self.core);
+        let _ = s.win.show();
+        window::keep_above(s.win.window(), ui.window());
+        self.settings = Some(s);
+    }
+
+    /// Opens Session Settings, at a section if given, or brings it to the front.
+    fn open_session_settings(&mut self, section: Option<i32>) {
+        if let Some(s) = &self.session_settings {
+            if let Some(i) = section {
+                s.win.set_section(i);
+            }
+            let _ = s.win.show();
+            return;
+        }
+        let (Ok(win), Some(ui)) = (crate::SessionSettingsWindow::new(), self.ui.upgrade()) else {
+            return;
+        };
+        settings::share_theme!(ui, win);
+        win.set_window_icon(window::icon());
+        if let Some(i) = section {
+            win.set_section(i);
+        }
+        window::remember_menu();
+        wire_session_settings(&win, &self.me);
+        let mut s = settings::SessionSettings::new(win);
+        s.show(&self.core.snapshot());
+        let _ = s.win.show();
+        window::keep_above(s.win.window(), ui.window());
+        self.session_settings = Some(s);
+    }
+
+    /// The close button of Settings (`session` false) or Session Settings. Outputs not
+    /// applied are dropped.
+    fn close_tool(&mut self, session: bool) {
+        if session {
+            self.session_settings = None;
+        } else if self.settings.take().is_some() {
+            self.core.save_prefs();
+        }
+        self.not_typing();
     }
 
     fn close_quick_edit(&mut self) {

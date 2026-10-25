@@ -169,7 +169,7 @@ component TrimBox inherits Rectangle {
 // double-click on the knob puts it back to its default (`reset`); one on the track
 // only moves it. With `log-scale` the middle of the track is the geometric mean
 // (Speed: 25% · 100% · 400%).
-component SetupSlider inherits Rectangle {
+export component SetupSlider inherits Rectangle {
     in-out property <float> value;
     in property <float> minimum;
     in property <float> maximum;
@@ -286,7 +286,7 @@ component Swatch inherits Rectangle {
 }
 
 // A small round ✕ that clears the thing beside it.
-component ClearX inherits Rectangle {
+export component ClearX inherits Rectangle {
     in property <string> label;
     callback clicked();
     width: 18px;
@@ -361,7 +361,7 @@ component PopPair inherits HorizontalLayout {
 
 // A pop-up button that only shows its value; the choices come from Rust as a native
 // menu (`choice-menu`).
-component Choice inherits HorizontalLayout {
+export component Choice inherits HorizontalLayout {
     in property <string> value;
     callback open(length, length);
     // A Mac pop-up button is as wide as its choice; Windows fills the row.

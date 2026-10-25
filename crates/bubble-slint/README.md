@@ -33,6 +33,8 @@ widgets use Slint's cupertino style on macOS and fluent elsewhere (chosen in `bu
 | `ui/quickedit.slint` | Quick edit panel |
 | `ui/theme.slint` | Light/dark colours, the text field that reports focus, flat buttons, pop-up buttons |
 | `ui/cartsetup.slint` | The Cart Setup window: waveform, trim boxes, transport, its own slider, swatches, pop-up pairs |
+| `ui/settings.slint` | The Settings and Session Settings windows: sections, switches, the outputs list |
+| `src/settings.rs` | Settings (this computer) and Session Settings (this session): what they show, their pop-up choices, the outputs draft |
 | `src/cartsetup.rs` | Cart Setup: the draft cart, the waveform view and gestures, the audition, its pop-up choices |
 | `src/app.rs` | Input → `Intent`s, the per-frame core work, everything shown |
 | `src/model.rs` | Snapshot → tiles, tabs, status, quick edit (text from `bubble_core::view`) |
@@ -173,6 +175,22 @@ Done (main window):
       is repainted when it is restored or regains focus (stale areas seen with the software
       renderer after minimising).
 
+- [x] Settings and Session Settings (D-42), each its own window in front of the main
+      one, in sections chosen at the top; changes take effect as they are made.
+      Settings is this computer's: General (Appearance, Page Bar Size, Clicking a Cart,
+      New Sessions In), Audio (Output Level, Safety Limiter, the outputs A, B, … with
+      a name, device and channels each, Sample Rate, Buffer Size: outputs, rate and
+      buffer wait for Apply, which restarts audio) and MIDI (on/off, All Ports, each
+      port). Session Settings is the session's: General (Name, Audio Files, the
+      default Fade-Out and On Retrigger for new carts, Ending Warning, Same Hotkey on
+      Several, Hotkeys Act On), Tiles (typeface, sizes, alignment), Groups and Pages
+      (name, grid, cart numbers). Bubble ▸ Settings… on a Mac, File ▸ Settings…
+      elsewhere; Session Settings is ⌘, / Ctrl+,. There is no Page Settings window:
+      the tab menu has Grid Size ▸ (sizes that would cut off carts are greyed) and
+      Session ▸ Grid Size does the same for the current page. Cart numbers count on
+      across pages. The menus hold commands, not settings (the egui app keeps its
+      settings submenus).
+
 Checked by hand on macOS 15 (MacBook Air M4, femtovg): open, play, stop, ALL STOP,
 Show/Edit, quick edit (layout against the design, arrow, colour, all three toggles on and
 off, Output pop-up, label growing to two lines, moving to another cell, Esc), undo, arrow
@@ -184,8 +202,7 @@ bar. Cross-builds for Windows x64; not yet run on Windows.
 
 Left:
 
-- [ ] Outputs and Reassign Cart Outputs.
-- [ ] Session Settings (incl. Display and a custom output level) and Page Settings.
+- [ ] Reassign Cart Outputs.
 - [ ] Speed Bar.
 - [ ] Playout Log and Audio Diagnostics.
 - [ ] macOS open-file events (double-click a session in Finder, F5) and Windows file
