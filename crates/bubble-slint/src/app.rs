@@ -43,6 +43,22 @@ const BUSY: Duration = Duration::from_millis(100);
 const DRAGGING: Duration = Duration::from_millis(30);
 /// Otherwise: autosave, cloud checks and the status line keep going.
 const IDLE: Duration = Duration::from_secs(1);
+/// Edit mode on a touch screen: a finger held this long opens quick edit.
+const HOLD: Duration = Duration::from_millis(500);
+/// A finger that moves further than this is not a tap or a hold.
+const TOUCH_SLOP: f32 = 24.0;
+
+/// A finger on the cart wall, handled by Bubble itself (see `App::wall_touch`).
+struct Finger {
+    idx: i32,
+    x: f32,
+    y: f32,
+    at: Instant,
+    moved: bool,
+    held: bool,
+    /// Show mode: the cart it pressed (released when it lifts).
+    cart: Option<Uuid>,
+}
 
 thread_local! {
     /// Runs a tick on the UI thread when another thread wakes the window.
@@ -106,6 +122,10 @@ pub struct App {
     /// The last touch on a cell: a mouse press on the same cell just after it is the
     /// system's copy of that touch, not a second press.
     last_touch: Option<(i32, Instant)>,
+    /// Fingers on the cart wall, by touch id, and the last edit-mode tap (a second
+    /// tap on the same empty cell is a double-tap).
+    touches: std::collections::HashMap<u64, Finger>,
+    last_tap: Option<(i32, Instant)>,
     /// The carts in the current page's cells, as shown.
     ids: Vec<Option<Uuid>>,
     page_shown: usize,
@@ -938,6 +958,21 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     let restored = Rc::new(Cell::new(false));
     ui.window().on_winit_window_event(move |_w, ev| {
         match ev {
+            // Touches on the cart wall, one finger at a time (see `App::wall_touch`).
+            WindowEvent::Touch(t) => {
+                let (id, phase, x, y) = (t.id, t.phase, t.location.x, t.location.y);
+                let Ok(mut a) = app.try_borrow_mut() else {
+                    return EventResult::Propagate;
+                };
+                let mut intents = Vec::new();
+                if !a.wall_touch(id, phase, x, y, &mut intents) {
+                    return EventResult::Propagate;
+                }
+                a.last_input = Instant::now();
+                a.apply_intents(intents);
+                a.tick();
+                return EventResult::PreventDefault;
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let (pressed, repeat) = (event.state == ElementState::Pressed, event.repeat);
@@ -954,6 +989,8 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
                 act(&app, |a, i| {
                     i.push(Intent::ReleaseHolds);
                     a.mods = ModifiersState::empty();
+                    // Fingers lifted elsewhere are never reported here.
+                    a.touches.clear();
                 });
             }
             WindowEvent::Focused(true) | WindowEvent::Occluded(false) => {
@@ -1024,6 +1061,8 @@ impl App {
             cursor_empty: None,
             pressed: None,
             last_touch: None,
+            touches: Default::default(),
+            last_tap: None,
             ids: Vec::new(),
             page_shown: 0,
             tiles,
@@ -1191,6 +1230,7 @@ impl App {
             self.core.save_prefs();
         }
 
+        self.hold_fingers(&ui);
         self.show(&ui, &snap);
 
         let playing = snap
@@ -1200,7 +1240,10 @@ impl App {
         if playing {
             self.last_playing = Instant::now();
         }
-        self.interval = if self.drag_hover || self.setup.as_ref().is_some_and(|s| s.is_dragging()) {
+        self.interval = if self.drag_hover
+            || !self.touches.is_empty()
+            || self.setup.as_ref().is_some_and(|s| s.is_dragging())
+        {
             DRAGGING
         } else if self.last_playing.elapsed() < Duration::from_secs(2)
             || self.last_input.elapsed() < Duration::from_millis(600)
@@ -1467,6 +1510,131 @@ impl App {
                 self.selected = None;
                 self.cursor_empty = self.cell_pos(idx);
             }
+        }
+    }
+
+    /// A touch on the cart wall. Slint turns touches into one mouse pointer and takes
+    /// a second finger for the start of a pinch: tapping cart after cart quickly (the
+    /// next finger lands before the last lifts) lost taps, or gave a cart a second
+    /// one. So Bubble follows each finger on the wall itself: in Show mode it plays on
+    /// the press and releases on lifting (hold to play); in Edit mode a tap plays on
+    /// release, a hold opens quick edit (`hold_fingers`), and a second tap on an empty
+    /// cell assigns files. Returns whether the touch was the wall's (Slint does not
+    /// see it then). Touches anywhere else, or with quick edit, a dialog or a rename
+    /// open, go to Slint as before.
+    fn wall_touch(
+        &mut self,
+        id: u64,
+        phase: slint::winit_030::winit::event::TouchPhase,
+        x: f64,
+        y: f64,
+        intents: &mut Vec<Intent>,
+    ) -> bool {
+        use slint::winit_030::winit::event::TouchPhase;
+        let Some(ui) = self.ui.upgrade() else {
+            return false;
+        };
+        let s = ui.window().scale_factor();
+        let (x, y) = (x as f32 / s, y as f32 / s);
+        match phase {
+            TouchPhase::Started => {
+                if self.quick_edit.is_some() || self.renaming.is_some() || self.dialog.is_some() {
+                    return false;
+                }
+                let idx = ui.invoke_cell_at(x, y);
+                if idx < 0 {
+                    return false;
+                }
+                self.last_touch = Some((idx, Instant::now()));
+                let mut f = Finger {
+                    idx,
+                    x,
+                    y,
+                    at: Instant::now(),
+                    moved: false,
+                    held: false,
+                    cart: None,
+                };
+                if !self.edit_mode
+                    && let Some(cart) = self.cart_at(idx)
+                {
+                    intents.push(Intent::PointerDown(cart, MouseButton::Primary));
+                    f.cart = Some(cart);
+                    self.selected = Some(cart);
+                    self.cursor_empty = None;
+                }
+                self.touches.insert(id, f);
+                true
+            }
+            TouchPhase::Moved => match self.touches.get_mut(&id) {
+                Some(f) => {
+                    if (x - f.x).abs() > TOUCH_SLOP || (y - f.y).abs() > TOUCH_SLOP {
+                        f.moved = true;
+                    }
+                    true
+                }
+                None => false,
+            },
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                let Some(f) = self.touches.remove(&id) else {
+                    return false;
+                };
+                if let Some(cart) = f.cart {
+                    intents.push(Intent::PointerUp(cart));
+                }
+                self.last_touch = Some((f.idx, Instant::now()));
+                if self.edit_mode
+                    && phase == TouchPhase::Ended
+                    && !f.moved
+                    && !f.held
+                    && f.at.elapsed() < HOLD
+                {
+                    let double = self.last_tap.is_some_and(|(i, t)| {
+                        i == f.idx && t.elapsed() < Duration::from_millis(400)
+                    });
+                    if double
+                        && self.cart_at(f.idx).is_none()
+                        && let Some((page, row, col)) = self.cell_pos(f.idx)
+                    {
+                        self.files.request(Purpose::Assign {
+                            page,
+                            row,
+                            col,
+                            many: true,
+                        });
+                        self.last_tap = None;
+                    } else {
+                        self.cell_tap(f.idx, intents);
+                        self.last_tap = Some((f.idx, Instant::now()));
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    /// Edit mode: fingers held still on the wall long enough open quick edit (or an
+    /// empty cell's menu there).
+    fn hold_fingers(&mut self, ui: &MainWindow) {
+        // A finger whose lift was never reported (a system gesture took it).
+        self.touches
+            .retain(|_, f| f.at.elapsed() < Duration::from_secs(60));
+        if !self.edit_mode {
+            return;
+        }
+        let due: Vec<(i32, f32, f32)> = self
+            .touches
+            .values_mut()
+            .filter(|f| !f.moved && !f.held && f.at.elapsed() >= HOLD)
+            .map(|f| {
+                f.held = true;
+                (f.idx, f.x, f.y)
+            })
+            .collect();
+        for (idx, x, y) in due {
+            ui.set_press_x(x);
+            ui.set_press_y(y);
+            self.cell_secondary(idx);
         }
     }
 

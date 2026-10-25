@@ -198,7 +198,10 @@ Done (main window):
       swatch; tool windows open in the middle of the main window; page tabs sit on
       whole pixels; Cart Setup zooms to 10 ms with a finer envelope (16 frames per
       bucket); an edit-mode tap may move 24 px, and a mouse press echoing a touch is
-      ignored; control buttons have no Cart Setup in quick edit.
+      ignored; control buttons have no Cart Setup in quick edit. Touches on the cart
+      wall are followed one finger at a time by Bubble (Slint makes one pointer of
+      them and takes a second finger for a pinch, so quick taps across many carts
+      were lost): each finger plays its own cart, in either mode.
 
 Checked by hand on macOS 15 (MacBook Air M4, femtovg): open, play, stop, ALL STOP,
 Show/Edit, quick edit (layout against the design, arrow, colour, all three toggles on and

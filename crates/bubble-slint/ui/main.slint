@@ -98,8 +98,8 @@ export component MainWindow inherits Window {
     in property <[PopupRow]> popup-tail;
     in property <length> popup-x;
     // The last press on a cell (window coordinates), where its menu opens.
-    out property <length> press-x;
-    out property <length> press-y;
+    in-out property <length> press-x;
+    in-out property <length> press-y;
     in property <length> popup-y;
     // Flipped to repaint the whole window (stale areas after a restore).
     in property <int> redraw-nonce;
