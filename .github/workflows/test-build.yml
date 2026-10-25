@@ -1,0 +1,169 @@
+# Test builds: every push to main (or "Run workflow" on any branch) builds Bubble for
+# Windows (x64 and ARM64) and macOS (universal), runs the tests on Windows, and puts the
+# zips on one pre-release called "Test build", replaced each time. Released versions
+# (v0.1.0 and later) are left alone and stay marked Latest.
+#
+# Builds are unsigned: Windows SmartScreen asks first (More info → Run anyway), and on a
+# Mac the app has to be allowed once in System Settings ▸ Privacy & Security.
+
+name: Test build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push replaces a build still running.
+concurrency:
+  group: test-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.arch }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked -p bubble-app -p bubble-slint --target ${{ matrix.target }}
+      - name: Zip
+        shell: bash
+        run: |
+          name="Bubble-test-${GITHUB_SHA::7}-Windows-${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/bubble.exe" "dist/$name/Bubble.exe"
+          cp "target/${{ matrix.target }}/release/bubble-slint.exe" "dist/$name/Bubble Slint.exe"
+          cd dist && 7z a -tzip -bso0 "$name.zip" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist/*.zip
+          retention-days: 14
+
+  # The tests on Windows (on the Mac they run before each commit): a failure here shows
+  # on the run, but the builds above are still published.
+  windows-tests:
+    name: Tests on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: tests
+      - run: cargo test --workspace --locked
+
+  macos:
+    name: macOS universal
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p bubble-app -p bubble-slint --target "$t"
+          done
+          cargo run --release --locked -q -p bubble-icon -- assets/logo.svg target/icon >/dev/null
+          iconutil -c icns target/icon/Bubble.iconset -o target/Bubble.icns
+      - name: Bundle and zip
+        run: |
+          version=$(cargo pkgid -p bubble-app | sed 's/.*[#@]//')
+          short=${GITHUB_SHA::7}
+          mkdir -p dist
+          # app name, executable, bundle id
+          bundle() {
+            app="dist/$1.app"
+            mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+            lipo -create "target/aarch64-apple-darwin/release/$2" \
+              "target/x86_64-apple-darwin/release/$2" -output "$app/Contents/MacOS/$2"
+            cp target/Bubble.icns "$app/Contents/Resources/Bubble.icns"
+            cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>$1</string>
+            <key>CFBundleDisplayName</key><string>$1</string>
+            <key>CFBundleIdentifier</key><string>$3</string>
+            <key>CFBundleExecutable</key><string>$2</string>
+            <key>CFBundleIconFile</key><string>Bubble</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version-$short</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+            xattr -cr "$app"
+            codesign --force --sign - "$app"
+          }
+          bundle "Bubble" bubble app.bubble.dev
+          bundle "Bubble Slint" bubble-slint app.bubble.slint
+          name="Bubble-test-$short-macOS-universal"
+          mkdir "dist/$name"
+          mv dist/*.app "dist/$name/"
+          ditto -c -k --keepParent "dist/$name" "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+          retention-days: 14
+
+  publish:
+    name: Publish "Test build"
+    needs: [windows, macos]
+    # Only main's builds replace the shared pre-release; other branches keep theirs on
+    # the run page (Artifacts).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Replace the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          sha256sum *.zip > SHA256SUMS.txt
+          short=${GITHUB_SHA::7}
+          gh release delete test-build --cleanup-tag --yes || true
+          gh release create test-build *.zip SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --latest=false \
+            --title "Test build ($short)" \
+            --notes "Built automatically from main at $short ($(date -u '+%Y-%m-%d %H:%M UTC')). For testing only: unsigned, and replaced by the next build.
+
+          Windows: unzip, then run Bubble.exe (egui) or Bubble Slint.exe. SmartScreen asks first: More info, then Run anyway. x64 is for Intel and AMD (Surface Go 2, ThinkPad); arm64 for Windows on ARM.
+
+          Mac: unzip, then Control-click the app and choose Open the first time."
