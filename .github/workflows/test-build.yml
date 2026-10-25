@@ -48,6 +48,17 @@ jobs:
       - name: Build
         shell: bash
         run: cargo build --release --locked -p bubble-app -p bubble-slint --target ${{ matrix.target }}
+      # The C runtime is linked in (.cargo/config.toml): a PC without the Visual C++
+      # Redistributable must still run it.
+      - name: Check no VC++ runtime DLL is needed
+        shell: bash
+        run: |
+          for exe in bubble bubble-slint; do
+            if llvm-objdump -p "target/${{ matrix.target }}/release/$exe.exe" | grep -iE 'DLL Name: (vcruntime|msvcp)'; then
+              echo "::error::$exe.exe needs the VC++ runtime"
+              exit 1
+            fi
+          done
       - name: Zip
         shell: bash
         run: |

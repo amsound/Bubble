@@ -1,0 +1,4 @@
+# Windows builds with Microsoft's toolchain link the C runtime into the .exe, so Bubble
+# runs on a PC without the Visual C++ Redistributable (VCRUNTIME140.dll) installed.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
