@@ -1,0 +1,296 @@
+<title>Bubble Native Alerts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one review card per prompt — real Mac captures left, Windows spec and decisions right. */
+:root {
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --fg: #1d1f23;
+  --muted: #5d6470;
+  --line: #dfe2e7;
+  --accent: #2f6fdb;
+  --keep: #1f7a4d;
+  --change: #a55b00;
+  --ask: #6b3fb8;
+  --chip: #eef0f4;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17191d; --card: #212429; --fg: #e9ebef; --muted: #9aa1ad; --line: #33373e;
+    --accent: #6ea2ff; --keep: #4fc38a; --change: #f0a54a; --ask: #b493f5; --chip: #2b2f36;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17191d; --card: #212429; --fg: #e9ebef; --muted: #9aa1ad; --line: #33373e;
+  --accent: #6ea2ff; --keep: #4fc38a; --change: #f0a54a; --ask: #b493f5; --chip: #2b2f36;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 56px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0; text-wrap: balance; }
+h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--muted); display: flex; flex-direction: column; gap: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--chip); }
+.tag.keep { color: var(--keep); } .tag.change { color: var(--change); } .tag.ask { color: var(--ask); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 24px; }
+.card > div { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.head .when { color: var(--muted); font-size: 13px; }
+.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.shots figure { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.shots img { width: 100%; max-width: 260px; height: auto; display: block; }
+.shots figcaption { font-size: 12px; color: var(--muted); }
+.none { border: 1px dashed var(--line); border-radius: 10px; padding: 16px; color: var(--muted); font-size: 14px; }
+ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.win { font-size: 14px; }
+.win b { font-weight: 600; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn { font-size: 13px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--chip); }
+.btn.primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.decide { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.decide .q { color: var(--ask); font-weight: 600; }
+code { font: 13px var(--mono); background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+.next { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 760px) { .card { grid-template-columns: minmax(0, 1fr); } }
+</style>
+
+<div class="wrap">
+  <header class="lede">
+    <h1>Bubble's alerts, made native</h1>
+    <p>Every question Bubble asks today, and what it becomes when the operating system draws it. The Mac pictures are real <code>NSAlert</code> windows captured on this Mac, in Light and Dark, with Bubble's icon. Windows would use the system <b>TaskDialog</b>: I can't render that here, so its column is a written spec.</p>
+    <p>Alerts can hold a title, a short message, up to three buttons (more on a Mac) and, on a Mac only, a few extra controls. Anything with a list or a form is a window or a panel, not an alert.</p>
+    <div class="next"><h2>Decided (23 October)</h2><ul><li>All proposals approved.</li><li>Paste Attributes: the submenu (B).</li><li>Convert to WAV: no alert. The choice moves into the New Session Save panel; a session set to Convert converts without asking.</li><li>Recover: Restore or Discard only. Missing Files: one at a time.</li><li>Cart Setup opens in its own native window.</li></ul></div>
+    <div class="legend"><span><span class="tag keep">Keep</span> same question, native now</span><span><span class="tag change">Change</span> reworded or reshaped</span><span><span class="tag ask">Your call</span> a choice for you</span></div>
+  </header>
+
+  <!-- 1 Save changes -->
+  <section class="card">
+    <div class="head"><h2>Save changes</h2><span class="tag change">Change</span><span class="when">Quit, New, Open or Import with unsaved changes. Replaces today's “Quit Bubble?” and “Unsaved Changes”.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/save-light.png" alt="Mac alert: Do you want to save the changes you made to Test Package? Buttons Save, Don't Save, Cancel" width="260" height="312"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/save-dark.png" alt="The same alert in Dark" width="260" height="312"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>Do you want to save changes to Test Package?</b></p>
+        <div class="btns"><span class="btn primary">Save</span><span class="btn">Don't save</span><span class="btn">Cancel</span></div>
+      </div>
+      <ul>
+        <li>One alert for all four cases, in the words every Mac and Windows app uses.</li>
+        <li>“Save and Quit” and “Quit Without Saving” become Save and Don't Save.</li>
+        <li>Return saves and Esc cancels.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 2 Delete page -->
+  <section class="card">
+    <div class="head"><h2>Delete page</h2><span class="tag keep">Keep</span><span class="when">Delete Page… in the tab menu, Session ▸ Remove Page.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/delete-page-light.png" alt="Mac alert: Delete the page Morning Show? Buttons Cancel and a red Delete" width="260" height="234"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/delete-page-dark.png" alt="The same alert in Dark" width="260" height="234"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>Delete the page “Morning Show”?</b><br>Its carts are deleted with it. You can undo this.</p>
+        <div class="btns"><span class="btn primary">Delete</span><span class="btn">Cancel</span></div>
+      </div>
+      <ul>
+        <li>Delete is marked destructive, so the Mac draws it in red.</li>
+        <li>“Undo brings them back” becomes “You can undo this.”</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 Recover -->
+  <section class="card">
+    <div class="head"><h2>Recover unsaved work</h2><span class="tag change">Change</span><span class="when">At start-up, when Bubble closed with unsaved changes.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/recover-light.png" alt="Mac alert: Restore unsaved changes to Test Package? Buttons Restore and a red Discard Changes" width="260" height="282"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/recover-dark.png" alt="The same alert in Dark" width="260" height="282"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>Restore unsaved changes to Test Package?</b><br>Bubble closed before they were saved. Restoring doesn't change the session file until you save.</p>
+        <div class="btns"><span class="btn primary">Restore</span><span class="btn">Discard changes</span></div>
+      </div>
+      <ul>
+        <li>Today it is one list with Restore / Discard per file. An alert asks about one session, so with two autosaves (rare) Bubble asks twice.</li>
+      </ul>
+      <div class="decide"><span class="q">Your call</span><span>Add a third button, <b>Decide Later</b>, that keeps the autosave and asks again next launch?</span></div>
+    </div>
+  </section>
+
+  <!-- 4 Import -->
+  <section class="card">
+    <div class="head"><h2>Import a SpotOn file</h2><span class="tag change">Change</span><span class="when">Opening or dropping a .dta / .pkg while a session is open.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/import-light.png" alt="Mac alert: Import Studio 1.dta? Buttons Add to This Session, New Session…, Cancel" width="260" height="296"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/import-dark.png" alt="The same alert in Dark" width="260" height="296"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>Import Studio 1.dta?</b></p>
+        <p>→ <b>Add to this session</b><br>→ <b>Start a new session…</b></p>
+        <div class="btns"><span class="btn">Cancel</span></div>
+      </div>
+      <ul>
+        <li>Today the title alone says “Import Studio 1.dta”; the new message says what each choice does.</li>
+        <li>On Windows the two choices are TaskDialog command links (big arrow rows), as Windows does for a choice of actions.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 5 Convert -->
+  <section class="card">
+    <div class="head"><h2>Convert to WAV (dropped)</h2><span class="tag change">Change</span><span class="when">After adding audio that isn't WAV at the output rate.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/convert-light.png" alt="Mac alert: Convert 3 audio files to WAV? Buttons Convert and Not Now" width="260" height="232"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/convert-dark.png" alt="The same alert in Dark" width="260" height="232"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>Convert 3 audio files to WAV?</b><br>They aren't WAV at 48 kHz yet. The originals stay in the session's Audio folder.</p>
+        <div class="btns"><span class="btn primary">Convert</span><span class="btn">Not now</span></div>
+      </div>
+      <div class="decide"><span class="q">Decided</span><span>No alert. Each session already has an Audio files setting (Keep as imported / Convert to WAV); it is chosen when the session is created, and a session set to Convert converts without asking.</span></div>
+    </div>
+  </section>
+
+  <!-- 6 Missing files -->
+  <section class="card">
+    <div class="head"><h2>Missing files</h2><span class="tag change">Change</span><span class="when">Clicking the “missing files” status, or File ▸ Relink Missing Files….</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/missing-light.png" alt="Mac alert: 3 audio files are missing. Buttons Locate… and Later" width="260" height="232"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/missing-dark.png" alt="The same alert in Dark" width="260" height="232"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>3 audio files are missing.</b><br>“intro.wav”, “sting 2.wav” and 1 more.</p>
+        <div class="btns"><span class="btn primary">Locate…</span><span class="btn">Later</span></div>
+      </div>
+      <ul>
+        <li>Today: a list with a Locate… button per file. Instead: this alert, then <b>Locate…</b> opens the system Open panel headed “Locate intro.wav”, one missing file at a time; finding one also relinks the others that moved with it.</li>
+      </ul>
+      <div class="decide"><span class="q">Your call</span><span>Is one-at-a-time enough, or do you want the full list kept as a proper window (with Locate… per row), built when the other windows are ported?</span></div>
+    </div>
+  </section>
+
+  <!-- 7 Problem -->
+  <section class="card">
+    <div class="head"><h2>Something went wrong</h2><span class="tag change">Change</span><span class="when">Any failure: a session that won't open, a save that failed, a session in a cloud-synced folder.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="shots">
+        <figure><img src="img/problem-light.png" alt="Mac alert: Bubble couldn't open Morning Show. Buttons OK and Copy Details" width="260" height="276"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/problem-dark.png" alt="The same alert in Dark" width="260" height="276"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win">
+        <p><b>Bubble couldn't open “Morning Show”.</b><br>The session file is damaged or was made by a newer Bubble.</p>
+        <p>▸ See details <span style="color:var(--muted)">(the technical text, expandable)</span></p>
+        <div class="btns"><span class="btn primary">OK</span></div>
+      </div>
+      <ul>
+        <li>Today the title is always “Problem”. Native alerts put what failed in bold and the reason underneath, so the core's messages need a headline and a detail (a small bubble-core change).</li>
+        <li>Copy Details copies the full text, for sending to support.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 8 Paste attributes -->
+  <section class="card">
+    <div class="head"><h2>Paste attributes</h2><span class="tag ask">Your call</span><span class="when">Edit ▸ Paste Attributes… with a cart copied.</span></div>
+    <div>
+      <h3>macOS (option A)</h3>
+      <div class="shots">
+        <figure><img src="img/paste-attrs-light.png" alt="Mac alert with six checkboxes: Gain and mute, Pan, Fades, Colour, Loop, Behaviour. Buttons Cancel and Paste" width="260" height="360"><figcaption>Light</figcaption></figure>
+        <figure><img src="img/paste-attrs-dark.png" alt="The same alert in Dark" width="260" height="360"><figcaption>Dark</figcaption></figure>
+      </div>
+    </div>
+    <div>
+      <h3>The two options</h3>
+      <ul>
+        <li><b>A. Alert with checkboxes</b> (left). Native on a Mac. Windows' TaskDialog takes only one checkbox, so Windows would need a small window for this one.</li>
+        <li><b>B. A submenu</b>: Edit ▸ Paste Attributes ▸ Gain and Mute, Pan, Fades, Colour, Loop, Behaviour, All. Each pastes that one thing. Native menus on both systems, no dialog at all; the same submenu can sit in the cart's quick edit.</li>
+      </ul>
+      <div class="decide"><span class="q">Your call</span><span>A or B? I'd pick B: one click, identical on Mac and Windows.</span></div>
+    </div>
+  </section>
+
+  <!-- 9 New Session / Save As -->
+  <section class="card">
+    <div class="head"><h2>New Session and Save As</h2><span class="tag change">Change</span><span class="when">File ▸ New Session…, Save As…, and Import into a new session.</span></div>
+    <div>
+      <h3>macOS</h3>
+      <div class="none">Not an alert: this becomes the system <b>Save panel</b> (the same sheet TextEdit and Logic use), with the name field, the folder browser and New Folder. Its title says “New Session”, “Save Session As” or “Import into a New Session”, and its button says Create, Save or Import.</div>
+    </div>
+    <div>
+      <h3>Windows</h3>
+      <div class="win"><p>The system <b>Save As</b> dialog (File name, folder tree, Save), titled the same way.</p></div>
+      <ul>
+        <li>Today it is a Bubble form with Name, Location and Choose…, drawn by Slint. The Choose… folder picker is already the native one; this removes the form around it.</li>
+        <li>A bad name (a session already there) is reported by the system panel itself.</li>
+        <li>New Session adds one control to the panel: <b>Audio files: Keep as imported / Convert to WAV</b> (an accessory pop-up on the Mac, a combo box in the Windows dialog), so it is decided up front.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 10 Could not start -->
+  <section class="card">
+    <div class="head"><h2>Bubble could not start</h2><span class="tag keep">Keep</span><span class="when">The window can't be created (no usable graphics driver).</span></div>
+    <div>
+      <h3>macOS and Windows</h3>
+      <div class="none">Already a native alert on both (through the <code>rfd</code> crate). No change.</div>
+    </div>
+    <div>
+      <h3>How it's built</h3>
+      <ul>
+        <li>All of the above use the same route: <code>rfd</code>'s message dialog where it is enough (two or three buttons), and <code>objc2-app-kit</code> NSAlert / the Windows TaskDialog API directly where we need red buttons, checkboxes, command links or details.</li>
+        <li>On a Mac each alert can be a sheet attached to the window or a free-standing alert. You asked for centred, so free-standing.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="next">
+    <h2>After the alerts: Cart Setup</h2>
+    <p>Cart Setup is the biggest window (waveform, trims, loop audition, fades, behaviour). It gets its own design pass next, for Mac and Windows, with the same question asked up front: which parts are the system's own controls and which are drawn by Bubble.</p>
+  </section>
+</div>

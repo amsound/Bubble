@@ -10,8 +10,11 @@ at a time.
 cargo run -p bubble-slint -- path/to/session.bubble
 BUBBLE_RENDERER=software cargo run -p bubble-slint     # no GPU needed
 SLINT_NO_MUDA=1 cargo run -p bubble-slint              # in-window menu bar (as on Linux)
+scripts/macos-slint-test-bundle.sh path/to/session.bubble  # a throwaway .app with its own home folder
 CARGO_PROFILE_RELEASE_STRIP=debuginfo cargo zigbuild --release -p bubble-slint --target x86_64-pc-windows-gnu
 ```
+
+Design boards for this interface: [docs/design](../../docs/design/README.md).
 
 `scripts/release.sh` also builds `Bubble-Slint-<version>-macOS-universal.zip` and
 `Bubble-Slint-<version>-Windows-x64.zip`.

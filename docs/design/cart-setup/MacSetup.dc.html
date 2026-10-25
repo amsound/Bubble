@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cart Setup on macOS</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fb2ff}a:hover{color:#b3d1ff}
+</style>
+</helmet>
+<div style="width: 1200px; height: 1000px; box-sizing: border-box; padding: 24px 40px 32px; background: #121316; color: #ececec; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; gap: 14px">
+  <div style="display: flex; align-items: center; gap: 14px; font-size: 13px; color: #a9b0bb">
+    <span style="font-weight: 600; color: #ececec">macOS</span>
+    <span>Everything inside the window is drawn by Slint, except what is tagged</span>
+    <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4">System</span>
+  </div>
+
+  <!-- The window -->
+  <div style="flex: 1; border-radius: 12px; background: #1f2023; box-shadow: 0 0 0 0.5px rgba(255,255,255,0.18), 0 24px 60px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden">
+    <!-- title bar: system -->
+    <div style="height: 30px; background: #2a2b2f; display: flex; align-items: center; padding: 0 12px; position: relative; flex-shrink: 0">
+      <div style="display: flex; gap: 8px">
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span>
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span>
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span>
+      </div>
+      <span style="margin-left: 10px; position: relative"><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4">Close with edits: system alert</span></span>
+      <span style="position: absolute; left: 0; right: 0; text-align: center; font-weight: 600; color: #d6d8dc; pointer-events: none">Cart Setup - Morning News</span>
+      <span style="margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4; position: relative">System window</span>
+    </div>
+
+    <div style="flex: 1; padding: 14px 16px 0; display: flex; flex-direction: column; gap: 12px; min-height: 0">
+      <!-- header -->
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="font-size: 15px; font-weight: 700">Morning News</span>
+        <span style="color: #8e939a">intro-news-bed.wav · 48 kHz · stereo · 0:41.20</span>
+        <span style="flex: 1"></span>
+        <button type="button" style="font: inherit; padding: 3px 12px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.14); color: #ececec">Top and Tail</button>
+        <button type="button" style="font: inherit; padding: 3px 12px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.14); color: #ececec">Zoom to Fit</button>
+      </div>
+
+      <!-- waveform + meter -->
+      <div style="display: flex; gap: 10px; flex: 1; min-height: 236px">
+        <div style="flex: 1; border-radius: 9px; background: #15161a; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07); display: flex; flex-direction: column; overflow: hidden; min-width: 0">
+          <div style="height: 22px; display: flex; justify-content: space-between; padding: 0 8px; align-items: center; font-size: 11px; color: #8e939a; font-variant-numeric: tabular-nums; border-bottom: 1px solid rgba(255,255,255,0.06)">
+            <span>0:00</span><span>0:10</span><span>0:20</span><span>0:30</span><span>0:41</span>
+          </div>
+          <div style="flex: 1; position: relative">
+            <svg viewBox="0 0 800 200" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%" aria-hidden="true">
+              <path d="{{wave}}" stroke="#6ea8ff" stroke-width="1.6" fill="none"></path>
+              <path d="M60 196 L112 4" stroke="#ff9f0a" stroke-width="2" fill="none"></path>
+              <path d="M650 4 L722 196" stroke="#ff9f0a" stroke-width="2" fill="none"></path>
+            </svg>
+            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 7.5%; background: rgba(0,0,0,0.55)"></div>
+            <div style="position: absolute; right: 0; top: 0; bottom: 0; width: 9.75%; background: rgba(0,0,0,0.55)"></div>
+            <div style="position: absolute; left: 7.5%; top: 0; bottom: 0; width: 2px; background: #ffd60a"></div>
+            <div style="position: absolute; left: 7.5%; top: 0; padding: 1px 6px; background: #ffd60a; color: #1a1a1a; font-size: 10px; font-weight: 700; border-radius: 0 0 4px 0">IN</div>
+            <div style="position: absolute; left: 90.25%; top: 0; bottom: 0; width: 2px; background: #ffd60a"></div>
+            <div style="position: absolute; left: calc(90.25% - 30px); top: 0; padding: 1px 6px; background: #ffd60a; color: #1a1a1a; font-size: 10px; font-weight: 700; border-radius: 0 0 0 4px">OUT</div>
+            <div style="position: absolute; left: 37.5%; top: 0; bottom: 0; width: 2px; background: #ffffff; box-shadow: 0 0 6px rgba(255,255,255,0.6)"></div>
+          </div>
+        </div>
+        <div style="width: 40px; border-radius: 9px; background: #15161a; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07); padding: 8px 7px; box-sizing: border-box; display: flex; gap: 4px; align-items: flex-end">
+          <div style="flex: 1; height: 100%; border-radius: 3px; background: rgba(255,255,255,0.06); display: flex; align-items: flex-end"><div style="width: 100%; height: 68%; border-radius: 3px; background: linear-gradient(to top, #30d158 0%, #30d158 70%, #ffd60a 88%, #ff453a 100%)"></div></div>
+          <div style="flex: 1; height: 100%; border-radius: 3px; background: rgba(255,255,255,0.06); display: flex; align-items: flex-end"><div style="width: 100%; height: 61%; border-radius: 3px; background: linear-gradient(to top, #30d158 0%, #30d158 70%, #ffd60a 88%, #ff453a 100%)"></div></div>
+        </div>
+      </div>
+
+      <!-- trim in / transport / trim out -->
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) 300px minmax(0, 1fr); gap: 10px">
+        <div style="border-radius: 9px; background: rgba(255,255,255,0.06); padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px">
+          <span style="color: #c8cbd0">Trim In</span>
+          <div style="display: flex; gap: 6px; align-items: center">
+            <span style="flex: 1; font-size: 18px; font-variant-numeric: tabular-nums; padding: 3px 9px; border-radius: 5px; background: rgba(255,255,255,0.1)">0:03.12</span>
+            <button type="button" aria-label="Earlier" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; font: inherit; font-size: 16px">−</button>
+            <button type="button" aria-label="Later" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; font: inherit; font-size: 16px">+</button>
+            <button type="button" style="font: inherit; height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec">Set (I)</button>
+          </div>
+        </div>
+        <div style="border-radius: 9px; background: rgba(255,255,255,0.06); padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px">
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; text-align: center">
+            <span style="padding: 3px 0; border-radius: 5px; background: rgba(0,0,0,0.35); color: #ffd60a">0:12.08</span>
+            <span style="padding: 3px 0; border-radius: 5px; background: rgba(0,0,0,0.35); color: #64d2ff">−0:22.10</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px">
+            <button type="button" aria-label="Back to In" style="height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3v10M13 3.5 6.5 8l6.5 4.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg></button>
+            <button type="button" aria-label="Loop" style="height: 28px; border: 0; border-radius: 6px; background: #0a84ff; color: #fff; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+            <button type="button" aria-label="Pause (Space)" style="height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10M11 3v10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path></svg></button>
+            <button type="button" aria-label="Stop" style="height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4h8v8H4z" fill="currentColor"></path></svg></button>
+          </div>
+        </div>
+        <div style="border-radius: 9px; background: rgba(255,255,255,0.06); padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px">
+          <span style="color: #c8cbd0">Trim Out</span>
+          <div style="display: flex; gap: 6px; align-items: center">
+            <span style="flex: 1; font-size: 18px; font-variant-numeric: tabular-nums; padding: 3px 9px; border-radius: 5px; background: rgba(255,255,255,0.1)">0:37.18</span>
+            <button type="button" aria-label="Earlier" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; font: inherit; font-size: 16px">−</button>
+            <button type="button" aria-label="Later" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec; font: inherit; font-size: 16px">+</button>
+            <button type="button" style="font: inherit; height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec">Set (O)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- settings: Sound | Cart -->
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span style="font-weight: 700; font-size: 13px; padding-left: 4px">Sound</span>
+          <div style="border-radius: 9px; background: rgba(255,255,255,0.06); display: flex; flex-direction: column">
+            <sc-for list="{{sound}}" as="r" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px; border-top: {{r.rule}}">
+                <span style="color: #c8cbd0">{{r.k}}</span>
+                <div style="display: flex; align-items: center; gap: 8px; min-width: 0">
+                  <sc-if value="{{r.slider}}" hint-placeholder-val="{{false}}">
+                    <div style="flex: 1; position: relative; height: 18px">
+                      <div style="position: absolute; left: 0; right: 0; top: 8px; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.2)"></div>
+                      <div style="position: absolute; left: 0; top: 8px; height: 3px; border-radius: 2px; background: #0a84ff; width: {{r.pos}}"></div>
+                      <div style="position: absolute; top: 0; width: 18px; height: 18px; border-radius: 50%; background: #f2f2f2; box-shadow: 0 1px 3px rgba(0,0,0,0.5); left: calc({{r.pos}} - 9px)"></div>
+                    </div>
+                    <span style="width: 64px; text-align: right; font-variant-numeric: tabular-nums">{{r.v}}</span>
+                  </sc-if>
+                  <sc-if value="{{r.popup}}" hint-placeholder-val="{{false}}">
+                    <span style="height: 22px; padding: 0 6px 0 9px; border-radius: 5px; background: rgba(255,255,255,0.12); display: inline-flex; align-items: center; gap: 8px">{{r.v}}<svg width="9" height="12" viewBox="0 0 9 12" aria-hidden="true"><path d="M1.5 4.5 4.5 1.5l3 3M1.5 7.5l3 3 3-3" stroke="#c8cbd0" fill="none" stroke-width="1.3"></path></svg></span>
+                    <sc-if value="{{r.second}}" hint-placeholder-val="{{false}}">
+                      <span style="color: #8e939a">{{r.secondK}}</span>
+                      <span style="height: 22px; padding: 0 6px 0 9px; border-radius: 5px; background: rgba(255,255,255,0.12); display: inline-flex; align-items: center; gap: 8px">{{r.secondV}}<svg width="9" height="12" viewBox="0 0 9 12" aria-hidden="true"><path d="M1.5 4.5 4.5 1.5l3 3M1.5 7.5l3 3 3-3" stroke="#c8cbd0" fill="none" stroke-width="1.3"></path></svg></span>
+                      <button type="button" style="font: inherit; padding: 2px 10px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.14); color: #ececec">Open…</button>
+                    </sc-if>
+                    <span style="margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4">System menu</span>
+                  </sc-if>
+                  <sc-if value="{{r.toggles}}" hint-placeholder-val="{{false}}">
+                    <div style="flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+                      <sc-for list="{{r.items}}" as="t" hint-placeholder-count="3">
+                        <button type="button" style="font: inherit; height: 26px; border: 0; border-radius: 7px; display: flex; align-items: center; justify-content: center; gap: 6px; background: {{t.bg}}; color: {{t.fg}}">{{t.k}}</button>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span style="font-weight: 700; font-size: 13px; padding-left: 4px">Cart</span>
+          <div style="border-radius: 9px; background: rgba(255,255,255,0.06); display: flex; flex-direction: column">
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px">
+              <span style="color: #c8cbd0">Label</span>
+              <span style="padding: 3px 8px; border-radius: 5px; background: rgba(255,255,255,0.1)">Morning News</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.08)">
+              <span style="color: #c8cbd0">Colour</span>
+              <div style="display: flex; align-items: center; gap: 5px">
+                <sc-for list="{{swatches}}" as="s" hint-placeholder-count="10"><span style="width: 18px; height: 18px; border-radius: 50%; {{s}}"></span></sc-for>
+                <span style="width: 1px; height: 16px; margin: 0 2px; background: rgba(255,255,255,0.18)"></span>
+                <span style="width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(#ff3b30, #ffcc00, #34c759, #00c7be, #0a84ff, #bf5af2, #ff2d55, #ff3b30)"></span>
+                <span style="margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4">System colours</span>
+              </div>
+            </div>
+            <sc-for list="{{cart}}" as="r" hint-placeholder-count="3">
+              <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.08)">
+                <span style="color: #c8cbd0">{{r.k}}</span>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span style="height: 22px; padding: 0 6px 0 9px; border-radius: 5px; background: rgba(255,255,255,0.12); display: inline-flex; align-items: center; gap: 8px">{{r.v}}<svg width="9" height="12" viewBox="0 0 9 12" aria-hidden="true"><path d="M1.5 4.5 4.5 1.5l3 3M1.5 7.5l3 3 3-3" stroke="#c8cbd0" fill="none" stroke-width="1.3"></path></svg></span>
+                  <span style="margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4">System menu</span>
+                </div>
+              </div>
+            </sc-for>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.08)">
+              <span style="color: #c8cbd0">Hotkey</span>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="font-size: 12px; font-weight: 600; line-height: 18px; padding: 0 7px; border-radius: 4px; background: rgba(255,255,255,0.88); color: #C62828">F6</span>
+                <span style="height: 22px; padding: 0 6px 0 9px; border-radius: 5px; background: rgba(255,255,255,0.12); display: inline-flex; align-items: center; gap: 8px">Play / Stop<svg width="9" height="12" viewBox="0 0 9 12" aria-hidden="true"><path d="M1.5 4.5 4.5 1.5l3 3M1.5 7.5l3 3 3-3" stroke="#c8cbd0" fill="none" stroke-width="1.3"></path></svg></span>
+                <span style="flex: 1"></span>
+                <button type="button" style="font: inherit; padding: 2px 10px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.14); color: #ececec">Learn</button>
+                <button type="button" style="font: inherit; padding: 2px 10px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.14); color: #ececec">Clear</button>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.08)">
+              <span style="color: #c8cbd0">MIDI</span>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="font-variant-numeric: tabular-nums">Note 60 · ch 1</span>
+                <span style="height: 22px; padding: 0 6px 0 9px; border-radius: 5px; background: rgba(255,255,255,0.12); display: inline-flex; align-items: center; gap: 8px">Play<svg width="9" height="12" viewBox="0 0 9 12" aria-hidden="true"><path d="M1.5 4.5 4.5 1.5l3 3M1.5 7.5l3 3 3-3" stroke="#c8cbd0" fill="none" stroke-width="1.3"></path></svg></span>
+                <span style="flex: 1"></span>
+                <button type="button" style="font: inherit; padding: 2px 10px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.14); color: #ececec">Learn</button>
+                <button type="button" style="font: inherit; padding: 2px 10px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.14); color: #ececec">Clear</button>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.08)">
+              <span style="color: #c8cbd0">Audio File</span>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <button type="button" style="font: inherit; padding: 2px 10px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.14); color: #ececec">Replace…</button>
+                <span style="color: #8e939a">Locate… appears when the file is missing</span>
+                <span style="margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(95,212,196,0.18); color: #5fd4c4">System panel</span>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; align-items: start; padding: 6px 10px 8px; border-top: 1px solid rgba(255,255,255,0.08)">
+              <span style="color: #c8cbd0; padding-top: 4px">Notes</span>
+              <span style="min-height: 38px; padding: 4px 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: #8e939a; line-height: 1.4">Bed under the news intro; fade on the presenter.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- footer -->
+      <div style="display: flex; align-items: center; gap: 8px; padding: 12px 0 14px; border-top: 1px solid rgba(255,255,255,0.08)">
+        
+        <span style="flex: 1"></span>
+        <button type="button" style="font: inherit; padding: 4px 16px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.14); color: #ececec">Cancel</button>
+        <button type="button" style="font: inherit; padding: 4px 22px; border: 0; border-radius: 6px; background: #0a84ff; color: #ffffff">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    let wave = '';
+    for (let i = 0; i < 400; i++) {
+      const x = i * 2 + 1;
+      const env = 0.28 + 0.62 * Math.abs(Math.sin(i * 0.021)) * (0.65 + 0.35 * Math.sin(i * 0.37) * Math.cos(i * 0.11));
+      const a = Math.max(3, Math.min(96, env * 96 * (0.75 + 0.25 * Math.abs(Math.sin(i * 1.7)))));
+      wave += 'M' + x + ' ' + (100 - a).toFixed(1) + 'V' + (100 + a).toFixed(1);
+    }
+    const rule = (i) => (i === 0 ? '0' : '1px solid rgba(255,255,255,0.08)');
+    const on = { bg: '#0a84ff', fg: '#ffffff' };
+    const off = { bg: 'rgba(255,255,255,0.1)', fg: '#e8e8e8' };
+    const sound = [
+      { k: 'Output', popup: true, v: 'A – Studio' },
+      { k: 'Gain', slider: true, pos: '56%', v: '+1.5 dB' },
+      { k: 'Pan', slider: true, pos: '50%', v: 'Centre' },
+      { k: 'Speed', slider: true, pos: '50%', v: '100%' },
+      { k: 'Speed Bar', popup: true, v: 'x0 · 2 s', second: true, secondK: '', secondV: 'x1 · 1 s' },
+      { k: 'Fade In', popup: true, v: 'None' },
+      { k: 'Fade Out', popup: true, v: 'Default (1.5 s)' },
+      { k: 'Playback', toggles: true, items: [ { k: 'Loop', ...on }, { k: 'Mute', ...off }, { k: 'Hold', ...off } ] },
+      { k: 'On Retrigger', popup: true, v: 'Restart' }
+    ].map((r, i) => ({ slider: false, popup: false, toggles: false, second: false, items: [], ...r, rule: rule(i) }));
+    const cart = [
+      { k: 'When It Starts', v: 'Stop nothing' },
+      { k: 'When It Ends', v: 'Play the next cart' },
+      { k: 'Group', v: 'Group 1' }
+    ];
+    const cols = ['#3A6EA5', '#2E7D32', '#C62828', '#EF6C00', '#F9A825', '#6A1B9A', '#AD1457', '#00838F', '#5D4037', '#545B64'];
+    const swatches = cols.map((c, i) => 'background: ' + c + (i === 2 ? '; box-shadow: 0 0 0 2px #2a2c30, 0 0 0 4px #ffffff' : ''));
+    return { wave, sound, cart, swatches };
+  }
+}
+</script>
+</body>
+</html>

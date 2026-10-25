@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dialogs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+</style>
+</helmet>
+<div style="width: 1280px; height: 840px; box-sizing: border-box; padding: 40px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 18px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 28px">Dialogs</h1>
+    <p style="margin: 0; font-size: 14px; color: #a7adb4">Inside the main window, the window behind shaded. Button order follows each platform. Return is the main button, Esc is Cancel. Errors stay selectable with a Copy button.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px">
+
+    <!-- macOS -->
+    <div style="display: flex; flex-direction: column; gap: 22px">
+      <span style="font-size: 15px; font-weight: 700">macOS: sheet from the title bar; main button rightmost, Don’t Save far left</span>
+      <div style="height: 290px; border-radius: 10px; background: #26292e; position: relative; overflow: hidden">
+        <div style="height: 28px; background: #2a2d33; display: flex; align-items: center; gap: 8px; padding-left: 12px"><span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span></div>
+        <div style="position: absolute; left: 50%; top: 28px; transform: translateX(-50%); width: 420px; padding: 20px; box-sizing: border-box; border-radius: 0 0 12px 12px; background: rgba(58,61,68,0.97); box-shadow: 0 14px 34px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 12px; font-size: 13px">
+          <div style="display: flex; gap: 14px">
+            <svg width="48" height="48" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="11" fill="#1F2B3D"/><circle cx="22" cy="22" r="13" fill="#2f6bff"/><path d="M18 15v14l11-7z" fill="#fff"/><circle cx="36" cy="36" r="4" fill="#4fd1ff"/></svg>
+            <div style="display: flex; flex-direction: column; gap: 4px"><b style="font-size: 13px">Do you want to save the changes to “Breakfast Show”?</b><span style="color: #c5c8cc">Your changes will be lost if you don’t save them.</span></div>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 6px">
+            <button type="button" style="font: inherit; font-size: 13px; padding: 4px 14px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.16); color: #fff">Don’t Save</button>
+            <span style="flex: 1"></span>
+            <button type="button" style="font: inherit; font-size: 13px; padding: 4px 14px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.16); color: #fff">Cancel</button>
+            <button type="button" style="font: inherit; font-size: 13px; padding: 4px 18px; border-radius: 6px; border: 0; background: #2f6bff; color: #fff">Save</button>
+          </div>
+        </div>
+      </div>
+      <div style="width: 420px; align-self: center; padding: 20px; box-sizing: border-box; border-radius: 12px; background: rgba(58,61,68,0.97); box-shadow: 0 14px 34px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 10px; font-size: 13px">
+        <b>Could not open “Morning.bubble”</b>
+        <div style="font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 6px; background: rgba(0,0,0,0.25); color: #d6d8db; user-select: text">The file is not a Bubble session (expected format bubble-project, found JSON object without "format").</div>
+        <div style="display: flex; gap: 8px"><span style="flex: 1"></span><button type="button" style="font: inherit; font-size: 13px; padding: 4px 14px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.16); color: #fff">Copy</button><button type="button" style="font: inherit; font-size: 13px; padding: 4px 22px; border-radius: 6px; border: 0; background: #2f6bff; color: #fff">OK</button></div>
+      </div>
+    </div>
+
+    <!-- Windows -->
+    <div style="display: flex; flex-direction: column; gap: 22px; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif">
+      <span style="font-size: 15px; font-weight: 700">Windows 11: content dialog; main button first, Cancel last</span>
+      <div style="height: 290px; border-radius: 8px; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center">
+        <div style="width: 460px; border-radius: 8px; overflow: hidden; background: #2b2b2b; border: 1px solid #404040; box-shadow: 0 16px 32px rgba(0,0,0,0.5)">
+          <div style="padding: 24px; display: flex; flex-direction: column; gap: 12px">
+            <b style="font-size: 20px; font-weight: 600">Save changes to Breakfast Show?</b>
+            <span style="font-size: 14px; color: #c5c5c5">Your changes will be lost if you don’t save them.</span>
+          </div>
+          <div style="padding: 20px 24px; background: #202020; border-top: 1px solid #333; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+            <button type="button" style="font: inherit; font-size: 14px; height: 36px; border-radius: 4px; border: 0; background: #4cc2ff; color: #000">Save</button>
+            <button type="button" style="font: inherit; font-size: 14px; height: 36px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; color: #fff">Don’t save</button>
+            <button type="button" style="font: inherit; font-size: 14px; height: 36px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; color: #fff">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div style="width: 460px; align-self: center; border-radius: 8px; overflow: hidden; background: #2b2b2b; border: 1px solid #404040; box-shadow: 0 16px 32px rgba(0,0,0,0.5)">
+        <div style="padding: 24px; display: flex; flex-direction: column; gap: 12px">
+          <b style="font-size: 20px; font-weight: 600">Could not open Morning.bubble</b>
+          <div style="font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: 4px; background: #1f1f1f; color: #d6d6d6; user-select: text">The file is not a Bubble session (expected format bubble-project, found JSON object without "format").</div>
+        </div>
+        <div style="padding: 20px 24px; background: #202020; border-top: 1px solid #333; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+          <button type="button" style="font: inherit; font-size: 14px; height: 36px; border-radius: 4px; border: 0; background: #4cc2ff; color: #000">OK</button>
+          <button type="button" style="font: inherit; font-size: 14px; height: 36px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; color: #fff">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":840}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

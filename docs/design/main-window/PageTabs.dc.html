@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Page tabs: current page and playing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+</style>
+</helmet>
+<div style="width: 1280px; height: 1300px; box-sizing: border-box; padding: 36px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 18px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 28px">Page tabs: which page, and is anything playing on it</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #a7adb4; max-width: 1160px">Neutral colours only, so a tab never looks like a cart or the red ALL STOP. In every option the name stays put when a page starts or stops playing. Each row shows the same two moments: Morning is current and playing while Music plays in the background; then Ads is current with nothing playing on it.</p>
+  </div>
+  <sc-for list="{{options}}" as="o" hint-placeholder-count="4">
+    <div style="display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border-radius: 10px; background: #24272c">
+      <div style="display: flex; align-items: baseline; gap: 12px">
+        <span style="font-size: 17px; font-weight: 700">{{o.title}}</span>
+        <sc-if value="{{o.recommended}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #dff3e6; color: #1d6b3a">Recommended</span></sc-if>
+        <span style="font-size: 13px; color: #a7adb4">{{o.note}}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+        <sc-for list="{{o.themes}}" as="th" hint-placeholder-count="2">
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; {{th.bg}}">
+            <sc-for list="{{th.strips}}" as="s" hint-placeholder-count="2">
+              <div style="display: flex; gap: 6px">
+                <sc-for list="{{s}}" as="t" hint-placeholder-count="4">
+                  <span style="{{t.style}}">
+                    <span style="{{t.slot}}">▶</span>
+                    <span>{{t.name}}</span>
+                    <sc-if value="{{t.under}}" hint-placeholder-val="{{false}}"><span style="{{t.under}}"></span></sc-if>
+                    <sc-if value="{{t.top}}" hint-placeholder-val="{{false}}"><span style="{{t.top}}"></span></sc-if>
+                  </span>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const yellow = '#ffd82e';
+    const themes = {
+      dark: { bg: 'background: #24272c', tab: '#3a3f46', text: '#e8e8e8', inv: '#e8e8e8', invText: '#1b1d21', raised: '#5b626b', mark: '#ffffff', playOnInv: '#8a6d00' },
+      light: { bg: 'background: #dde1e6', tab: '#c7cdd5', text: '#1c1f23', inv: '#2b2f35', invText: '#ffffff', raised: '#ffffff', mark: '#1c1f23', playOnInv: yellow }
+    };
+    const base = 'position: relative; box-sizing: border-box; width: 118px; height: 46px; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 14px; overflow: hidden; ';
+    const hidden = 'width: 12px; font-size: 11px; visibility: hidden';
+    const shown = (col) => 'width: 12px; font-size: 11px; color: ' + col;
+    const none = 'display: none';
+    // Each option: (theme, current, playing) -> tab style parts.
+    const opts = [
+      {
+        title: 'Chosen: inverted current tab, yellow bar along the top when playing', recommended: true,
+        note: 'Option 1’s current tab with option 3’s playing bar.',
+        make: (c, cur, play) => ({
+          style: base + (cur ? 'background: ' + c.inv + '; color: ' + c.invText + '; font-weight: 700' : 'background: ' + c.tab + '; color: ' + c.text),
+          slot: none, under: '',
+          top: play ? 'position: absolute; left: 0; right: 0; top: 0; height: 5px; background: ' + yellow : ''
+        })
+      },
+      {
+        title: '1. Inverted current tab, yellow outline when playing',
+        note: 'The current page is the one light (or dark) tab; playing borrows the tile’s yellow border.',
+        make: (c, cur, play) => ({
+          style: base + (cur ? 'background: ' + c.inv + '; color: ' + c.invText + '; font-weight: 700' : 'background: ' + c.tab + '; color: ' + c.text) + (play ? '; box-shadow: inset 0 0 0 3px ' + yellow : ''),
+          slot: none, under: '', top: ''
+        })
+      },
+      {
+        title: '2. Raised current tab, ▶ in a reserved space',
+        note: 'Keeps the ▶ you liked: its space is always there, so the name never shifts.',
+        make: (c, cur, play) => ({
+          style: base + (cur ? 'background: ' + c.raised + '; color: ' + (c === themes.light ? '#1c1f23' : '#ffffff') + '; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.35)' : 'background: ' + c.tab + '; color: ' + c.text),
+          slot: play ? shown(yellow === yellow && c === themes.light ? '#9a7b00' : yellow) : hidden, under: '', top: ''
+        })
+      },
+      {
+        title: '3. Underlined current tab, yellow bar along the top when playing',
+        note: 'Like a browser tab strip: a white bar marks the page you are on, a yellow strip the pages playing.',
+        make: (c, cur, play) => ({
+          style: base + 'background: ' + c.tab + '; color: ' + c.text + (cur ? '; font-weight: 700' : ''),
+          slot: none,
+          under: cur ? 'position: absolute; left: 10px; right: 10px; bottom: 0; height: 4px; border-radius: 2px 2px 0 0; background: ' + c.mark : '',
+          top: play ? 'position: absolute; left: 0; right: 0; top: 0; height: 5px; background: ' + yellow : ''
+        })
+      },
+      {
+        title: '4. Inverted current tab with ▶ and outline',
+        note: 'Option 1 plus the ▶ in its reserved space: the strongest signal, a little busier.',
+        make: (c, cur, play) => ({
+          style: base + (cur ? 'background: ' + c.inv + '; color: ' + c.invText + '; font-weight: 700' : 'background: ' + c.tab + '; color: ' + c.text) + (play ? '; box-shadow: inset 0 0 0 3px ' + yellow : ''),
+          slot: play ? shown(cur ? c.playOnInv : (c === themes.light ? '#9a7b00' : yellow)) : hidden, under: '', top: ''
+        })
+      }
+    ];
+    const strips = (o, c) => [
+      [['Morning', true, true], ['Music', false, true], ['Ads', false, false], ['Idents', false, false], ['News', false, false]],
+      [['Morning', false, true], ['Music', false, false], ['Ads', true, false], ['Idents', false, false], ['News', false, false]]
+    ].map((row) => row.map(([name, cur, play]) => Object.assign({ name }, o.make(c, cur, play))));
+    return {
+      options: opts.map((o) => ({
+        title: o.title, note: o.note, recommended: !!o.recommended,
+        themes: [
+          { bg: themes.dark.bg, strips: strips(o, themes.dark) },
+          { bg: themes.light.bg, strips: strips(o, themes.light) }
+        ]
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

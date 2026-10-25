@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Main window, Windows</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#2f6bff}a:hover{color:#1d4fd1}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.25}}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 840px; box-sizing: border-box; background: linear-gradient(160deg, #20345a, #0f1a2e); font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; align-items: flex-start; justify-content: center; padding: 24px 40px 0">
+  <!-- Window -->
+  <div style="width: 1180px; height: 772px; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; background: {{c.window}}; box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px {{c.edge}}">
+    <!-- Native title bar: icon and title left, caption buttons right -->
+    <div style="height: 32px; flex-shrink: 0; display: flex; align-items: center; background: {{c.title}}">
+      <svg style="margin: 0 10px 0 12px" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="6" fill="#2f6bff"/><path d="M5.5 4.5v5l4-2.5z" fill="#ffffff"/><circle cx="13" cy="13" r="2" fill="#4fd1ff"/></svg>
+      <span style="font-size: 12px; color: {{c.titleText}}">Bubble - Breakfast Show &gt; Last saved at 07:42</span>
+      <span style="flex: 1"></span>
+      <span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="{{c.titleText}}" stroke-width="1"/></svg></span>
+      <span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" rx="1" fill="none" stroke="{{c.titleText}}" stroke-width="1"/></svg></span>
+      <span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="{{c.titleText}}" stroke-width="1"/></svg></span>
+    </div>
+    <!-- Native menu bar with Alt-key letters -->
+    <div style="height: 28px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; padding: 0 6px; background: {{c.title}}; border-bottom: 1px solid {{c.line}}; font-size: 13px; color: {{c.text}}">
+      <sc-for list="{{menus}}" as="m" hint-placeholder-count="6">
+        <span style="padding: 3px 9px; border-radius: 4px"><u>{{m.k}}</u>{{m.rest}}</span>
+      </sc-for>
+    </div>
+
+    <!-- Content: wall with the busy strip floating over its top -->
+    <div style="flex: 1; position: relative; padding: 6px; display: grid; grid-template-columns: repeat(5, 228px); grid-template-rows: repeat(3, 206px); gap: 6px">
+      <sc-for list="{{tiles}}" as="t" hint-placeholder-count="15">
+        <dc-import name="Tile" t="{{t}}" w="{{tw}}" h="{{th}}" hint-size="228px,206px"></dc-import>
+      </sc-for>
+
+      <!-- Busy popover: one place for "Bubble is busy"; non-modal, top centre,
+           solid on Windows, with a close button sized for touch -->
+      <div style="position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: 460px; border-radius: 8px; padding: 10px 10px 14px 16px; box-sizing: border-box; background: #2b2b2b; border: 1px solid #404040; color: #ffffff; box-shadow: 0 10px 28px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); border-top-color: #4cc2ff; animation: spin 0.9s linear infinite"></span>
+          <b style="font-weight: 600">Loading audio</b>
+          <span style="flex: 1"></span>
+          <span style="font-variant-numeric: tabular-nums; color: #c5c5c5">12 of 32 files</span>
+          <button type="button" aria-label="Hide" style="width: 32px; height: 32px; padding: 0; border-radius: 4px; border: 0; background: transparent; color: #c5c5c5; font-size: 13px">✕</button>
+        </div>
+        <div style="height: 4px; border-radius: 2px; background: #454545; overflow: hidden; margin-right: 6px"><div style="width: 37%; height: 4px; border-radius: 2px; background: #4cc2ff"></div></div>
+        <div style="display: flex; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid #3a3a3a; margin-right: 6px">
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v7.5M5 6.5l3 3 3-3M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2" fill="none" stroke="#8fb0ff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Copying Weather Bed v3.wav to cell 7</span>
+          <span style="font-variant-numeric: tabular-nums; color: #c5c5c5">38%</span>
+        </div>
+        <div style="height: 4px; border-radius: 2px; background: #454545; overflow: hidden; margin-right: 6px"><div style="width: 38%; height: 4px; border-radius: 2px; background: #8fb0ff"></div></div>
+      </div>
+    </div>
+
+    <!-- Bottom bar: Medium height, the default on touch screens -->
+    <div style="height: 64px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 0 6px; background: {{c.bar}}">
+      <span style="width: 80px; height: 54px; border-radius: 6px; background: #f09a2a; color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">EDIT</span>
+      <span style="width: 6px"></span>
+      <sc-for list="{{pages}}" as="p" hint-placeholder-count="4">
+        <span style="{{p.style}}">{{p.name}}<sc-if value="{{p.top}}" hint-placeholder-val="{{false}}"><span style="{{p.top}}"></span></sc-if></span>
+      </sc-for>
+      <span style="width: 54px; height: 54px; border-radius: 6px; background: {{c.button}}; color: {{c.text}}; display: flex; align-items: center; justify-content: center; font-size: 20px">+</span>
+      <span style="flex: 1; text-align: right; font-size: 12px; color: #f09a2a; padding-right: 8px">2 missing files</span>
+      <span style="width: 150px; height: 54px; border-radius: 6px; background: {{c.button}}; color: {{c.text}}; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">■ PAGE STOP</span>
+      <span style="width: 200px; height: 54px; border-radius: 6px; background: #b02020; color: #fff; font-size: 18px; font-weight: 700; display: flex; align-items: center; justify-content: center">■ ALL STOP</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dark":{"editor":"boolean","default":true},"$preview":{"width":1280,"height":840}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = this.props.dark ?? true;
+    const c = dark
+      ? { window: '#1b1d21', title: '#202020', titleText: '#ffffff', line: '#2d2d2d', edge: '#3a3a3a', bar: '#24272c', button: '#3a3f46', text: '#e8e8e8', empty: '#363a40', emptyMark: '#6a7078' }
+      : { window: '#eceef1', title: '#f3f3f3', titleText: '#1a1a1a', line: '#e0e0e0', edge: '#c8c8c8', bar: '#dde1e6', button: '#c7cdd5', text: '#1c1f23', empty: '#d5dae0', emptyMark: '#8a929c' };
+    const light = !dark;
+    const tiles = [
+      { num: 1, label: 'Opening Titles', bg: '#2E7D32', key: 'F1', out: 'A', time: '00:31' },
+      { num: 2, label: 'Bed Music', bg: '#3A6EA5', state: 'playing', out: 'A', icons: ['loop'], time: '-01:12', progress: 0.42 },
+      { num: 3, label: 'Applause', bg: '#EF6C00', state: 'fading', out: 'A', time: '-00:03', progress: 0.91 },
+      { num: 4, label: 'Sting 2', bg: '#6A1B9A', group: 'G1 Stings', key: 'F2', out: 'A', icons: ['stop', 'inout'], time: '00:04' },
+      { num: 5, label: 'Phone Ring', bg: '#00838F', out: 'B', rerouted: true, icons: ['hold'], time: '00:12' },
+      { num: 6, label: 'Interview Bed', bg: '#3A6EA5', state: 'missing', out: 'A', time: 'MISSING' },
+      { num: 7, state: 'copying', light },
+      { num: 8, label: 'Weather Intro', bg: '#3A6EA5', selected: true, out: 'A', icons: ['in'], time: '00:09' },
+      { num: 9, label: 'STOP GROUP', bg: '#545B64', group: 'G1 Stings', state: 'control' },
+      { num: 10, label: 'Traffic', bg: '#AD1457', key: 'F5', state: 'learning', out: 'A', time: '00:07' },
+      { num: 11, label: 'Ident Long', bg: '#3A6EA5', state: 'loading', out: 'A', time: '00:45' },
+      { num: 12, label: 'Morning|News', bg: '#C62828', out: 'A', icons: ['next', 'midi'], time: '00:41' },
+      { num: 13, state: 'empty', light },
+      { num: 14, state: 'empty', light },
+      { num: 15, state: 'empty', light }
+    ];
+    const tab = (name, current, playing) => ({ name, top: playing ? 'position: absolute; left: 0; right: 0; top: 0; height: 5px; background: #ffd82e' : '', style: 'position: relative; overflow: hidden; box-sizing: border-box; width: 130px; height: 54px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 15px; ' + (current ? 'background: ' + c.text + '; color: ' + c.window + '; font-weight: 700' : 'background: ' + c.button + '; color: ' + c.text) });
+    const menus = ['File', 'Edit', 'Session', 'Cart', 'Audio', 'View'].map((m) => ({ k: m[0], rest: m.slice(1) }));
+    return { c, tiles, tw: 228, th: 206, menus, pages: [tab('Morning', true, true), tab('Music', false, true), tab('Ads'), tab('Idents')] };
+  }
+}
+</script>
+</body>
+</html>

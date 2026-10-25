@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quick edit, option C: menu and sheet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.25}}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 1200px; box-sizing: border-box; padding: 36px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 28px">C. Native menu, then a sheet</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #a7adb4; max-width: 1160px">Right-click gives the real system menu: the toggles as check marks, colours with swatch icons, outputs and groups as submenus. Edit Cart… opens a sheet (macOS) or dialog (Windows) for the label, gain, speed and fade. Slint: ContextMenuArea draws a genuine NSMenu or Win32 menu (muda), so this is the most native of the three. Cost: the label, gain and speed take two steps; menus cannot hold sliders or text fields.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px">
+    <sc-for list="{{platforms}}" as="pf" hint-placeholder-count="2">
+      <div style="display: flex; flex-direction: column; gap: 14px; {{pf.font}}">
+        <span style="font-size: 13px; font-weight: 600; color: #a7adb4">{{pf.name}}</span>
+        <div style="display: flex; align-items: flex-start; gap: 0">
+          <dc-import name="Tile" t="{{tile}}" w="{{tw}}" h="{{th}}" hint-size="150px,120px"></dc-import>
+          <div style="{{pf.box}}; margin-left: 10px; margin-top: 40px">
+            <sc-for list="{{pf.items}}" as="it" hint-placeholder-count="12">
+              <div style="{{it.style}}">
+                <span style="width: 14px; font-size: 12px">{{it.check}}</span>
+                <sc-if value="{{it.dot}}" hint-placeholder-val="{{false}}"><span style="width: 12px; height: 12px; border-radius: {{pf.dotRadius}}; background: {{it.dot}}"></span></sc-if>
+                <span style="flex: 1">{{it.text}}</span>
+                <span style="opacity: 0.6; font-size: 12px">{{it.right}}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="{{pf.box}}; margin-left: 2px; margin-top: {{pf.subTop}}">
+            <sc-for list="{{pf.colours}}" as="it" hint-placeholder-count="11">
+              <div style="{{it.style}}">
+                <span style="width: 14px; font-size: 12px">{{it.check}}</span>
+                <sc-if value="{{it.dot}}" hint-placeholder-val="{{false}}"><span style="width: 12px; height: 12px; border-radius: {{pf.dotRadius}}; background: {{it.dot}}"></span></sc-if>
+                <span style="flex: 1">{{it.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <!-- The sheet that Edit Cart… opens -->
+        <div style="{{pf.sheet}}">
+          <b style="font-size: 15px">Edit Button 8</b>
+          <sc-for list="{{pf.fields}}" as="f" hint-placeholder-count="6">
+            <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; align-items: center"><span style="opacity: 0.7">{{f.k}}</span><span style="{{pf.field}}">{{f.v}}</span></div>
+          </sc-for>
+          <div style="{{pf.buttons}}"><sc-for list="{{pf.sheetButtons}}" as="b" hint-placeholder-count="2"><span style="{{b.style}}">{{b.t}}</span></sc-for></div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const mac = {
+      box: 'min-width: 200px; padding: 5px; border-radius: 7px; background: rgba(48,50,56,0.96); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.2), 0 12px 30px rgba(0,0,0,0.5); font-size: 13px; display: flex; flex-direction: column',
+      row: 'display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px 0 6px; border-radius: 4px',
+      hot: '; background: #0a84ff; color: #fff',
+      dim: '; color: #7d838b',
+      sep: 'height: 1px; margin: 5px 10px; background: rgba(255,255,255,0.14)',
+      check: '✓'
+    };
+    const win = {
+      box: 'min-width: 220px; padding: 4px; border-radius: 8px; background: #2c2c2c; border: 1px solid #404040; box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 14px; display: flex; flex-direction: column',
+      row: 'display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px 0 8px; border-radius: 4px',
+      hot: '; background: #3a3a3a',
+      dim: '; color: #7d7d7d',
+      sep: 'height: 1px; margin: 4px 0; background: #404040',
+      check: '✓'
+    };
+    const build = (p, list) => list.map((it) => {
+      if (it === '-') return { text: '', right: '', check: '', dot: '', style: p.sep };
+      const [text, right, flag, on, dot] = it;
+      return { text, right: right || '', check: on ? p.check : '', dot: dot || '', style: p.row + (flag === 'hot' ? p.hot : flag === 'dim' ? p.dim : '') };
+    });
+    const cols = [['Blue', '#3A6EA5'], ['Green', '#2E7D32'], ['Red', '#C62828'], ['Orange', '#EF6C00'], ['Yellow', '#F9A825'], ['Purple', '#6A1B9A'], ['Pink', '#AD1457'], ['Teal', '#00838F'], ['Brown', '#5D4037'], ['Grey', '#545B64']];
+    const colours = (p, more) => build(p, cols.map(([n, c]) => [n, '', '', n === 'Red', c]).concat(['-', [more]]));
+    const items = (p, mc) => build(p, mc
+      ? [['Edit Cart…', '↩'], ['Cart Setup…', '⌘I'], '-', ['Loop', '', '', false], ['Hold to Play', '', '', false], ['Mute', '', '', false], ['Play Next', '', '', true], ['Stop Others', '', '', false], '-', ['Colour', '›', 'hot', false, '#C62828'], ['Output', '›'], ['Group', '›'], ['Learn Trigger'], '-', ['Replace File…'], ['Copy'], ['Paste'], '-', ['Clear Cart']]
+      : [['Edit cart…', 'Enter'], ['Cart setup…', 'Ctrl+I'], '-', ['Loop', '', '', false], ['Hold to play', '', '', false], ['Mute', '', '', false], ['Play next', '', '', true], ['Stop others', '', '', false], '-', ['Colour', '›', 'hot', false, '#C62828'], ['Output', '›'], ['Group', '›'], ['Learn trigger'], '-', ['Replace file…'], ['Copy'], ['Paste'], '-', ['Clear cart']]);
+    const fields = [{ k: 'Label', v: 'Morning ⏎ News' }, { k: 'Gain', v: '+1.5 dB' }, { k: 'Speed', v: '100%' }, { k: 'Fade out', v: 'Default (1.5 s)' }, { k: 'Output', v: 'A - Studio' }, { k: 'Trigger', v: 'F6   Learn' }];
+    return {
+      tile: { num: 8, label: 'Morning|News', bg: '#C62828', selected: true, out: 'A', icons: ['next'], time: '00:41' },
+      tw: 150, th: 120,
+      platforms: [
+        {
+          name: 'macOS: NSMenu with check marks and swatch icons; sheet from the title bar',
+          font: '', box: mac.box, dotRadius: '50%', subTop: '256px',
+          items: items(mac, true), colours: colours(mac, 'Other Colour…'),
+          sheet: 'width: 420px; padding: 18px; box-sizing: border-box; border-radius: 0 0 12px 12px; background: #3a3d44; box-shadow: 0 14px 34px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 10px; font-size: 13px',
+          field: 'padding: 3px 8px; border-radius: 5px; background: rgba(255,255,255,0.1)',
+          fields,
+          buttons: 'display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px',
+          sheetButtons: [{ t: 'Cancel', style: 'padding: 4px 14px; border-radius: 6px; background: rgba(255,255,255,0.16)' }, { t: 'Done', style: 'padding: 4px 18px; border-radius: 6px; background: #0a84ff; color: #fff' }]
+        },
+        {
+          name: 'Windows 11: Win32 menu; dialog for Edit cart…',
+          font: "font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", box: win.box, dotRadius: '3px', subTop: '318px',
+          items: items(win, false), colours: colours(win, 'Other colour…'),
+          sheet: 'width: 440px; padding: 20px; box-sizing: border-box; border-radius: 8px; background: #2b2b2b; border: 1px solid #404040; box-shadow: 0 16px 32px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 10px; font-size: 14px',
+          field: 'height: 30px; display: flex; align-items: center; padding: 0 10px; border-radius: 4px; border: 1px solid #3d3d3d; background: #1f1f1f',
+          fields,
+          buttons: 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 6px',
+          sheetButtons: [{ t: 'Done', style: 'height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: #4cc2ff; color: #000' }, { t: 'Cancel', style: 'height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737' }]
+        }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

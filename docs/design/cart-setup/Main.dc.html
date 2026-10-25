@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cart Setup audit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fb2ff}a:hover{color:#b3d1ff}
+</style>
+</helmet>
+<div style="width: 1200px; height: 1640px; box-sizing: border-box; padding: 44px 52px; background: #17191d; color: #e8eaee; font-family: -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 22px">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <h1 style="margin: 0; font-size: 30px; line-height: 1.15">Cart Setup: what it does today, and who draws each part</h1>
+    <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #a9b0bb; max-width: 1000px">An audit of the egui window (crates/bubble-app, audio_setup_window). It opens from quick edit's Cart Setup… and the Cart menu, edits a draft of one cart, and lets you audition it while you trim. Today this window exists only in the old egui app; the Slint app lists Cart Setup… as "not in this interface yet". The new version is Slint's. Each part is marked: <b style="color: #5fd4c4">System</b> means macOS or Windows draws it (as the alerts and menus now are), <b style="color: #c9ced6">Slint</b> means Slint draws it inside the system window, styled to each platform as quick edit is.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 210px minmax(0, 1fr) 120px minmax(0, 1fr); border: 1px solid #30343b; border-radius: 12px; overflow: hidden; font-size: 13.5px; line-height: 1.45">
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">Part</div>
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">What it does today (egui)</div>
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">New: drawn by</div>
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">In the new window</div>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="16">
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; font-weight: 600">{{r.part}}</div>
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; color: #c9ced6">{{r.today}}</div>
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35"><span style="{{r.chip}}">{{r.who}}</span></div>
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; color: #c9ced6">{{r.next}}</div>
+    </sc-for>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+    <div style="border: 1px solid #30343b; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 18px">Decisions</h2>
+      <ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.5; color: #c9ced6">
+        <li><b style="color: #e8eaee">Decided: keep OK / Cancel.</b> Edits go to a draft and apply on OK, while what you hear (gain, speed, loop, trims) follows live.</li>
+        <li><b style="color: #e8eaee">Decided: Trigger becomes Hotkey.</b> Open: whether a hotkey keeps its "what it does" choice (Play/Stop, Play only, Stop only), and whether MIDI shows only when MIDI input is on.</li>
+        <li><b style="color: #e8eaee">Speed Bar's Open… stays</b> until the Speed Bar window is ported (it is the next window on the list).</li>
+      </ol>
+    </div>
+    <div style="border: 1px solid #30343b; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 18px">Why the controls are drawn, not system ones</h2>
+      <p style="margin: 0; font-size: 14px; line-height: 1.55; color: #c9ced6">Slint opens Cart Setup as a real system window (title bar, resize, full screen, Window menu), but draws what is inside. Making the sliders, fields and buttons the system's own would mean building this window twice by hand, in AppKit for the Mac and in Win32 for Windows, and the waveform, meter and readouts would still be drawn by Bubble on both. So the plan matches quick edit: drawn controls in each platform's style, and everything the system does offer used as it is: the window, every pop-up's menu, the colour picker, the Open panel.</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":1640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const sys = 'display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: rgba(95,212,196,0.16); color: #5fd4c4';
+    const app = 'display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: rgba(201,206,214,0.12); color: #c9ced6';
+    const both = 'display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: rgba(240,165,74,0.16); color: #f0a54a';
+    const rows = [
+      ['Window', 'A separate window, 980 × 780 (min 820 × 600), titled "Cart Setup - label". One at a time.', 'System', sys, 'A real system window: title bar, resize, full screen, Window menu. Opens beside the main window; Cart Setup… on another cart switches it.'],
+      ['Header', 'Cart name, then file, sample rate, channels, length. Top and Tail (trims silence below −40 dBFS) and Zoom to Fit.', 'Slint', app, 'Same, as flat system-style buttons.'],
+      ['Waveform', 'Overview of the file. Drag In and Out; scroll and zoom; ⌥/Alt-click or middle-click plays from there; fade-in and fade-out ramps drawn; playhead; time ruler.', 'Slint', app, 'Same. No system control draws a waveform.'],
+      ['Meter', 'Peak meter for the cart, the waveform’s height.', 'Slint', app, 'Same.'],
+      ['Trim In / Trim Out', 'Time fields with nudge (0.01 s, 0.1 s with Shift); I and O set them at the playhead or the pointer.', 'Slint', app, 'Time field with − and + steppers and Set; I and O kept.'],
+      ['Transport', 'Elapsed (yellow) and remaining (blue) readouts. Back to In, Loop, Play/Pause (Space), Stop. P plays the last 3 s before Out.', 'Slint', app, 'Same keys and readouts; the buttons in the platform’s style.'],
+      ['Output, Retrigger, When It Starts, Group, fades, Speed Bar times', 'egui combo boxes.', 'System', sys, 'Pop-up buttons opening the system menu, the current choice checked (as quick edit).'],
+      ['Gain, Pan, Speed', 'Sliders with a typed value; double-click for the default.', 'Slint', app, 'Same; "0 dB" not "+0", "Centre", "100%".'],
+      ['Loop, Mute, Hold, Play Next', 'Checkboxes.', 'Slint', app, 'Toggle buttons with the tile’s icons, as quick edit.'],
+      ['Label, Notes', 'Text fields.', 'Slint', app, 'Same; Return makes a new line in the label.'],
+      ['Colour', 'Swatches and an egui colour picker.', 'Both', both, 'Swatches drawn; any other colour in the system colour picker.'],
+      ['Trigger', 'Each key or MIDI binding with its action (Toggle, Play, Stop); Learn, Clear key, Clear MIDI.', 'Slint', app, 'Hotkey and MIDI rows; the action is a pop-up (system menu).'],
+      ['Audio file', 'Replace… and, when missing, Locate….', 'System', sys, 'The system Open panel, headed with what it is for.'],
+      ['OK / Cancel', 'OK keeps the draft; Cancel drops it and stops the audition.', 'Slint', app, 'Mac: Cancel, OK at the right; Windows: OK, Cancel in the footer band.'],
+      ['Closing with changes', 'The bottom bar turns orange: Keep or Discard.', 'System', sys, 'OK and Cancel never ask. The window\u2019s close button (red traffic light, Windows \u2715) with unsaved edits asks in a system alert: Keep / Discard / Cancel.'],
+      ['Tooltips', 'Hover help on tools and buttons.', 'Slint', app, 'Slint draws them (the system tooltip is not available to Slint).']
+    ];
+    return { rows: rows.map(([part, today, who, chip, next]) => ({ part, today, who, chip, next })) };
+  }
+}
+</script>
+</body>
+</html>

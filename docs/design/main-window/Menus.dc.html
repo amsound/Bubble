@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Context menus</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+</style>
+</helmet>
+<div style="width: 1280px; height: 860px; box-sizing: border-box; padding: 40px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 18px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 28px">Context menus</h1>
+    <p style="margin: 0; font-size: 14px; color: #a7adb4">Native menus on both (Slint ContextMenuArea draws NSMenu and Win32 menus). Short, one submenu level at most, destructive last and set apart. Opened by right-click, Control-click, or press-and-hold on touch.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px">
+    <sc-for list="{{platforms}}" as="pf" hint-placeholder-count="2">
+      <div style="display: flex; flex-direction: column; gap: 14px; {{pf.font}}">
+        <span style="font-size: 15px; font-weight: 700">{{pf.name}}</span>
+        <div style="display: flex; gap: 24px; align-items: flex-start">
+          <sc-for list="{{pf.menus}}" as="m" hint-placeholder-count="2">
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span style="font-size: 12px; color: #a7adb4">{{m.caption}}</span>
+              <div style="display: flex; align-items: flex-start; gap: 2px">
+                <div style="{{pf.box}}">
+                  <sc-for list="{{m.items}}" as="it" hint-placeholder-count="6">
+                    <div style="{{it.style}}">
+                      <span style="flex: 1">{{it.text}}</span>
+                      <span style="opacity: 0.6; font-size: 12px">{{it.right}}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <sc-if value="{{m.sub}}" hint-placeholder-val="{{false}}">
+                  <div style="{{pf.box}}; margin-top: {{pf.subTop}}">
+                    <sc-for list="{{m.sub}}" as="it" hint-placeholder-count="4">
+                      <div style="{{it.style}}">
+                        <span style="flex: 1">{{it.text}}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const mac = {
+      box: 'min-width: 230px; padding: 5px; border-radius: 7px; background: rgba(48,50,56,0.92); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.2), 0 12px 30px rgba(0,0,0,0.5); font-size: 13px; display: flex; flex-direction: column',
+      row: 'display: flex; align-items: center; gap: 12px; height: 22px; padding: 0 10px; border-radius: 4px',
+      hot: '; background: #2f6bff; color: #fff',
+      dim: '; color: #7d838b',
+      sep: 'height: 1px; margin: 5px 10px; background: rgba(255,255,255,0.14)',
+      subTop: '54px'
+    };
+    const win = {
+      box: 'min-width: 250px; padding: 4px; border-radius: 8px; background: #2c2c2c; border: 1px solid #404040; box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 14px; display: flex; flex-direction: column',
+      row: 'display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 12px; border-radius: 4px',
+      hot: '; background: #3a3a3a',
+      dim: '; color: #7d7d7d',
+      sep: 'height: 1px; margin: 4px 0; background: #404040',
+      subTop: '78px'
+    };
+    const build = (p, list) => list.map((it) => {
+      if (it === '-') return { text: '', right: '', style: p.sep };
+      const [text, right, flag] = it;
+      return { text, right: right || '', style: p.row + (flag === 'hot' ? p.hot : flag === 'dim' ? p.dim : '') };
+    });
+    const menus = (p, mc) => [
+      {
+        caption: mc ? 'Empty cell (Edit mode)' : 'Empty cell (Edit mode)',
+        items: build(p, mc
+          ? [['Assign Audio Files…'], ['Paste Cart', '⌘V'], '-', ['Add Control Button', '›', 'hot']]
+          : [['Assign audio files…'], ['Paste cart', 'Ctrl+V'], '-', ['Add control button', '›', 'hot']]),
+        sub: build(p, mc
+          ? [['Stop Group: G1 Stings'], ['Stop Group: G2 Beds'], '-', ['Stop Page'], ['Stop All']]
+          : [['Stop group: G1 Stings'], ['Stop group: G2 Beds'], '-', ['Stop page'], ['Stop all']])
+      },
+      {
+        caption: 'Page tab',
+        items: build(p, mc
+          ? [['Rename…'], ['Page Settings…', '', 'dim'], '-', ['Copy Page'], ['Paste Page (Replaces It)', '', 'dim'], '-', ['Stop Page'], ['Add Page'], '-', ['Delete Page…']]
+          : [['Rename…'], ['Page settings…', '', 'dim'], '-', ['Copy page'], ['Paste page (replaces it)', '', 'dim'], '-', ['Stop page'], ['Add page'], '-', ['Delete page…']]),
+        sub: null
+      }
+    ];
+    return {
+      platforms: [
+        { name: 'macOS: NSMenu, Title Case', font: '', box: mac.box, subTop: mac.subTop, menus: menus(mac, true) },
+        { name: 'Windows 11: Win32 menu, sentence case, 32 px rows', font: "font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", box: win.box, subTop: win.subTop, menus: menus(win, false) }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

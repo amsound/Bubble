@@ -1,0 +1,50 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-24T10:45:00Z"
+  },
+  "title": "Bubble Cart Setup design",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1200,
+      "h": 1640,
+      "title": "Audit: egui Cart Setup, native or drawn"
+    },
+    "MacSetup.dc.html": {
+      "x": 1280,
+      "y": 0,
+      "w": 1200,
+      "h": 1000,
+      "title": "Cart Setup: macOS"
+    },
+    "WinSetup.dc.html": {
+      "x": 2560,
+      "y": 0,
+      "w": 1200,
+      "h": 1040,
+      "title": "Cart Setup: Windows 11"
+    },
+    "Gestures.dc.html": {
+      "x": 0,
+      "y": 1760,
+      "w": 1200,
+      "h": 760,
+      "title": "Waveform gestures"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "MacSetup.dc.html",
+    "WinSetup.dc.html",
+    "Gestures.dc.html"
+  ],
+  "notes": {},
+  "designSystems": []
+}

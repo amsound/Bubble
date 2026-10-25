@@ -1,0 +1,26 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-10-22T09:00:00Z"},
+  "title": "Bubble main window design",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1200, "h": 1900, "title": "Audit: Mac and Windows"},
+    "MacWindow.dc.html": {"x": 1280, "y": 0, "w": 1280, "h": 840, "title": "1 Main window: macOS"},
+    "WinWindow.dc.html": {"x": 2640, "y": 0, "w": 1280, "h": 840, "title": "1 Main window: Windows"},
+    "Tiles.dc.html": {"x": 1280, "y": 960, "w": 1280, "h": 900, "title": "2 Tile states"},
+    "Bar.dc.html": {"x": 2640, "y": 960, "w": 1280, "h": 820, "title": "3 Bottom bar and busy strip"},
+    "QuickEdit.dc.html": {"x": 1280, "y": 1980, "w": 1280, "h": 900, "title": "4a Quick edit: popover (recommended)"},
+    "QuickEditB.dc.html": {"x": 1280, "y": 3000, "w": 1280, "h": 900, "title": "4b Quick edit: inspector panel"},
+    "QuickEditC.dc.html": {"x": 2640, "y": 3000, "w": 1280, "h": 1200, "title": "4c Quick edit: menu and sheet"},
+    "Menus.dc.html": {"x": 2640, "y": 1980, "w": 1280, "h": 860, "title": "5 Context menus"},
+    "Dialogs.dc.html": {"x": 4000, "y": 0, "w": 1280, "h": 840, "title": "6 Dialogs"},
+    "Tile.dc.html": {"x": 4000, "y": 960, "w": 228, "h": 150, "title": "Tile component"},
+    "QuickEditFinal.dc.html": {"x": 4000, "y": 1980, "w": 1280, "h": 860, "title": "4 Quick edit: chosen layout"},
+    "PageTabs.dc.html": {"x": 4000, "y": 2960, "w": 1280, "h": 1300, "title": "3b Page tabs: options"},
+    "QuickEditFinal2.dc.html": {"x": 5360, "y": 1980, "w": 1280, "h": 860, "title": "4 Quick edit: options as toggle buttons"}
+  },
+  "order": ["Main.dc.html", "MacWindow.dc.html", "WinWindow.dc.html", "Tiles.dc.html", "Bar.dc.html", "QuickEdit.dc.html", "QuickEditB.dc.html", "QuickEditC.dc.html", "Menus.dc.html", "Dialogs.dc.html", "Tile.dc.html", "QuickEditFinal.dc.html", "PageTabs.dc.html", "QuickEditFinal2.dc.html"],
+  "notes": {},
+  "designSystems": []
+}

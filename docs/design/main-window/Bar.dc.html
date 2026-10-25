@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bottom bar and busy strip</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 820px; box-sizing: border-box; padding: 40px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 22px">
+  <h1 style="margin: 0; font-size: 28px">Bottom bar and busy strip</h1>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <h2 style="margin: 0; font-size: 16px; color: #a7adb4; font-weight: 600">Bar heights (View ▸ Page Bar Size). Medium is the default on a touch screen; Small only with a mouse.</h2>
+    <sc-for list="{{bars}}" as="b" hint-placeholder-count="3">
+      <div style="display: flex; align-items: center; gap: 14px">
+        <span style="width: 120px; font-size: 13px; color: #a7adb4">{{b.name}}</span>
+        <div style="flex: 1; display: flex; align-items: center; gap: 6px; padding: 0 6px; border-radius: 6px; background: #24272c; {{b.h}}">
+          <span style="width: {{b.mode}}; align-self: stretch; margin: 5px 0; border-radius: 6px; background: #f09a2a; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center">EDIT</span>
+          <span style="width: 6px"></span>
+          <span style="width: {{b.tab}}; align-self: stretch; margin: 5px 0; border-radius: 6px; background: #e8e8e8; color: #1b1d21; position: relative; overflow: hidden; font-size: {{b.font}}; font-weight: 700; display: flex; align-items: center; justify-content: center">Morning<span style="position: absolute; left: 0; right: 0; top: 0; height: 5px; background: #ffd82e"></span></span>
+          <span style="width: {{b.tab}}; align-self: stretch; margin: 5px 0; border-radius: 6px; background: #3a3f46; font-size: {{b.font}}; display: flex; align-items: center; justify-content: center">Music</span>
+          <span style="width: {{b.tab}}; align-self: stretch; margin: 5px 0; border-radius: 6px; background: #3a3f46; font-size: {{b.font}}; display: flex; align-items: center; justify-content: center">Ads</span>
+          <span style="flex: 1; text-align: right; font-size: 12px; padding-right: 8px; color: #f09a2a">2 missing files</span>
+          <span style="width: {{b.stopPage}}; align-self: stretch; margin: 5px 0; border-radius: 6px; background: #3a3f46; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center">■ PAGE STOP</span>
+          <span style="width: {{b.stopAll}}; align-self: stretch; margin: 5px 0; border-radius: 6px; background: #b02020; color: #fff; font-size: {{b.stopFont}}; font-weight: 700; display: flex; align-items: center; justify-content: center">■ ALL STOP</span>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <h2 style="margin: 0; font-size: 16px; color: #a7adb4; font-weight: 600">Busy popover: the one place for “Bubble is busy”. Top centre, non-modal (ready carts stay playable), one row per task, hides itself when done, ✕ hides it sooner. Carts never move.</h2>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+      <sc-for list="{{strips}}" as="s" hint-placeholder-count="2">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 13px; font-weight: 600">{{s.platform}}</span>
+          <div style="position: relative; height: 150px; border-radius: 8px; overflow: hidden; background: #1b1d21; padding: 6px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+            <span style="border-radius: 6px; background: #2E7D32"></span>
+            <span style="border-radius: 6px; background: #3A6EA5; box-shadow: inset 0 0 0 5px #ffd82e"></span>
+            <span style="border-radius: 6px; background: #EF6C00"></span>
+            <span style="border-radius: 6px; background: #6A1B9A"></span>
+            <span style="border-radius: 6px; background: #363a40; box-shadow: inset 0 0 0 2px #2f6bff"></span>
+            <span style="border-radius: 6px; background: #363a40"></span>
+            <div style="{{s.style}}">
+              <span style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); border-top-color: #ffffff; animation: spin 0.9s linear infinite"></span>
+              <span style="font-size: 13px; font-weight: 600">Loading audio</span>
+              <span style="flex: 1"></span>
+              <span style="font-size: 12px; opacity: 0.8; font-variant-numeric: tabular-nums">12 of 32</span>
+              <span style="font-size: 11px; opacity: 0.7">✕</span>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{messages}}" as="m" hint-placeholder-count="5">
+        <span style="padding: 6px 12px; border-radius: 999px; background: #2b2f35; font-size: 13px">{{m}}</span>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const bar = (name, h, mode, tab, font, stopPage, stopAll, stopFont) => ({ name, h: 'height: ' + h + 'px', mode: mode + 'px', tab: tab + 'px', font: font + 'px', stopPage: stopPage + 'px', stopAll: stopAll + 'px', stopFont: stopFont + 'px' });
+    const strip = 'position: absolute; left: 50%; transform: translateX(-50%); width: 300px; top: 8px; height: 36px; box-sizing: border-box; border-radius: 10px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: #ffffff; box-shadow: 0 6px 18px rgba(0,0,0,0.45); ';
+    return {
+      bars: [
+        bar('Small (44 px)', 44, 56, 104, 13, 110, 140, 14),
+        bar('Medium (64 px)', 64, 80, 130, 15, 150, 200, 18),
+        bar('Large (92 px)', 92, 110, 160, 18, 190, 260, 22)
+      ],
+      strips: [
+        { platform: 'macOS', style: strip + 'background: rgba(50,53,58,0.96); box-shadow: 0 0 0 0.5px rgba(255,255,255,0.2), 0 6px 18px rgba(0,0,0,0.45)' },
+        { platform: 'Windows', style: strip + 'background: #2b2b2b; border: 1px solid #404040; border-radius: 8px' }
+      ],
+      messages: ['Loading audio · 12 of 32 files', 'Copying Weather Bed v3.wav to cell 7 · 38%', 'Opening Breakfast Show…', 'Importing Morning.dta…', 'Converting 4 files to WAV…', 'Collecting 2 files into the session…']
+    };
+  }
+}
+</script>
+</body>
+</html>

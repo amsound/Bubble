@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quick edit, option B: inspector</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.25}}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 900px; box-sizing: border-box; padding: 36px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 28px">B. Inspector panel</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #a7adb4; max-width: 1160px">A panel on the right edge that follows the selection, like the Keynote or Pages inspector on a Mac and a Settings page on Windows. Good for longer editing and on touch. Slint: plain layout, no popup, easy to build. Cost: it covers the right-hand columns while open (or the wall shrinks and carts move, which we ruled out), so it suits Edit mode, not a show.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px">
+
+    <!-- macOS inspector -->
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13px; font-weight: 600; color: #a7adb4">macOS: inspector with a segmented control and small-caps sections</span>
+      <div style="position: relative; height: 700px; border-radius: 10px; overflow: hidden; background: #1b1d21; box-shadow: 0 0 0 1px #2c3036">
+        <div style="padding: 6px; display: grid; grid-template-columns: repeat(3, 140px); gap: 6px">
+          <sc-for list="{{tiles}}" as="t" hint-placeholder-count="12">
+            <dc-import name="Tile" t="{{t}}" w="{{tw}}" h="{{th}}" hint-size="140px,112px"></dc-import>
+          </sc-for>
+        </div>
+        <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 300px; background: #26292e; box-shadow: -1px 0 0 #000, -12px 0 30px rgba(0,0,0,0.4); display: flex; flex-direction: column; font-size: 13px">
+          <div style="padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 2px; border-radius: 7px; background: rgba(255,255,255,0.08)">
+              <span style="text-align: center; padding: 3px 0; border-radius: 5px; background: rgba(255,255,255,0.18); font-weight: 600">Cart</span>
+              <span style="text-align: center; padding: 3px 0; color: #c8cbd0">Audio</span>
+              <span style="text-align: center; padding: 3px 0; color: #c8cbd0">Trigger</span>
+            </div>
+          </div>
+          <div style="padding: 0 14px; display: flex; flex-direction: column; gap: 14px">
+            <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #8e939a">LABEL</span>
+              <textarea rows="2" style="font: inherit; font-size: 13px; resize: none; padding: 5px 7px; border-radius: 5px; border: 0; background: rgba(255,255,255,0.1); color: #fff">Morning
+News</textarea></div>
+            <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #8e939a">COLOUR</span>
+              <div style="display: grid; grid-template-columns: repeat(6, 22px); gap: 8px"><sc-for list="{{swatches}}" as="s" hint-placeholder-count="11"><span style="width: 22px; height: 22px; border-radius: 50%; {{s}}"></span></sc-for></div></div>
+            <div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #8e939a">LEVEL AND SPEED</span>
+              <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr) 54px; gap: 8px; align-items: center"><span>Gain</span><div style="height: 3px; border-radius: 2px; background: linear-gradient(90deg, rgba(255,255,255,0.2) 50%, #0a84ff 50% 56%, rgba(255,255,255,0.2) 56%)"></div><span style="text-align: right">+1.5 dB</span></div>
+              <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr) 54px; gap: 8px; align-items: center"><span>Speed</span><div style="height: 3px; border-radius: 2px; background: rgba(255,255,255,0.2)"></div><span style="text-align: right">100%</span></div></div>
+            <div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #8e939a">PLAYBACK</span>
+              <sc-for list="{{rows}}" as="r" hint-placeholder-count="3"><div style="display: flex; justify-content: space-between; align-items: center"><span>{{r.k}}</span><span style="padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.12)">{{r.v}} ⌄</span></div></sc-for>
+              <sc-for list="{{toggles}}" as="t" hint-placeholder-count="5"><div style="display: flex; justify-content: space-between; align-items: center"><span>{{t.k}}</span><span style="{{t.mac}}"><span style="{{t.macKnob}}"></span></span></div></sc-for></div>
+          </div>
+          <span style="flex: 1"></span>
+          <div style="padding: 12px 14px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; white-space: nowrap; font-size: 12px"><span style="padding: 4px 9px; border-radius: 6px; background: rgba(255,255,255,0.13)">Replace File</span><span style="padding: 4px 9px; border-radius: 6px; background: rgba(255,255,255,0.13)">Copy</span><span style="padding: 4px 9px; border-radius: 6px; background: rgba(255,255,255,0.13)">Paste</span><span style="flex: 1"></span><span style="padding: 4px 9px; border-radius: 6px; background: rgba(255,69,58,0.18); color: #ff6961">Clear</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Windows settings-style pane -->
+    <div style="display: flex; flex-direction: column; gap: 10px; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif">
+      <span style="font-size: 13px; font-weight: 600; color: #a7adb4">Windows 11: pane of setting cards, like Settings</span>
+      <div style="position: relative; height: 700px; border-radius: 8px; overflow: hidden; background: #1b1d21; box-shadow: 0 0 0 1px #2c3036">
+        <div style="padding: 6px; display: grid; grid-template-columns: repeat(3, 140px); gap: 6px">
+          <sc-for list="{{tiles}}" as="t" hint-placeholder-count="12">
+            <dc-import name="Tile" t="{{t}}" w="{{tw}}" h="{{th}}" hint-size="140px,112px"></dc-import>
+          </sc-for>
+        </div>
+        <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 310px; background: #202020; box-shadow: -1px 0 0 #333, -12px 0 30px rgba(0,0,0,0.4); padding: 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; font-size: 14px">
+          <span style="font-size: 20px; font-weight: 600; padding: 0 4px 8px">Button 8</span>
+          <div style="padding: 10px 12px; border-radius: 6px; background: #2b2b2b; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; color: #c5c5c5">Label</span><textarea rows="2" style="font: inherit; font-size: 14px; resize: none; padding: 5px 8px; border-radius: 4px; border: 1px solid #3d3d3d; border-bottom: 2px solid #4cc2ff; background: #1f1f1f; color: #fff">Morning
+News</textarea></div>
+          <div style="padding: 10px 12px; border-radius: 6px; background: #2b2b2b; display: flex; flex-direction: column; gap: 8px"><span style="font-size: 12px; color: #c5c5c5">Colour</span><div style="display: grid; grid-template-columns: repeat(6, 24px); gap: 8px"><sc-for list="{{swatchesWin}}" as="s" hint-placeholder-count="11"><span style="width: 24px; height: 24px; border-radius: 4px; {{s}}"></span></sc-for></div></div>
+          <sc-for list="{{cards}}" as="c" hint-placeholder-count="4"><div style="min-height: 44px; padding: 0 12px; border-radius: 6px; background: #2b2b2b; display: flex; align-items: center; justify-content: space-between"><span>{{c.k}}</span><span style="color: #c5c5c5">{{c.v}}</span></div></sc-for>
+          <sc-for list="{{toggles}}" as="t" hint-placeholder-count="5"><div style="min-height: 44px; padding: 0 12px; border-radius: 6px; background: #2b2b2b; display: flex; align-items: center; justify-content: space-between"><span>{{t.k}}</span><span style="{{t.win}}"><span style="{{t.winKnob}}"></span></span></div></sc-for>
+          <span style="flex: 1"></span>
+          <div style="display: flex; gap: 6px; white-space: nowrap; font-size: 13px"><span style="padding: 6px 10px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737">Replace File</span><span style="padding: 6px 10px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737">Copy</span><span style="padding: 6px 10px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737">Paste</span><span style="flex: 1"></span><span style="padding: 6px 10px; border-radius: 4px; border: 1px solid #5a2a2a; background: #3a2323; color: #ff9b91">Clear</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cols = ['#3A6EA5', '#2E7D32', '#C62828', '#EF6C00', '#F9A825', '#6A1B9A', '#AD1457', '#00838F', '#5D4037', '#545B64'];
+    const swatches = cols.map((c, i) => 'background: ' + c + (i === 2 ? '; box-shadow: 0 0 0 2px #26292e, 0 0 0 4px #ffffff' : '')).concat(['background: conic-gradient(#ff3b30, #ffcc00, #34c759, #00c7be, #0a84ff, #bf5af2, #ff2d55, #ff3b30)']);
+    const swatchesWin = cols.map((c, i) => 'background: ' + c + (i === 2 ? '; box-shadow: 0 0 0 2px #2b2b2b, 0 0 0 4px #4cc2ff' : '')).concat(['background: conic-gradient(#ff3b30, #ffcc00, #34c759, #00c7be, #0a84ff, #bf5af2, #ff2d55, #ff3b30)']);
+    const toggle = (k, on) => ({
+      k,
+      mac: 'width: 26px; height: 15px; border-radius: 8px; position: relative; background: ' + (on ? '#34c759' : 'rgba(255,255,255,0.2)'),
+      macKnob: 'position: absolute; top: 1px; left: ' + (on ? 12 : 1) + 'px; width: 13px; height: 13px; border-radius: 50%; background: #fff',
+      win: 'width: 40px; height: 20px; box-sizing: border-box; border-radius: 10px; position: relative; ' + (on ? 'background: #4cc2ff' : 'border: 1px solid #c5c5c5'),
+      winKnob: 'position: absolute; top: ' + (on ? 4 : 3) + 'px; left: ' + (on ? 24 : 4) + 'px; width: 12px; height: 12px; border-radius: 50%; background: ' + (on ? '#000' : '#c5c5c5')
+    });
+    const t = (o) => o;
+    return {
+      tiles: [
+        t({ num: 1, label: 'Opening Titles', bg: '#2E7D32', out: 'A', time: '00:31' }),
+        t({ num: 2, label: 'Bed Music', bg: '#3A6EA5', state: 'playing', out: 'A', time: '-01:12', progress: 0.42 }),
+        t({ num: 3, label: 'Applause', bg: '#EF6C00', out: 'A', time: '00:06' }),
+        t({ num: 6, label: 'Interview', bg: '#3A6EA5', out: 'A', time: '02:10' }),
+        t({ num: 7, label: 'Weather Intro', bg: '#3A6EA5', out: 'A', time: '00:09' }),
+        t({ num: 8, label: 'Morning|News', bg: '#C62828', selected: true, out: 'A', icons: ['next'], time: '00:41' }),
+        t({ num: 11, label: 'Ident', bg: '#3A6EA5', out: 'A', time: '00:05' }),
+        t({ num: 12, state: 'empty' }),
+        t({ num: 13, state: 'empty' }),
+        t({ num: 16, state: 'empty' }),
+        t({ num: 17, state: 'empty' }),
+        t({ num: 18, state: 'empty' })
+      ],
+      tw: 140, th: 112,
+      swatches, swatchesWin,
+      rows: [{ k: 'Output', v: 'A - Studio' }, { k: 'Fade out', v: 'Default' }, { k: 'Group', v: 'None' }],
+      cards: [{ k: 'Gain', v: '+1.5 dB' }, { k: 'Speed', v: '100%' }, { k: 'Output', v: 'A - Studio' }, { k: 'Fade out', v: 'Default (1.5 s)' }],
+      toggles: [toggle('Loop', false), toggle('Play next', true), toggle('Stop others', false), toggle('Hold', false), toggle('Mute', false)]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Waveform gestures</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#7fb2ff}a:hover{color:#b3d1ff}
+</style>
+</helmet>
+<div style="width: 1200px; height: 760px; box-sizing: border-box; padding: 44px 52px; background: #17191d; color: #e8eaee; font-family: -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 20px">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <h1 style="margin: 0; font-size: 28px">Waveform gestures</h1>
+    <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #a9b0bb; max-width: 1000px">Only the IN and OUT handles move In and Out. Off screen, a handle is a tab pinned to that edge: drag it in. Everything works without a keyboard.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: 220px repeat(3, minmax(0, 1fr)); border: 1px solid #30343b; border-radius: 12px; overflow: hidden; font-size: 14px; line-height: 1.45">
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">To</div>
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">Mac trackpad</div>
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">Windows touchpad / mouse</div>
+    <div style="padding: 10px 14px; background: #22252b; color: #a9b0bb; font-weight: 600">Touch screen</div>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; font-weight: 600">{{r.a}}</div>
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; color: #c9ced6">{{r.b}}</div>
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; color: #c9ced6">{{r.c}}</div>
+      <div style="padding: 10px 14px; border-top: 1px solid #2a2e35; color: #c9ced6">{{r.d}}</div>
+    </sc-for>
+  </div>
+  <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #a9b0bb">Keys: Space play/pause from the cursor · I and O set In and Out at the playhead or cursor · P plays the last 3 s before Out (with Loop on it carries round into In) · ⌘/Ctrl + and − zoom · Esc is Cancel.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      ['Scroll through time', 'Two-finger swipe', 'Two-finger swipe; mouse wheel; Shift + wheel', 'One-finger drag on the waveform'],
+      ['Zoom', 'Pinch; ⌘ + swipe', 'Pinch; Ctrl + wheel', 'Two-finger pinch'],
+      ['Zoom to fit', 'Double-click the ruler', 'Double-click the ruler', 'Double-tap the ruler'],
+      ['Move In / Out', 'Drag its handle', 'Drag its handle', 'Drag its handle'],
+      ['Handle off screen', 'Drag its edge tab in', 'Drag its edge tab in', 'Drag its edge tab in'],
+      ['Past the edge', 'Hold the handle at the edge: it scrolls', 'The same', 'The same'],
+      ['Place the cursor', 'Click', 'Click', 'Tap'],
+      ['Play from a point', 'Double-click', 'Double-click', 'Double-tap'],
+      ['Set In / Out exactly', 'Set in the trim box; ←/→ nudge', 'Set; ←/→ nudge', 'Tap the spot, then Set; − / + nudge']
+    ];
+    return { rows: rows.map(([a, b, c, d]) => ({ a, b, c, d })) };
+  }
+}
+</script>
+</body>
+</html>

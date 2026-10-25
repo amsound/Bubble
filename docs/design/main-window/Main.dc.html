@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audit: Mac and Windows</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#2f6bff}a:hover{color:#1d4fd1}
+</style>
+</helmet>
+<div style="width: 1200px; height: 1900px; box-sizing: border-box; padding: 56px 64px; background: #f6f7f9; color: #1c1f23; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 28px">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5f6670">Bubble · Slint main window</div>
+    <h1 style="margin: 0; font-size: 40px; line-height: 1.1">Platform audit and design plan</h1>
+    <p style="margin: 0; font-size: 16px; line-height: 1.5; color: #3d434b; max-width: 900px">Each element against the core strategies: what the build does today on macOS and Windows, and what the mockups to the right propose. Status: <b>Done</b> works as intended, <b>Change</b> works but should follow the plan, <b>Missing</b> not built.</p>
+  </div>
+
+  <sc-for list="{{sections}}" as="sec" hint-placeholder-count="4">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 22px">{{sec.title}}</h2>
+      <div style="display: grid; grid-template-columns: 200px minmax(0, 1fr) minmax(0, 1fr) 96px; border: 1px solid #d5dae0; border-radius: 10px; overflow: hidden; background: #ffffff">
+        <div style="padding: 10px 14px; background: #eceef1; font-size: 12px; font-weight: 700; color: #3d434b">Element</div>
+        <div style="padding: 10px 14px; background: #eceef1; font-size: 12px; font-weight: 700; color: #3d434b">macOS</div>
+        <div style="padding: 10px 14px; background: #eceef1; font-size: 12px; font-weight: 700; color: #3d434b">Windows</div>
+        <div style="padding: 10px 14px; background: #eceef1; font-size: 12px; font-weight: 700; color: #3d434b">Status</div>
+        <sc-for list="{{sec.rows}}" as="row" hint-placeholder-count="3">
+          <div style="padding: 12px 14px; border-top: 1px solid #e3e7ec; font-size: 14px; font-weight: 600; line-height: 1.4">{{row.name}}</div>
+          <div style="padding: 12px 14px; border-top: 1px solid #e3e7ec; font-size: 13px; line-height: 1.45; color: #2b2f35">{{row.mac}}</div>
+          <div style="padding: 12px 14px; border-top: 1px solid #e3e7ec; font-size: 13px; line-height: 1.45; color: #2b2f35">{{row.win}}</div>
+          <div style="padding: 12px 14px; border-top: 1px solid #e3e7ec">
+            <span style="{{row.pill}}">{{row.status}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const pill = {
+      Done: 'display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#dff3e6;color:#1d6b3a',
+      Change: 'display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#fdecd2;color:#8a4b00',
+      Missing: 'display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#fde0de;color:#9b1c14'
+    };
+    const r = (name, mac, win, status) => ({ name, mac, win, status, pill: pill[status] });
+    return {
+      sections: [
+        { title: '1. Navigation and window controls', rows: [
+          r('Window buttons', 'Native traffic lights, top left. The native title bar is kept: nothing custom to drag.', 'Native caption buttons (minimise, maximise, close), top right, with Snap layouts on hover.', 'Done'),
+          r('Title bar', 'Native, shows the session and save state. Follows Bubble’s Light/Dark.', 'Native, same text. Dark title bar follows Bubble’s appearance (DWM); not yet seen on a Windows machine.', 'Change'),
+          r('Menu bar', 'System menu bar. The app menu is still Slint’s default (About, Hide, Quit): name it Bubble, add Settings… (⌘,) there, add a Window menu.', 'Native menu bar under the title. Add Alt-key access (&File, &Edit…); shortcuts are shown after a tab and run by Bubble.', 'Change'),
+          r('Quit', '⌘Q from the app menu skips the unsaved-changes question (an autosave is kept). Route it through the same question.', 'File ▸ Quit and the close button ask first.', 'Change'),
+          r('Window restoration', 'Size, place and maximised state saved and restored; a place off every screen is centred.', 'Same, checked against the connected monitors.', 'Done')
+        ]},
+        { title: '2. Typography and icons', rows: [
+          r('Interface font', 'San Francisco (system font, chosen by Slint).', 'Segoe UI (system font). Proposal: Segoe UI Variable on Windows 11.', 'Done'),
+          r('Numbers and times', 'Menlo today (slashed zero). Proposal: the system font with tabular figures: plain zero, clocks never jitter.', 'Consolas today. Proposal: Segoe UI with tabular figures.', 'Change'),
+          r('Cart labels', 'The session’s Display typeface, size and alignment. New: “|” or Shift+Return makes a line break.', 'The same; a Mac-only typeface falls back to Segoe UI.', 'Change'),
+          r('Tile marks', 'One row of line icons after a small output badge (amber when rerouted). Playing border and progress are one shape; Learn pulses.', 'Same.', 'Change'),
+          r('Interface Size', 'Removed from View: Page Bar Size and the session’s label and small-text sizes cover it.', 'Same.', 'Change'),
+          r('App icon', '.icns with 16–1024 px from the one SVG.', '.ico with 16–256 px in the .exe; 256 px window icon.', 'Done'),
+          r('Tray icon', 'None. Not needed for a playout app that stays in front.', 'None.', 'Done')
+        ]},
+        { title: '3. Theming and transparency', rows: [
+          r('Light and dark', 'Follows the system live (and Light/Dark override).', 'Same, through the window’s theme events.', 'Done'),
+          r('Light theme', 'Empty cells stay near-black in Light (carried from egui). Proposal: light grey empty cells, darker outline.', 'Same proposal.', 'Change'),
+          r('Vibrancy', 'Only the busy strip and popovers translucent (blur behind). Cart wall and bottom bar stay solid: legibility comes first during a show.', 'Solid surfaces throughout; system Mica only in the title bar. High-contrast mode: solid fills, no transparency.', 'Missing'),
+          r('Busy popover', 'One non-modal popover, top centre, for everything Bubble is busy with: loading audio (12 of 32 files), copying a drop into the session, opening, importing, converting. One row each; hides itself when done, ✕ hides it sooner. Tiles stay clean: a cart not ready yet is dimmed with a small spinner in its icon row; a cell receiving a file has a dashed outline.', 'Same, solid surface, 32 px close button for touch.', 'Change')
+        ]},
+        { title: '4. Menus and dialogs', rows: [
+          r('Context menus', 'Native NSMenu (Slint ContextMenuArea). Short, one level, destructive last.', 'Native Win32 menu, same items, destructive last.', 'Change'),
+          r('Dialog buttons', 'Main button rightmost, Cancel to its left, Don’t Save at the far left. Return = main, Esc = Cancel.', 'Right-aligned: main button first, then the others, Cancel last.', 'Change'),
+          r('Quick edit', 'Three options drawn (4a–4c). Recommended: A, a popover with grouped rows, cupertino controls, near-opaque surface (Slint cannot blur behind).', 'A as a flyout with fluent controls and 40 px rows. C (native menu, then a dialog) is the most native but takes two steps.', 'Change'),
+          r('Touch targets', 'Mouse first; Small bar fine.', '44 px minimum. Medium bar by default on touch screens.', 'Change')
+        ]}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

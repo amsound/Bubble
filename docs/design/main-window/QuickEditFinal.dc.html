@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quick edit, chosen layout</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#80c0ff}a:hover{color:#b0d8ff}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.25}}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+</style>
+</helmet>
+<div style="width: 1280px; height: 860px; box-sizing: border-box; padding: 36px 48px; background: #1b1d21; color: #e8e8e8; font-family: -apple-system, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; gap: 16px">
+  <div style="display: flex; flex-direction: column; gap: 6px">
+    <h1 style="margin: 0; font-size: 28px">Quick edit: the chosen layout</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #a7adb4; max-width: 1160px">The popover, slimmed down. Cart Setup sits beside Done; Label and Colour, then Gain, Output, Fade out, Group and Trigger; then Loop, Play next and Stop all (starting this cart fades out every other cart); then Copy, Paste, Replace File and Delete. Speed, Hold and Mute move to Cart Setup.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px">
+
+    <!-- macOS -->
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13px; font-weight: 600; color: #a7adb4">macOS</span>
+      <div style="display: flex; align-items: flex-start">
+        <div style="margin-top: 60px"><dc-import name="Tile" t="{{tile}}" w="{{tw}}" h="{{th}}" hint-size="150px,120px"></dc-import></div>
+        <div style="width: 14px; height: 14px; margin-top: 112px; margin-left: 12px; margin-right: -7px; transform: rotate(45deg); background: #323539; position: relative; z-index: 1; box-shadow: -0.5px 0.5px 0 rgba(255,255,255,0.15)"></div>
+        <div style="width: 392px; border-radius: 12px; padding: 12px; box-sizing: border-box; background: #323539; box-shadow: 0 0 0 0.5px rgba(255,255,255,0.18), 0 18px 40px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 10px; font-size: 13px">
+          <div style="display: flex; align-items: center; gap: 6px; padding: 0 2px 0 4px; white-space: nowrap"><b>Button 8</b><span style="flex: 1"></span>
+            <button type="button" style="font: inherit; font-size: 13px; padding: 3px 12px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.14); color: #fff">Cart Setup…</button>
+            <button type="button" style="font: inherit; font-size: 13px; padding: 3px 14px; border-radius: 6px; border: 0; background: #0a84ff; color: #fff">Done</button></div>
+          <div style="border-radius: 9px; background: rgba(255,255,255,0.06); display: flex; flex-direction: column">
+            <label style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 8px 10px; align-items: start"><span style="color: #c8cbd0; padding-top: 4px">Label</span>
+              <span style="display: flex; flex-direction: column; gap: 3px"><textarea rows="2" style="font: inherit; font-size: 13px; line-height: 1.35; resize: none; padding: 4px 7px; border-radius: 5px; border: 0; background: rgba(255,255,255,0.1); color: #fff; box-shadow: 0 0 0 3px rgba(10,132,255,0.55)">Morning
+News</textarea><span style="font-size: 11px; color: #8e939a">⇧↩ or | for a new line</span></span></label>
+            <div style="height: 1px; margin-left: 10px; background: rgba(255,255,255,0.08)"></div>
+            <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 8px 10px; align-items: center"><span style="color: #c8cbd0">Colour</span>
+              <div style="display: flex; align-items: center; gap: 5px">
+                <sc-for list="{{swatchesMac}}" as="s" hint-placeholder-count="10"><span style="width: 18px; height: 18px; border-radius: 50%; {{s}}"></span></sc-for>
+                <span style="width: 1px; height: 16px; margin: 0 2px; background: rgba(255,255,255,0.18)"></span>
+                <button type="button" aria-label="Other colour" style="width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 0; background: conic-gradient(#ff3b30, #ffcc00, #34c759, #00c7be, #0a84ff, #bf5af2, #ff2d55, #ff3b30)"></button>
+              </div>
+            </div>
+          </div>
+          <div style="border-radius: 9px; background: rgba(255,255,255,0.06); display: flex; flex-direction: column">
+            <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) 58px; gap: 10px; padding: 8px 10px; align-items: center"><span style="color: #c8cbd0">Gain</span>
+              <div style="position: relative; height: 18px"><div style="position: absolute; left: 0; right: 0; top: 8px; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.2)"></div><div style="position: absolute; left: 50%; top: 2px; width: 1px; height: 4px; background: #8e939a"></div><div style="position: absolute; top: 8px; height: 3px; left: 50%; width: 6%; background: #0a84ff"></div><div style="position: absolute; left: calc(56% - 9px); top: 0; width: 18px; height: 18px; border-radius: 50%; background: #f2f2f2; box-shadow: 0 1px 3px rgba(0,0,0,0.5)"></div></div><span style="text-align: right; font-variant-numeric: tabular-nums">+1.5 dB</span></div>
+            <sc-for list="{{pickers}}" as="p" hint-placeholder-count="3">
+              <div style="height: 1px; margin-left: 10px; background: rgba(255,255,255,0.08)"></div>
+              <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 6px 10px; align-items: center"><span style="color: #c8cbd0">{{p.k}}</span>
+                <span style="height: 22px; padding: 0 6px 0 9px; border-radius: 5px; background: rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: space-between; gap: 8px"><span>{{p.v}}</span><svg width="9" height="12" viewBox="0 0 9 12" aria-hidden="true"><path d="M1.5 4.5 4.5 1.5l3 3M1.5 7.5l3 3 3-3" stroke="#c8cbd0" fill="none" stroke-width="1.3"/></svg></span></div>
+            </sc-for>
+            <div style="height: 1px; margin-left: 10px; background: rgba(255,255,255,0.08)"></div>
+            <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) 58px; gap: 10px; padding: 6px 10px; align-items: center"><span style="color: #c8cbd0">Trigger</span><button type="button" style="justify-self: start; font: inherit; font-size: 13px; padding: 2px 12px; border-radius: 5px; border: 0; background: rgba(255,255,255,0.14); color: #fff">Learn</button><span style="{{keycap}}">F6</span></div>
+            <div style="height: 1px; margin-left: 10px; background: rgba(255,255,255,0.08)"></div>
+            <div style="display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 8px 10px; align-items: center"><span style="color: #c8cbd0">Options</span>
+              <div style="display: flex; gap: 16px"><sc-for list="{{checks}}" as="c" hint-placeholder-count="3"><label style="display: flex; align-items: center; gap: 6px; white-space: nowrap"><input type="checkbox" checked="{{c.on}}" style="accent-color: #0a84ff; margin: 0">{{c.k}}</label></sc-for></div></div>
+          </div>
+          <div style="display: flex; gap: 6px; white-space: nowrap">
+            <sc-for list="{{actions}}" as="a" hint-placeholder-count="3"><button type="button" style="font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 0; background: rgba(255,255,255,0.13); color: #fff">{{a}}</button></sc-for>
+            <span style="flex: 1"></span>
+            <button type="button" style="font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; border: 0; background: rgba(255,69,58,0.18); color: #ff6961">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Windows -->
+    <div style="display: flex; flex-direction: column; gap: 10px; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif">
+      <span style="font-size: 13px; font-weight: 600; color: #a7adb4">Windows 11</span>
+      <div style="display: flex; align-items: flex-start; gap: 10px">
+        <div style="margin-top: 60px"><dc-import name="Tile" t="{{tile}}" w="{{tw}}" h="{{th}}" hint-size="150px,120px"></dc-import></div>
+        <div style="width: 404px; border-radius: 8px; padding: 12px 14px; box-sizing: border-box; background: #2b2b2b; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 16px 32px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 2px; font-size: 14px">
+          <div style="display: flex; align-items: center; gap: 6px; height: 40px; white-space: nowrap"><b style="font-weight: 600">Button 8</b><span style="flex: 1"></span>
+            <button type="button" style="font: inherit; font-size: 14px; height: 32px; padding: 0 12px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; color: #fff">Cart setup…</button>
+            <button type="button" style="font: inherit; font-size: 14px; height: 32px; padding: 0 18px; border-radius: 4px; border: 0; background: #4cc2ff; color: #000">Done</button></div>
+          <label style="display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: start; padding: 4px 0"><span style="color: #c5c5c5; padding-top: 6px">Label</span>
+            <span style="display: flex; flex-direction: column; gap: 3px"><textarea rows="2" style="font: inherit; font-size: 14px; line-height: 1.35; resize: none; padding: 5px 10px; border-radius: 4px; border: 1px solid #3d3d3d; border-bottom: 2px solid #4cc2ff; background: #1f1f1f; color: #fff">Morning
+News</textarea><span style="font-size: 12px; color: #9a9a9a">Shift+Enter or | for a new line</span></span></label>
+          <div style="display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; height: 40px"><span style="color: #c5c5c5">Colour</span>
+            <div style="display: flex; align-items: center; gap: 5px">
+              <sc-for list="{{swatchesWin}}" as="s" hint-placeholder-count="10"><span style="width: 22px; height: 22px; border-radius: 4px; {{s}}"></span></sc-for>
+              <span style="width: 1px; height: 18px; margin: 0 2px; background: #404040"></span>
+              <button type="button" aria-label="Other colour" style="width: 24px; height: 24px; padding: 0; border-radius: 4px; border: 1px solid #3d3d3d; background: conic-gradient(#ff3b30, #ffcc00, #34c759, #00c7be, #0a84ff, #bf5af2, #ff2d55, #ff3b30)"></button>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 72px minmax(0, 1fr) 62px; gap: 10px; align-items: center; height: 40px"><span style="color: #c5c5c5">Gain</span>
+            <div style="position: relative; height: 20px"><div style="position: absolute; left: 0; right: 0; top: 8px; height: 4px; border-radius: 2px; background: #9a9a9a"></div><div style="position: absolute; left: 50%; top: 0; width: 1px; height: 5px; background: #c5c5c5"></div><div style="position: absolute; top: 8px; height: 4px; left: 50%; width: 6%; background: #4cc2ff"></div><div style="position: absolute; left: calc(56% - 10px); top: 0; width: 20px; height: 20px; border-radius: 50%; background: #454545; box-shadow: inset 0 0 0 5px #454545, inset 0 0 0 10px #4cc2ff"></div></div><span style="text-align: right; font-variant-numeric: tabular-nums">+1.5 dB</span></div>
+          <sc-for list="{{pickersWin}}" as="p" hint-placeholder-count="3">
+            <div style="display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; height: 40px"><span style="color: #c5c5c5">{{p.k}}</span>
+              <span style="height: 32px; padding: 0 10px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; display: flex; align-items: center; justify-content: space-between"><span>{{p.v}}</span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 4l4 4 4-4" stroke="#c5c5c5" fill="none" stroke-width="1.2"/></svg></span></div>
+          </sc-for>
+          <div style="display: grid; grid-template-columns: 72px minmax(0, 1fr) 62px; gap: 10px; align-items: center; height: 40px"><span style="color: #c5c5c5">Trigger</span><button type="button" style="justify-self: start; font: inherit; font-size: 14px; height: 32px; padding: 0 16px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; color: #fff">Learn</button><span style="{{keycap}}">F6</span></div>
+          <div style="display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; height: 40px; padding-bottom: 4px"><span style="color: #c5c5c5">Options</span>
+            <div style="display: flex; gap: 18px"><sc-for list="{{checksWin}}" as="c" hint-placeholder-count="3"><label style="display: flex; align-items: center; gap: 8px; white-space: nowrap"><input type="checkbox" checked="{{c.on}}" style="accent-color: #4cc2ff; width: 18px; height: 18px; margin: 0">{{c.k}}</label></sc-for></div></div>
+          <div style="display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid #404040; white-space: nowrap">
+            <sc-for list="{{actionsWin}}" as="a" hint-placeholder-count="3"><button type="button" style="font: inherit; font-size: 13px; height: 36px; padding: 0 14px; border-radius: 4px; border: 1px solid #3d3d3d; background: #373737; color: #fff">{{a}}</button></sc-for>
+            <span style="flex: 1"></span>
+            <button type="button" style="font: inherit; font-size: 13px; height: 36px; padding: 0 14px; border-radius: 4px; border: 1px solid #5a2a2a; background: #3a2323; color: #ff9b91">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cols = ['#3A6EA5', '#2E7D32', '#C62828', '#EF6C00', '#F9A825', '#6A1B9A', '#AD1457', '#00838F', '#5D4037', '#545B64'];
+    const sw = (ring, bgc) => cols.map((c, i) => 'background: ' + c + (i === 2 ? '; box-shadow: 0 0 0 2px ' + bgc + ', 0 0 0 4px ' + ring : ''));
+    return {
+      tile: { num: 8, label: 'Morning|News', bg: '#C62828', selected: true, out: 'A', icons: ['next'], time: '00:41' },
+      tw: 150, th: 120,
+      // The learned trigger, drawn as the keycap on the cart's tile.
+      keycap: 'justify-self: end; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 18px; padding: 0 7px; border-radius: 4px; background: rgba(255,255,255,0.88); color: #C62828',
+      swatchesMac: sw('#ffffff', '#323539'),
+      swatchesWin: sw('#4cc2ff', '#2b2b2b'),
+      pickers: [{ k: 'Output', v: 'A - Studio' }, { k: 'Fade Out', v: 'Default (1.5 s)' }, { k: 'Group', v: 'None' }],
+      pickersWin: [{ k: 'Output', v: 'A - Studio' }, { k: 'Fade out', v: 'Default (1.5 s)' }, { k: 'Group', v: 'None' }],
+      checks: [{ k: 'Loop', on: false }, { k: 'Play Next', on: true }, { k: 'Stop All', on: false }],
+      checksWin: [{ k: 'Loop', on: false }, { k: 'Play next', on: true }, { k: 'Stop all', on: false }],
+      actions: ['Copy', 'Paste', 'Replace File…'],
+      actionsWin: ['Copy', 'Paste', 'Replace file…']
+    };
+  }
+}
+</script>
+</body>
+</html>
