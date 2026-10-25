@@ -162,6 +162,51 @@ pub fn pointer_in_window(ui: &MainWindow) -> Option<(f32, f32)> {
     ))
 }
 
+/// Places a tool window (`w` × `h` logical points, before it is shown) in the middle of
+/// the main window, and inside it when it fits: never under the Windows taskbar or
+/// off the bottom of the screen when the main window is maximised.
+pub fn place_over(child: &slint::Window, parent: &slint::Window, w: f32, h: f32) {
+    let s = parent.scale_factor();
+    let pos = parent.position();
+    let size = parent.size();
+    let (px, py) = (pos.x as f32 / s, pos.y as f32 / s);
+    let (pw, ph) = (size.width as f32 / s, size.height as f32 / s);
+    // The tool window's title bar is outside `h`.
+    const TITLE: f32 = 32.0;
+    let x = px + ((pw - w) / 2.0).max(0.0);
+    let y = py + ((ph - h - TITLE) / 2.0).max(0.0);
+    child.set_position(slint::LogicalPosition::new(x, y));
+}
+
+/// Windows: whether the right mouse button is down now. Windows ends a context menu on
+/// a right-click elsewhere and keeps that click from the window under it.
+pub fn right_button_down() -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RBUTTON};
+        // SAFETY: a plain query of the button's state.
+        unsafe { GetAsyncKeyState(VK_RBUTTON as i32) < 0 }
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+/// Ends a press the window is still tracking, before something modal (a menu, the
+/// Colour dialog) takes the mouse: its release would never arrive, and the next click
+/// would go to whatever was pressed. Released off the window, so it clicks nothing.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn end_press(w: &slint::Window) {
+    for button in [
+        slint::platform::PointerEventButton::Left,
+        slint::platform::PointerEventButton::Right,
+    ] {
+        w.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: slint::LogicalPosition::new(-10_000.0, -10_000.0),
+            button,
+        });
+    }
+}
+
 /// The window icon, rendered from `assets/logo.svg` by the build script.
 pub fn icon() -> slint::Image {
     let rgba: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon-256.rgba"));

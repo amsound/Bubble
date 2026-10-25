@@ -236,3 +236,29 @@ export component SysButton inherits Rectangle {
         }
     }
 }
+
+// A small round ✕ that clears the thing beside it.
+export component ClearX inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    background: ta.pressed ? Theme.text.transparentize(65%) : ta.has-hover ? Theme.text.transparentize(75%) : Theme.text.transparentize(85%);
+    accessible-role: button;
+    accessible-label: label;
+    Path {
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M1 1L7 7M7 1L1 7";
+        stroke: Theme.text;
+        stroke-width: 1.4px;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}

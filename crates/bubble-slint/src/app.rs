@@ -103,6 +103,9 @@ pub struct App {
     cursor_empty: Option<(usize, u16, u16)>,
     /// The cart pressed with the mouse (released on pointer up).
     pressed: Option<Uuid>,
+    /// The last touch on a cell: a mouse press on the same cell just after it is the
+    /// system's copy of that touch, not a second press.
+    last_touch: Option<(i32, Instant)>,
     /// The carts in the current page's cells, as shown.
     ids: Vec<Option<Uuid>>,
     page_shown: usize,
@@ -1020,6 +1023,7 @@ impl App {
             selected: None,
             cursor_empty: None,
             pressed: None,
+            last_touch: None,
             ids: Vec::new(),
             page_shown: 0,
             tiles,
@@ -1286,6 +1290,10 @@ impl App {
         ui.set_current_page(snap.page as i32);
         ui.set_renaming(self.renaming.map_or(-1, |i| i as i32));
         ui.set_bar_height(bar_height(self.prefs.bar_size));
+        let scale = ui.window().scale_factor();
+        if ui.get_scale() != scale {
+            ui.set_scale(scale);
+        }
         sync(&self.status, model::status(&self.core, snap, None));
         ui.set_status_clickable(!snap.missing.is_empty());
         sync(&self.busy, rows);
@@ -1395,6 +1403,11 @@ impl App {
         ctrl: bool,
         intents: &mut Vec<Intent>,
     ) {
+        if touch {
+            self.last_touch = Some((idx, Instant::now()));
+        } else if !right && self.touch_echo(idx) {
+            return;
+        }
         // macOS: Control-click is a right-click.
         let right = right || (cfg!(target_os = "macos") && ctrl && !touch);
         match self.cart_at(idx) {
@@ -1428,8 +1441,21 @@ impl App {
         }
     }
 
+    /// A mouse press on `idx` right after a touch there: the system's copy of the
+    /// touch (it would toggle the cart a second time).
+    fn touch_echo(&self, idx: i32) -> bool {
+        let echo = self
+            .last_touch
+            .is_some_and(|(i, t)| i == idx && t.elapsed() < Duration::from_millis(700));
+        if echo {
+            log_info("ignored a mouse press echoing a touch");
+        }
+        echo
+    }
+
     /// Touch in Edit mode: a tap selects and plays on release.
     fn cell_tap(&mut self, idx: i32, intents: &mut Vec<Intent>) {
+        self.last_touch = Some((idx, Instant::now()));
         match self.cart_at(idx) {
             Some(cart) => {
                 intents.push(Intent::PointerDown(cart, MouseButton::Primary));
@@ -1674,8 +1700,25 @@ impl App {
             });
         let w = self.ui.clone();
         window::on_main(move || {
-            if let Some(ui) = w.upgrade() {
-                ui.invoke_open_popup();
+            let Some(ui) = w.upgrade() else { return };
+            let opened = Instant::now();
+            ui.invoke_open_popup();
+            // Windows: a right-click on another cell or tab closed the menu, and Windows
+            // kept that click from the window. Pass it on, so it opens the menu (or quick
+            // edit) there. The menu waits until it closes, so a button still down is the
+            // one that closed it (and not the press that opened it).
+            if window::right_button_down()
+                && opened.elapsed() > Duration::from_millis(150)
+                && let Some((x, y)) = window::pointer_in_window(&ui)
+            {
+                let size = ui.window().size().to_logical(ui.window().scale_factor());
+                if x >= 0.0 && y >= 0.0 && x < size.width && y < size.height {
+                    ui.window()
+                        .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                            position: slint::LogicalPosition::new(x, y),
+                            button: slint::platform::PointerEventButton::Right,
+                        });
+                }
             }
         });
     }
@@ -2138,6 +2181,7 @@ impl App {
         win.set_window_icon(window::icon());
         window::remember_menu();
         wire_setup(&win, &self.me);
+        window::place_over(win.window(), ui.window(), 860.0, 686.0);
         let _ = win.show();
         window::keep_above(win.window(), ui.window());
         self.setup = Some(cartsetup::Setup::new(win, cart));
@@ -2207,6 +2251,7 @@ impl App {
         self.core.scan_devices();
         let mut s = settings::Settings::new(win, &self.core);
         s.show(&self.core);
+        window::place_over(s.win.window(), ui.window(), 640.0, 560.0);
         let _ = s.win.show();
         window::keep_above(s.win.window(), ui.window());
         self.settings = Some(s);
@@ -2233,6 +2278,7 @@ impl App {
         wire_session_settings(&win, &self.me);
         let mut s = settings::SessionSettings::new(win);
         s.show(&self.core.snapshot());
+        window::place_over(s.win.window(), ui.window(), 660.0, 540.0);
         let _ = s.win.show();
         window::keep_above(s.win.window(), ui.window());
         self.session_settings = Some(s);
@@ -2362,6 +2408,8 @@ impl App {
                 intents.push(Intent::LearnDefault(id));
                 self.close_quick_edit();
             }
+            // The hotkey only; a MIDI note stays (Cart Setup clears that).
+            "clear-key" => intents.push(Intent::ClearBindings(id, Some(true))),
             "replace" => {
                 if let Some((page, row, col)) = at {
                     self.files.request(Purpose::Assign {

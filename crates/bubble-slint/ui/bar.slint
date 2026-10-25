@@ -130,6 +130,10 @@ export component BottomBar inherits Rectangle {
 
     background: Theme.bar-bg;
 
+    // One physical pixel (1px / the window's scale): tabs sit on whole pixels, so
+    // their names stay sharp at 125% and 150%.
+    in property <length> unit: 1px;
+
     property <length> m: 5px;
     property <length> gap: 6px;
     property <length> btn-h: max(20px, self.height - 2 * m);
@@ -145,7 +149,7 @@ export component BottomBar inherits Rectangle {
     property <length> status-w: status.length == 0 ? 0px : (right - tabs-x) * 0.35;
     property <int> n: pages.length + (edit-mode ? 1 : 0);
     property <length> tabs-avail: max(40px, right - status-w - gap - tabs-x);
-    property <length> tab-w: clamp((tabs-avail - gap * (n - 1)) / max(n, 1), 24px, 104px + grow * 1.17);
+    property <length> tab-w: floor(clamp((tabs-avail - gap * (n - 1)) / max(n, 1), 24px, 104px + grow * 1.17) / unit) * unit;
     // Where a dragged tab would land (-1: not dragging).
     property <int> drag-from: -1;
     property <int> drag-to: -1;
@@ -166,10 +170,10 @@ export component BottomBar inherits Rectangle {
     }
 
     for p[i] in pages: Rectangle {
-        x: tabs-x + i * (tab-w + gap);
-        y: m;
+        x: round((tabs-x + i * (tab-w + gap)) / unit) * unit;
+        y: round(m / unit) * unit;
         width: tab-w;
-        height: btn-h;
+        height: round(btn-h / unit) * unit;
         if i != root.renaming: Tab {
             page: p;
             current: i == root.current;

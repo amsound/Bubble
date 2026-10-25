@@ -108,15 +108,47 @@ struct WavFormat {
     frames: Option<u64>,
 }
 
+/// The format and length a WAV file's own header states: its `fmt ` chunk (block
+/// align as written, so 32-bit float, extensible and odd formats all read) and the
+/// size of its `data` chunk (no further than the file's end).
 fn read_wav_format(path: &Path) -> Option<WavFormat> {
-    let r = hound::WavReader::open(path).ok()?;
-    let spec = r.spec();
-    let block_align = u32::from(spec.channels) * u32::from(spec.bits_per_sample).div_ceil(8);
-    (block_align > 0).then_some(WavFormat {
-        sample_rate: spec.sample_rate,
-        channels: spec.channels,
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let mut head = [0u8; 12];
+    f.read_exact(&mut head).ok()?;
+    if !matches!(&head[0..4], b"RIFF" | b"RF64") || &head[8..12] != b"WAVE" {
+        return None;
+    }
+    let (mut fmt, mut data) = (None, None);
+    let mut pos = 12u64;
+    while pos + 8 <= len && (fmt.is_none() || data.is_none()) {
+        let mut ch = [0u8; 8];
+        f.read_exact(&mut ch).ok()?;
+        let size = u64::from(u32::from_le_bytes([ch[4], ch[5], ch[6], ch[7]]));
+        let body = pos + 8;
+        match &ch[0..4] {
+            b"fmt " if size >= 16 => {
+                let mut b = [0u8; 16];
+                f.read_exact(&mut b).ok()?;
+                let channels = u16::from_le_bytes([b[2], b[3]]);
+                let rate = u32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+                let block_align = u32::from(u16::from_le_bytes([b[12], b[13]]));
+                fmt = Some((rate, channels, block_align));
+            }
+            // RF64 and streamed files state 0xFFFFFFFF: the data runs to the end.
+            b"data" => data = Some(size.min(len.saturating_sub(body))),
+            _ => {}
+        }
+        pos = body + size + (size & 1);
+        f.seek(SeekFrom::Start(pos)).ok()?;
+    }
+    let (sample_rate, channels, block_align) = fmt?;
+    (block_align > 0 && channels > 0).then_some(WavFormat {
+        sample_rate,
+        channels,
         block_align,
-        frames: Some(u64::from(r.duration())),
+        frames: data.map(|d| d / u64::from(block_align)),
     })
 }
 
@@ -639,10 +671,12 @@ impl Converter<'_> {
             }
         }
 
-        // Output: the reference's device index becomes the output letter.
+        // Output: the reference's device index becomes the output letter. It counts
+        // from 1 (a session on one device stores 1 on every cart), so 1 is Output A.
         if rc.output_device_guid.chars().any(|c| c != '0' && c != '-') {
             match usize::try_from(rc.output_device_index)
                 .ok()
+                .map(|i| i.saturating_sub(1))
                 .filter(|i| *i < bubble_project::MAX_OUTPUTS)
             {
                 Some(i) => {
@@ -1033,6 +1067,50 @@ fn bubble_describe(source: &BindingSource) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A WAV file: extensible 32-bit float stereo at 48 kHz, with a `fact` chunk and a
+    /// LIST chunk of odd size before the data, as editors write them.
+    fn float_wav(frames: u32) -> Vec<u8> {
+        let mut v = Vec::new();
+        let data = frames * 8;
+        v.extend(b"RIFF");
+        v.extend(0u32.to_le_bytes());
+        v.extend(b"WAVE");
+        v.extend(b"fmt ");
+        v.extend(40u32.to_le_bytes());
+        v.extend(0xFFFEu16.to_le_bytes()); // extensible
+        v.extend(2u16.to_le_bytes());
+        v.extend(48_000u32.to_le_bytes());
+        v.extend((48_000u32 * 8).to_le_bytes());
+        v.extend(8u16.to_le_bytes()); // block align
+        v.extend(32u16.to_le_bytes());
+        v.extend([0u8; 24]);
+        v.extend(b"fact");
+        v.extend(4u32.to_le_bytes());
+        v.extend(frames.to_le_bytes());
+        v.extend(b"LIST");
+        v.extend(3u32.to_le_bytes());
+        v.extend([1, 2, 3, 0]); // odd size, padded
+        v.extend(b"data");
+        v.extend(data.to_le_bytes());
+        v.extend(vec![0u8; data as usize]);
+        v
+    }
+
+    #[test]
+    fn a_32_bit_float_wav_gives_its_real_length() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("turkey_32Bit.wav");
+        std::fs::write(&p, float_wav(1000)).unwrap();
+        let f = read_wav_format(&p).unwrap();
+        assert_eq!((f.sample_rate, f.channels, f.block_align), (48_000, 2, 8));
+        assert_eq!(f.frames, Some(1000));
+        // A truncated file: no more frames than are there.
+        let mut short = float_wav(1000);
+        short.truncate(short.len() - 400);
+        std::fs::write(&p, short).unwrap();
+        assert_eq!(read_wav_format(&p).unwrap().frames, Some(950));
+    }
 
     #[test]
     fn layout_positions() {

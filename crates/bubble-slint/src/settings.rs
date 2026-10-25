@@ -489,7 +489,6 @@ enum SessionPick {
     Duplicates(DuplicatePolicy),
     Scope(Scope),
     Typeface(Option<String>),
-    Grid(usize, u16, u16),
 }
 
 /// Typefaces offered for tile labels: what the egui app offered, by family name (a
@@ -646,7 +645,10 @@ impl SessionSettings {
                 let last = first + (pg.rows as u32 * pg.cols as u32).saturating_sub(1);
                 PageRow {
                     name: pg.name.clone().into(),
-                    grid: menu::grid_label(pg.rows, pg.cols).into(),
+                    rows: pg.rows as i32,
+                    cols: pg.cols as i32,
+                    fewer_rows: pg.rows > 1 && menu::grid_fits(snap, i, pg.rows - 1, pg.cols),
+                    fewer_cols: pg.cols > 1 && menu::grid_fits(snap, i, pg.rows, pg.cols - 1),
                     numbers: format!("{first}–{last}").into(),
                 }
             })
@@ -655,7 +657,7 @@ impl SessionSettings {
         w.set_can_delete_page(p.pages.len() > 1);
     }
 
-    pub fn choices(&mut self, field: &str, row: usize, snap: &Snapshot) {
+    pub fn choices(&mut self, field: &str, _row: usize, snap: &Snapshot) {
         let s = &snap.project.settings;
         let mut list = Vec::new();
         self.picks.clear();
@@ -759,26 +761,6 @@ impl SessionSettings {
                     add(SessionPick::Typeface(Some(c.clone())), c, true, true);
                 }
             }
-            "grid" => {
-                let (rows, cols) = snap
-                    .project
-                    .pages
-                    .get(row)
-                    .map_or((4, 6), |p| (p.rows, p.cols));
-                let mut sizes = menu::GRID_SIZES.to_vec();
-                if !sizes.contains(&(rows, cols)) {
-                    sizes.push((rows, cols));
-                }
-                sizes.sort();
-                for (r, c) in sizes {
-                    add(
-                        SessionPick::Grid(row, r, c),
-                        menu::grid_label(r, c),
-                        menu::grid_fits(snap, row, r, c),
-                        (r, c) == (rows, cols),
-                    );
-                }
-            }
             _ => {}
         }
         self.win.set_popup_rows(rows(list));
@@ -801,10 +783,6 @@ impl SessionSettings {
             SessionPick::Duplicates(d) => st.duplicate_binding_policy = d,
             SessionPick::Scope(s) => st.binding_scope = s,
             SessionPick::Typeface(f) => st.display.font = f,
-            SessionPick::Grid(page, r, c) => {
-                intents.push(Intent::ResizePage(page, r, c));
-                return;
-            }
         }
         if st != snap.project.settings {
             intents.push(Intent::Settings(st));
@@ -904,6 +882,27 @@ impl SessionSettings {
                 }
             }
             "add-page" => intents.push(Intent::AddPage),
+            "rows-up" | "rows-down" | "cols-up" | "cols-down" => {
+                if let Some(pg) = snap.project.pages.get(row) {
+                    let max = bubble_project::validate::MAX_GRID;
+                    let step = |v: u16, up: bool| {
+                        if up {
+                            (v + 1).min(max)
+                        } else {
+                            v.saturating_sub(1).max(1)
+                        }
+                    };
+                    let (r, c) = match what {
+                        "rows-up" => (step(pg.rows, true), pg.cols),
+                        "rows-down" => (step(pg.rows, false), pg.cols),
+                        "cols-up" => (pg.rows, step(pg.cols, true)),
+                        _ => (pg.rows, step(pg.cols, false)),
+                    };
+                    if (r, c) != (pg.rows, pg.cols) && menu::grid_fits(snap, row, r, c) {
+                        intents.push(Intent::ResizePage(row, r, c));
+                    }
+                }
+            }
             _ => {}
         }
     }

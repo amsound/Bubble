@@ -130,6 +130,10 @@ impl Picker {
             return;
         }
         self.open = true;
+        // The dialog is modal and takes the mouse: Cart Setup's swatch opens it on the
+        // press, whose release the window would then never see (the next click went
+        // back to the swatch and opened the dialog again).
+        crate::window::end_press(window);
         let tx = self.tx.clone();
         #[cfg(windows)]
         {

@@ -12,7 +12,7 @@
 //          Notes
 //                                                                       [Cancel] [OK]
 
-import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock } from "theme.slint";
+import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock, ClearX } from "theme.slint";
 import { LabelField, FieldRow, Rule, Group, Toggle } from "quickedit.slint";
 
 // A time on the ruler.
@@ -263,6 +263,8 @@ export component SetupSlider inherits Rectangle {
 component Swatch inherits Rectangle {
     in property <brush> colour;
     in property <bool> chosen;
+    // The other-colour swatch shows the cart's own colour in its middle when chosen.
+    in property <color> centre: transparent;
     callback pressed();
     width: 24px;
     height: 24px;
@@ -274,6 +276,14 @@ component Swatch inherits Rectangle {
         height: 16px;
         border-radius: Theme.mac ? 8px : 3px;
         background: root.colour;
+        if root.centre.alpha > 0: Rectangle {
+            width: 10px;
+            height: 10px;
+            border-radius: Theme.mac ? 5px : 2px;
+            background: root.centre;
+            border-width: 1px;
+            border-color: #ffffff;
+        }
     }
     // On the press, so it takes at once (and the ring follows straight away).
     TouchArea {
@@ -281,32 +291,6 @@ component Swatch inherits Rectangle {
             if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
                 root.pressed();
             }
-        }
-    }
-}
-
-// A small round ✕ that clears the thing beside it.
-export component ClearX inherits Rectangle {
-    in property <string> label;
-    callback clicked();
-    width: 18px;
-    height: 18px;
-    border-radius: 9px;
-    background: ta.pressed ? Theme.text.transparentize(65%) : ta.has-hover ? Theme.text.transparentize(75%) : Theme.text.transparentize(85%);
-    accessible-role: button;
-    accessible-label: label;
-    Path {
-        width: 8px;
-        height: 8px;
-        viewbox-width: 8;
-        viewbox-height: 8;
-        commands: "M1 1L7 7M7 1L1 7";
-        stroke: Theme.text;
-        stroke-width: 1.4px;
-    }
-    ta := TouchArea {
-        clicked => {
-            root.clicked();
         }
     }
 }
@@ -1133,6 +1117,7 @@ export component CartSetupWindow inherits Window {
                                 Swatch {
                                     colour: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
                                     chosen: info.colour < 0;
+                                    centre: info.colour < 0 ? info.cart-color : transparent;
                                     pressed => {
                                         root.pick-colour();
                                     }

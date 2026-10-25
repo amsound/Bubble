@@ -374,8 +374,9 @@ export component TileView inherits Rectangle {
         }
         moved => {
             if self.pressed {
-                if root.holding && (abs(self.mouse-x - self.pressed-x) > 12px || abs(self.mouse-y - self.pressed-y) > 12px) {
-                    // A touch that moves is not a tap or a hold.
+                if root.holding && (abs(self.mouse-x - self.pressed-x) > 24px || abs(self.mouse-y - self.pressed-y) > 24px) {
+                    // A touch that moves is not a tap or a hold (a quick tap on a
+                    // touch screen can move a little, so only a real move counts).
                     root.holding = false;
                     root.held = true;
                 }

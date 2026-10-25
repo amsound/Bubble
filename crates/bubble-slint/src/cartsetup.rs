@@ -259,7 +259,9 @@ impl Setup {
     }
 
     fn clamp_view(&mut self) {
-        let min_span = (self.dur / 4000.0).max(0.005).min(self.dur);
+        // As far in as the fine envelope has detail: 10 ms across the view for most
+        // files (a few frames per pixel), more for very long ones.
+        let min_span = (self.dur / 65_536.0).max(0.01).min(self.dur);
         self.span = self.span.clamp(min_span, self.dur.max(min_span));
         self.start = self.start.clamp(0.0, (self.dur - self.span).max(0.0));
     }
@@ -1068,7 +1070,6 @@ impl Setup {
         let Some(ov) = ov.filter(|o| o.max.len() > 1) else {
             return format!("M0 {:.1}L{:.1} {:.1}", h / 2.0, w, h / 2.0);
         };
-        let n = ov.max.len();
         let cols = w.max(1.0) as usize;
         let mid = h / 2.0;
         let amp = h / 2.0 * 0.94;
@@ -1079,16 +1080,7 @@ impl Setup {
             if t1 <= 0.0 || t0 >= ov.duration_s {
                 continue;
             }
-            let i0 = ((t0 / ov.duration_s) * n as f64).floor().max(0.0) as usize;
-            let i1 = (((t1 / ov.duration_s) * n as f64).ceil() as usize).clamp(i0 + 1, n);
-            if i0 >= n {
-                break;
-            }
-            let (mut lo, mut hi) = (0.0f32, 0.0f32);
-            for i in i0..i1 {
-                lo = lo.min(ov.min[i]);
-                hi = hi.max(ov.max[i]);
-            }
+            let (lo, hi) = ov.envelope(t0.max(0.0), t1.min(ov.duration_s));
             let y1 = mid - hi.clamp(-1.0, 1.0) * amp;
             let y2 = (mid - lo.clamp(-1.0, 1.0) * amp).max(y1 + 0.6);
             s += &format!("M{}.5 {y1:.1}V{y2:.1}", col);

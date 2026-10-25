@@ -1103,3 +1103,47 @@ fn hotkey_follows_on_retrigger_restart() {
         assert_eq!(state(&c, cart), CartState::Playing);
     }
 }
+
+#[test]
+fn several_files_carry_on_into_the_next_pages_free_cells() {
+    let dir = tempfile::tempdir().unwrap();
+    let files: Vec<PathBuf> = (0..5)
+        .map(|i| {
+            let p = dir.path().join(format!("f{i}.wav"));
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: SR,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut w = hound::WavWriter::create(&p, spec).unwrap();
+            for _ in 0..480 {
+                w.write_sample(0i16).unwrap();
+            }
+            w.finalize().unwrap();
+            p
+        })
+        .collect();
+    let mut c = Controller::new(Controller::new_project("Test"), None);
+    // Page 1: 1 × 3 with the middle cell taken; page 2: 1 × 2.
+    c.resize_page(0, 1, 3).unwrap();
+    c.assign_file(0, 0, 1, &files[0]).unwrap();
+    c.add_page("Page 2", 1, 2);
+    let done = c.assign_files(0, 0, 0, &files);
+    assert!(done.iter().all(|r| r.is_ok()));
+    let at = |p: usize, col: u16| {
+        c.project().pages[p]
+            .cell(0, col)
+            .map(|x| x.cart.label.clone())
+            .unwrap_or_default()
+    };
+    // Cell 1, the taken cell 2 skipped, cell 3, then page 2, then a page added.
+    assert_eq!(
+        (at(0, 0), at(0, 1), at(0, 2)),
+        ("f0".into(), "f0".into(), "f1".into())
+    );
+    assert_eq!((at(1, 0), at(1, 1)), ("f2".into(), "f3".into()));
+    assert_eq!(c.project().pages.len(), 3);
+    assert_eq!(c.project().pages[2].name, "Page 3");
+    assert_eq!(at(2, 0), "f4");
+}

@@ -1860,7 +1860,6 @@ dependencies = [
  "anyhow",
  "bubble-project",
  "clap",
- "hound",
  "serde",
  "serde_json",
  "sha2",

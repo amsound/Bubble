@@ -1623,7 +1623,9 @@ impl Controller {
         Ok(cart_id)
     }
 
-    /// Assigns files to consecutive cells starting at (row, col), in reading order.
+    /// Assigns files from (row, col) on: the first to that cell, the rest to the next
+    /// empty cells by cart number, carrying on into the following pages (cart numbers
+    /// run on from page to page), and adding pages like the last one when they run out.
     pub fn assign_files(
         &mut self,
         page: usize,
@@ -1631,20 +1633,52 @@ impl Controller {
         col: u16,
         files: &[PathBuf],
     ) -> Vec<Result<Uuid, String>> {
-        let (rows, cols) = match self.project.pages.get(page) {
-            Some(p) => (p.rows as u32, p.cols as u32),
-            None => return vec![],
-        };
-        let mut idx = row as u32 * cols + col as u32;
+        if self.project.pages.get(page).is_none() || files.is_empty() {
+            return vec![];
+        }
+        let cells = self.free_cells_after(page, row, col, files.len() - 1);
         let mut out = Vec::new();
-        for f in files {
-            if idx >= rows * cols {
-                out.push(Err(format!("{}: page is full", f.display())));
-                continue;
+        for (f, (p, r, c)) in files
+            .iter()
+            .zip(std::iter::once((page, row, col)).chain(cells))
+        {
+            out.push(self.assign_file(p, r, c, f).map_err(|e| e.to_string()));
+        }
+        out
+    }
+
+    /// The next `n` empty cells after (row, col) on `page`, in cart-number order across
+    /// the pages after it, adding pages (the last page's grid) when there are too few.
+    fn free_cells_after(
+        &mut self,
+        page: usize,
+        row: u16,
+        col: u16,
+        n: usize,
+    ) -> Vec<(usize, u16, u16)> {
+        let mut out = Vec::new();
+        let mut p = page;
+        let mut start = row as u32 * self.project.pages[page].cols as u32 + col as u32 + 1;
+        while out.len() < n {
+            if p >= self.project.pages.len() {
+                let (rows, cols) = self
+                    .project
+                    .pages
+                    .last()
+                    .map_or((4, 6), |l| (l.rows, l.cols));
+                let name = format!("Page {}", self.project.pages.len() + 1);
+                self.add_page(&name, rows, cols);
             }
-            let (r, c) = ((idx / cols) as u16, (idx % cols) as u16);
-            out.push(self.assign_file(page, r, c, f).map_err(|e| e.to_string()));
-            idx += 1;
+            let pg = &self.project.pages[p];
+            let cols = pg.cols as u32;
+            for i in start..pg.rows as u32 * cols {
+                let (r, c) = ((i / cols) as u16, (i % cols) as u16);
+                if pg.cell(r, c).is_none() && out.len() < n {
+                    out.push((p, r, c));
+                }
+            }
+            p += 1;
+            start = 0;
         }
         out
     }

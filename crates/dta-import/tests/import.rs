@@ -182,6 +182,8 @@ fn missing_asset_is_reported_with_its_original_path() {
         let cart = &cell.cart;
         assert_eq!(cart.id, c.new_cart_id);
         assert_eq!(cart.color.as_deref(), Some("#3A6EA5"));
+        // The reference's device index 1 (its only device) is Output A.
+        assert_eq!(cart.output, "A");
         assert_eq!(cart.gain_db, 0.0);
         assert_eq!(cart.fade_out.unwrap().ms, 100);
         assert_eq!(cart.fade_out.unwrap().curve, Curve::Exponential);

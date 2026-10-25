@@ -14,7 +14,7 @@
 //   [Copy] [Paste] [Replace File…]        [Delete]
 
 import { Slider } from "std-widgets.slint";
-import { Theme, TextCommand, Panel, SysButton, PopButton } from "theme.slint";
+import { Theme, TextCommand, Panel, SysButton, PopButton, ClearX } from "theme.slint";
 
 export struct QuickEdit {
     title: string,
@@ -251,7 +251,8 @@ export component QuickEditPanel inherits Panel {
             Rectangle {
                 horizontal-stretch: 1;
             }
-            SysButton {
+            // A control button has nothing to set up.
+            if !qe.control: SysButton {
                 text: "Cart Setup…";
                 clicked => {
                     root.action("setup");
@@ -310,6 +311,15 @@ export component QuickEditPanel inherits Panel {
                             background: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
                             border-width: qe.color < 0 ? 2px : 0px;
                             border-color: Theme.text;
+                        }
+                        // A colour of its own (not a swatch): shown in the middle.
+                        if qe.color < 0: Rectangle {
+                            width: 10px;
+                            height: 10px;
+                            border-radius: Theme.mac ? 5px : 2px;
+                            background: qe.cart-color;
+                            border-width: 1px;
+                            border-color: #ffffff;
                         }
                         // Any other colour, in the system colour picker.
                         TouchArea {
@@ -417,17 +427,9 @@ export component QuickEditPanel inherits Panel {
             if Theme.mac: Rule { }
             FieldRow {
                 label: "Hotkey";
+                // As in Cart Setup: the keycap with its ✕, then Learn at the end.
                 HorizontalLayout {
-                    SysButton {
-                        y: (parent.height - self.height) / 2;
-                        text: "Learn";
-                        clicked => {
-                            root.action("learn");
-                        }
-                    }
-                    Rectangle {
-                        horizontal-stretch: 1;
-                    }
+                    spacing: 6px;
                     // The hotkey as its keycap on the tile.
                     if qe.hotkey != "": Rectangle {
                         y: (parent.height - self.height) / 2;
@@ -444,10 +446,27 @@ export component QuickEditPanel inherits Panel {
                             vertical-alignment: center;
                         }
                     }
+                    if qe.hotkey != "": ClearX {
+                        y: (parent.height - self.height) / 2;
+                        label: "Clear Hotkey";
+                        clicked => {
+                            root.action("clear-key");
+                        }
+                    }
                     if qe.hotkey == "": Text {
                         text: "none";
                         color: Theme.weak-text;
                         vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    SysButton {
+                        y: (parent.height - self.height) / 2;
+                        text: "Learn";
+                        clicked => {
+                            root.action("learn");
+                        }
                     }
                 }
             }

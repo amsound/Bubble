@@ -76,6 +76,8 @@ export component MainWindow inherits Window {
     in property <int> renaming: -1;
     in property <string> rename-text;
     in property <length> bar-height: 44px;
+    // The window's scale factor (1, 1.25, 1.5, 2), set from Rust.
+    in property <float> scale: 1;
     in property <[BusyRow]> busy;
     // Where the busy popover was dragged to, from top centre.
     property <length> busy-dx;
@@ -485,6 +487,7 @@ export component MainWindow inherits Window {
     }
 
     BottomBar {
+        unit: 1px / root.scale;
         x: 0;
         y: root.height - root.bar-height;
         width: root.width;

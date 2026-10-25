@@ -15,9 +15,9 @@
 //     Pages:   each page's name, grid and cart numbers
 
 import { ScrollView } from "std-widgets.slint";
-import { Theme, TextCommand, SysButton, PopupRow } from "theme.slint";
+import { Theme, TextCommand, SysButton, PopupRow, ClearX } from "theme.slint";
 import { LabelField, FieldRow, Rule, Group } from "quickedit.slint";
-import { SetupSlider, Choice, ClearX } from "cartsetup.slint";
+import { SetupSlider, Choice } from "cartsetup.slint";
 
 export struct OutputRow {
     letter: string,
@@ -41,8 +41,50 @@ export struct GroupRow {
 
 export struct PageRow {
     name: string,
-    grid: string,
+    rows: int,
+    cols: int,
+    // Whether a row or column can go without cutting off a cart.
+    fewer-rows: bool,
+    fewer-cols: bool,
     numbers: string,
+}
+
+// A number with − and + beside it (rows, columns).
+component Stepper inherits HorizontalLayout {
+    in property <string> label;
+    in property <int> value;
+    in property <bool> can-down: true;
+    in property <bool> can-up: true;
+    callback step(int);
+    spacing: 4px;
+    Text {
+        text: root.label;
+        color: Theme.weak-text;
+        vertical-alignment: center;
+    }
+    SysButton {
+        y: (parent.height - self.height) / 2;
+        text: "−";
+        enabled: root.can-down;
+        clicked => {
+            root.step(-1);
+        }
+    }
+    Text {
+        width: 22px;
+        text: root.value;
+        color: Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    SysButton {
+        y: (parent.height - self.height) / 2;
+        text: "+";
+        enabled: root.can-up;
+        clicked => {
+            root.step(1);
+        }
+    }
 }
 
 // One choice of several, side by side (the sections at the top, alignment).
@@ -631,9 +673,9 @@ export component SessionSettingsWindow inherits Window {
     in property <string> window-title: "Session Settings";
     title: window-title;
     icon: window-icon;
-    preferred-width: 600px;
+    preferred-width: 660px;
     preferred-height: 540px;
-    min-width: 520px;
+    min-width: 600px;
     min-height: 380px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
@@ -667,7 +709,7 @@ export component SessionSettingsWindow inherits Window {
 
     callback section-chosen(int);
     // "audio-files", "fade", "retrigger", "warning", "duplicates", "scope",
-    // "typeface", or a page's "grid" (with its row).
+    // "typeface".
     callback choice-menu(string, int, length, length);
     callback popup-chosen(int);
     // "name", or a "group" / "page" name (with its row).
@@ -677,7 +719,8 @@ export component SessionSettingsWindow inherits Window {
     callback reset(string);
     // "h-align" / "v-align" (with the choice).
     callback chose(string, int);
-    // "add-group", "remove-group" (row), "add-page", "delete-page" (row).
+    // "add-group", "remove-group" (row), "add-page", "delete-page" (row), and a
+    // page's "rows-up", "rows-down", "cols-up", "cols-down" (row).
     callback action(string, int);
     callback key(string);
 
@@ -984,14 +1027,26 @@ export component SessionSettingsWindow inherits Window {
                                     root.edited("page", i, t);
                                 }
                             }
-                            Choice {
-                                value: p.grid;
-                                open(x, y) => {
-                                    root.choice-menu("grid", i, x, y);
+                            Stepper {
+                                label: "Rows";
+                                value: p.rows;
+                                can-down: p.fewer-rows;
+                                can-up: p.rows < 16;
+                                step(d) => {
+                                    root.action(d > 0 ? "rows-up" : "rows-down", i);
+                                }
+                            }
+                            Stepper {
+                                label: Theme.mac ? "Columns" : "Columns";
+                                value: p.cols;
+                                can-down: p.fewer-cols;
+                                can-up: p.cols < 16;
+                                step(d) => {
+                                    root.action(d > 0 ? "cols-up" : "cols-down", i);
                                 }
                             }
                             Text {
-                                width: 80px;
+                                width: 64px;
                                 text: p.numbers;
                                 color: Theme.weak-text;
                                 horizontal-alignment: right;

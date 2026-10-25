@@ -116,7 +116,7 @@ impl Validator {
                 let c = &cell.cart;
                 self.unique(c.id, &format!("{cp}.cart.id"));
                 carts.insert(c.id);
-                self.cart(c, &format!("{cp}.cart"), &assets, &groups, p);
+                self.cart(c, &format!("{cp}.cart"), &assets, &groups);
             }
         }
 
@@ -173,14 +173,7 @@ impl Validator {
         }
     }
 
-    fn cart(
-        &mut self,
-        c: &Cart,
-        path: &str,
-        assets: &HashSet<Uuid>,
-        groups: &HashSet<Uuid>,
-        p: &Project,
-    ) {
+    fn cart(&mut self, c: &Cart, path: &str, assets: &HashSet<Uuid>, groups: &HashSet<Uuid>) {
         self.text(&c.label, &format!("{path}.label"), 200);
         self.text(&c.notes, &format!("{path}.notes"), MAX_TEXT);
         if let Some(a) = c.asset
@@ -229,20 +222,13 @@ impl Validator {
         if c.play_delay_ms > MAX_PLAY_DELAY_MS {
             self.err(format!("{path}.play_delay_ms"), "longer than 99.9 s");
         }
-        if let Some(t) = c.trim {
-            if t.in_frames >= t.out_frames {
-                self.err(format!("{path}.trim"), "in must be before out");
-            }
-            let frames = c
-                .asset
-                .and_then(|a| p.asset(a))
-                .and_then(|a| a.meta.as_ref())
-                .map(|m| m.frames);
-            if let Some(frames) = frames
-                && t.out_frames > frames
-            {
-                self.err(format!("{path}.trim.out_frames"), "beyond end of asset");
-            }
+        // An Out point past the file's end is allowed: the file may have been replaced
+        // by a shorter one, or measured differently when imported, and playback ends
+        // at the end of the file either way. A show must still save.
+        if let Some(t) = c.trim
+            && t.in_frames >= t.out_frames
+        {
+            self.err(format!("{path}.trim"), "in must be before out");
         }
     }
 }

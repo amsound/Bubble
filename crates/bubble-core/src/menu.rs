@@ -244,7 +244,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             if cfg!(target_os = "macos") {
                 "Show Session in Finder"
             } else {
-                "Show Session Folder"
+                "Reveal Session Folder"
             },
             Cmd::RevealSession,
         )
@@ -311,14 +311,8 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     let mut levels: Vec<Item> = OUTPUT_LEVELS
         .iter()
         .map(|db| {
-            let label = if *db == 0 {
-                "0 dB (no attenuation)".to_string()
-            } else if *db == bubble_project::DEFAULT_MASTER_GAIN_DB as i32 {
-                format!("{db} dB (default)")
-            } else {
-                format!("{db} dB")
-            };
-            Item::action(label, Cmd::OutputLevel(*db)).check((level - *db as f32).abs() < 0.05)
+            Item::action(format!("{db} dB"), Cmd::OutputLevel(*db))
+                .check((level - *db as f32).abs() < 0.05)
         })
         .collect();
     let custom = !OUTPUT_LEVELS
@@ -394,7 +388,25 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         Item::Separator,
         Item::action("Delete Page…", Cmd::RemovePage).enabled(pages > 1),
     ];
-    let mut view = vec![
+    let view = vec![
+        Item::sub(
+            "Page Bar Size",
+            BAR_SIZES
+                .into_iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    Item::action(n, Cmd::BarSize(i as u8)).check(core.prefs.bar_size == i as u8)
+                })
+                .collect(),
+        ),
+        Item::sub(
+            "Appearance",
+            APPEARANCES
+                .into_iter()
+                .map(|(n, a)| Item::action(n, Cmd::Appearance(a)).check(core.prefs.appearance == a))
+                .collect(),
+        ),
+        Item::Separator,
         Item::action("Playout Log", Cmd::ShowLog).accel("CmdOrCtrl+L"),
         Item::action("Audio Diagnostics", Cmd::ShowDiagnostics),
         Item::action("Show Log File", Cmd::ShowLogs),
@@ -410,7 +422,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         }
     } else {
         // An interface without a Settings window keeps every setting in its menus.
-        legacy_settings(core, snap, &mut audio, &mut session, &mut view);
+        legacy_settings(core, snap, &mut audio, &mut session);
     }
     let top = |title: &str, items| Top {
         title: title.into(),
@@ -460,15 +472,8 @@ pub fn grid_label(rows: u16, cols: u16) -> String {
 }
 
 /// The settings an interface without a Settings window shows in its menus (the egui
-/// interface): sample rate, buffer size, limiter, MIDI ports, mouse, hotkey rules,
-/// page bar size and appearance.
-fn legacy_settings(
-    core: &Core,
-    snap: &Snapshot,
-    audio: &mut Vec<Item>,
-    session: &mut Vec<Item>,
-    view: &mut Vec<Item>,
-) {
+/// interface): sample rate, buffer size, limiter, MIDI ports, mouse and hotkey rules.
+fn legacy_settings(core: &Core, snap: &Snapshot, audio: &mut Vec<Item>, session: &mut Vec<Item>) {
     use bubble_project::{DuplicatePolicy as D, MouseMode as M, Scope as S};
     let s = &snap.project.settings;
     let machine = core.prefs.machine();
@@ -545,31 +550,6 @@ fn legacy_settings(
             ],
         ),
     ]);
-    view.splice(
-        0..0,
-        [
-            Item::sub(
-                "Page Bar Size",
-                BAR_SIZES
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, n)| {
-                        Item::action(n, Cmd::BarSize(i as u8)).check(core.prefs.bar_size == i as u8)
-                    })
-                    .collect(),
-            ),
-            Item::sub(
-                "Appearance",
-                APPEARANCES
-                    .into_iter()
-                    .map(|(n, a)| {
-                        Item::action(n, Cmd::Appearance(a)).check(core.prefs.appearance == a)
-                    })
-                    .collect(),
-            ),
-            Item::Separator,
-        ],
-    );
 }
 
 /// Buffer sizes offered (frames; `None` = the device's own).
