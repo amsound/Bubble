@@ -285,6 +285,54 @@ component Swatch inherits Rectangle {
     }
 }
 
+// Two pop-ups, each after a short label ("In" / "Out", "x0" / "x1"), in fixed
+// columns so rows of pairs line up.
+component PopPair inherits HorizontalLayout {
+    in property <string> a-label;
+    in property <string> a-value;
+    in property <string> b-label;
+    in property <string> b-value;
+    callback open-a(length, length);
+    callback open-b(length, length);
+    spacing: 6px;
+    alignment: start;
+    Text {
+        width: 22px;
+        text: root.a-label;
+        color: Theme.weak-text;
+        vertical-alignment: center;
+    }
+    HorizontalLayout {
+        width: 96px;
+        alignment: start;
+        PopButton {
+            model: [root.a-value];
+            current-index: 0;
+            open(x, y) => {
+                root.open-a(x, y);
+            }
+        }
+    }
+    Text {
+        width: 30px;
+        text: root.b-label;
+        color: Theme.weak-text;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+    }
+    HorizontalLayout {
+        width: 96px;
+        alignment: start;
+        PopButton {
+            model: [root.b-value];
+            current-index: 0;
+            open(x, y) => {
+                root.open-b(x, y);
+            }
+        }
+    }
+}
+
 // A pop-up button that only shows its value; the choices come from Rust as a native
 // menu (`choice-menu`).
 component Choice inherits HorizontalLayout {
@@ -309,7 +357,7 @@ export component CartSetupWindow inherits Window {
     icon: window-icon;
     // Opens at its smallest.
     preferred-width: 860px;
-    min-width: 860px;
+    min-width: 640px;
     property <length> label-width: Theme.mac ? 92px : 104px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
@@ -862,8 +910,8 @@ export component CartSetupWindow inherits Window {
                 VerticalLayout {
                     // Fixed halves: both columns ask for the same small size and share
                     // the rest equally, so what the pop-ups show never moves them.
-                    min-width: 200px;
-                    preferred-width: 200px;
+                    min-width: 150px;
+                    preferred-width: 150px;
                     horizontal-stretch: 1;
                     spacing: 6px;
                     alignment: start;
@@ -898,13 +946,6 @@ export component CartSetupWindow inherits Window {
                                     root.reset("gain");
                                 }
                             }
-                            Text {
-                                width: 56px;
-                                text: info.gain-text;
-                                color: Theme.text;
-                                horizontal-alignment: right;
-                                vertical-alignment: center;
-                            }
                             Toggle {
                                 width: 56px;
                                 height: Theme.mac ? 24px : 32px;
@@ -913,6 +954,13 @@ export component CartSetupWindow inherits Window {
                                 toggled(on) => {
                                     root.toggle("mute");
                                 }
+                            }
+                            Text {
+                                width: 56px;
+                                text: info.gain-text;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
                             }
                         }
                         if Theme.mac: Rule { }
@@ -966,22 +1014,16 @@ export component CartSetupWindow inherits Window {
                         FieldRow {
                             label-width: root.label-width;
                             label: Theme.mac ? "Speed Bar" : "Speed bar";
-                            HorizontalLayout {
-                                spacing: 6px;
-                                alignment: start;
-                                PopButton {
-                                    model: ["x0 · " + info.speed-x0];
-                                    current-index: 0;
-                                    open(x, y) => {
-                                        root.choice-menu("x0", x, y);
-                                    }
+                            PopPair {
+                                a-label: "x0";
+                                a-value: info.speed-x0;
+                                b-label: "x1";
+                                b-value: info.speed-x1;
+                                open-a(x, y) => {
+                                    root.choice-menu("x0", x, y);
                                 }
-                                PopButton {
-                                    model: ["x1 · " + info.speed-x1];
-                                    current-index: 0;
-                                    open(x, y) => {
-                                        root.choice-menu("x1", x, y);
-                                    }
+                                open-b(x, y) => {
+                                    root.choice-menu("x1", x, y);
                                 }
                             }
                         }
@@ -989,35 +1031,16 @@ export component CartSetupWindow inherits Window {
                         FieldRow {
                             label-width: root.label-width;
                             label: "Fades";
-                            HorizontalLayout {
-                                spacing: 6px;
-                                alignment: start;
-                                Text {
-                                    text: "In";
-                                    color: Theme.weak-text;
-                                    vertical-alignment: center;
+                            PopPair {
+                                a-label: "In";
+                                a-value: info.fade-in;
+                                b-label: "Out";
+                                b-value: info.fade-out;
+                                open-a(x, y) => {
+                                    root.choice-menu("fade-in", x, y);
                                 }
-                                PopButton {
-                                    model: [info.fade-in];
-                                    current-index: 0;
-                                    open(x, y) => {
-                                        root.choice-menu("fade-in", x, y);
-                                    }
-                                }
-                                Rectangle {
-                                    width: 6px;
-                                }
-                                Text {
-                                    text: "Out";
-                                    color: Theme.weak-text;
-                                    vertical-alignment: center;
-                                }
-                                PopButton {
-                                    model: [info.fade-out];
-                                    current-index: 0;
-                                    open(x, y) => {
-                                        root.choice-menu("fade-out", x, y);
-                                    }
+                                open-b(x, y) => {
+                                    root.choice-menu("fade-out", x, y);
                                 }
                             }
                         }
@@ -1036,8 +1059,8 @@ export component CartSetupWindow inherits Window {
                 }
 
                 VerticalLayout {
-                    min-width: 200px;
-                    preferred-width: 200px;
+                    min-width: 150px;
+                    preferred-width: 150px;
                     horizontal-stretch: 1;
                     spacing: 6px;
                     alignment: start;
@@ -1111,6 +1134,8 @@ export component CartSetupWindow inherits Window {
                                     text: "Loop";
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
                                     on: info.looping;
                                     toggled(on) => {
                                         root.toggle("loop");
@@ -1120,6 +1145,8 @@ export component CartSetupWindow inherits Window {
                                     text: Theme.mac ? "Play Next" : "Play next";
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
                                     on: info.play-next;
                                     toggled(on) => {
                                         root.toggle("next");
@@ -1129,6 +1156,8 @@ export component CartSetupWindow inherits Window {
                                     text: "Hold";
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
                                     on: info.hold;
                                     toggled(on) => {
                                         root.toggle("hold");
@@ -1146,6 +1175,8 @@ export component CartSetupWindow inherits Window {
                                     text: Theme.mac ? "Stop Page" : "Stop page";
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
                                     on: info.stop-page;
                                     toggled(on) => {
                                         root.toggle("stop-page");
@@ -1155,6 +1186,8 @@ export component CartSetupWindow inherits Window {
                                     text: Theme.mac ? "Stop All" : "Stop all";
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
                                     on: info.stop-all;
                                     toggled(on) => {
                                         root.toggle("stop-all");
@@ -1162,6 +1195,8 @@ export component CartSetupWindow inherits Window {
                                 }
                                 // Lines up with Playback's three.
                                 Rectangle {
+                                    min-width: 0;
+                                    preferred-width: 0;
                                     horizontal-stretch: 1;
                                 }
                             }
