@@ -1,10 +1,12 @@
 # Design boards
 
 Copies of the design canvases made for the Slint interface, kept here for reference.
-The live, viewable versions are claude.ai Design artifacts (links below). The
-`.dc.html` files are those canvases' boards. They need the Design canvas runtime
-(`support.js`) to render, so open the links to see them; the files here are the
-record of what was drawn.
+**The files in this folder are the source of truth.** The claude.ai artifact links
+below belong to the account they were made on (not the user's personal account) and
+may not open elsewhere. They were the live, viewable versions. The `.dc.html` files
+are those canvases' boards (and `canvas.json` their arrangement). They need the
+Design canvas runtime (`support.js`) to render: to view them again, publish them into
+a new claude.ai Design artifact. The alert images in `alerts/` open as they are.
 
 What was built since is in [the bubble-slint README](../../crates/bubble-slint/README.md)
 checklist. Where they disagree, the README is current.

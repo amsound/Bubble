@@ -32,12 +32,15 @@ widgets use Slint's cupertino style on macOS and fluent elsewhere (chosen in `bu
 | `ui/bar.slint` | Bottom bar: Edit/Show, page tabs, status line, STOP PAGE, STOP ALL |
 | `ui/quickedit.slint` | Quick edit panel |
 | `ui/theme.slint` | Light/dark colours, the text field that reports focus, flat buttons, pop-up buttons |
+| `ui/cartsetup.slint` | The Cart Setup window: waveform, trim boxes, transport, its own slider, swatches, pop-up pairs |
+| `src/cartsetup.rs` | Cart Setup: the draft cart, the waveform view and gestures, the audition, its pop-up choices |
 | `src/app.rs` | Input → `Intent`s, the per-frame core work, everything shown |
 | `src/model.rs` | Snapshot → tiles, tabs, status, quick edit (text from `bubble_core::view`) |
 | `src/menu.rs` | `bubble_core::menu` (the egui app's menu model) as Slint `MenuBar` data |
 | `src/keys.rs` | Physical keys → hot-key names, the same names the egui app stored |
 | `src/window.rs` | Window place, appearance (title bar and menus), the Mac app and Window menus, pointer during OS drags |
 | `src/alerts.rs`, `src/savepanel.rs` | The core's prompts as native alerts; the system Save panel for new sessions |
+| `src/colour.rs` | The system colour picker (Colours panel / Colour dialog) |
 | `src/fonts.rs` | The system UI font as the system draws it (San Francisco Text on macOS) |
 
 Shared with the egui app through `bubble-core`: the menu model and the settings commands
@@ -64,8 +67,7 @@ Done (main window):
       has the keyboard (Esc still fades everything), releases always sent, holds released
       when the window loses focus.
 - [x] Quick edit as a popover beside the cart, with an arrow pointing at it (design
-      "Quick edit: options as toggle buttons"), fading in: Cart Setup… (disabled until
-      ported); Label (one line, growing with its text; Return or "|" for a new line),
+      "Quick edit: options as toggle buttons"), fading in: Cart Setup… (opens the Cart Setup window); Label (one line, growing with its text; Return or "|" for a new line),
       Colour (swatches; any other colour in the system colour picker: the Colours panel,
       followed live, on a Mac, the Colour dialog on Windows); Gain (−12…+12 dB, 0 in the
       middle, double-click the slider or the value for 0 dB); Output, Fade Out, Group

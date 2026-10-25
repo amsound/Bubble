@@ -33,7 +33,9 @@ fn main() -> Result<(), slint::PlatformError> {
         match a.as_str() {
             "--light" => theme = Some(false),
             "--dark" => theme = Some(true),
-            _ if a.starts_with("--renderer=") => renderer = Some(a["--renderer=".len()..].to_string()),
+            _ if a.starts_with("--renderer=") => {
+                renderer = Some(a["--renderer=".len()..].to_string())
+            }
             _ if a.starts_with("--fps=") => fps = a["--fps=".len()..].parse().unwrap_or(fps),
             _ => path = Some(PathBuf::from(a)),
         }
@@ -171,7 +173,12 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
     ui.on_menu_action({
-        let (ctrl, cart, after, ui) = (ctrl.clone(), cart.clone(), after_input.clone(), ui.as_weak());
+        let (ctrl, cart, after, ui) = (
+            ctrl.clone(),
+            cart.clone(),
+            after_input.clone(),
+            ui.as_weak(),
+        );
         move |i, action| {
             let Some(id) = cart(i) else { return };
             match action.as_str() {
@@ -227,7 +234,12 @@ fn sync_pages(ui: &MainWindow, project: &Project, current: usize) {
         })
         .collect();
     let model = ui.get_pages();
-    if model.row_count() != names.len() || names.iter().enumerate().any(|(i, n)| model.row_data(i).as_ref() != Some(n)) {
+    if model.row_count() != names.len()
+        || names
+            .iter()
+            .enumerate()
+            .any(|(i, n)| model.row_data(i).as_ref() != Some(n))
+    {
         ui.set_pages(ModelRc::new(VecModel::from(names)));
     }
     ui.set_current_page(current as i32);
