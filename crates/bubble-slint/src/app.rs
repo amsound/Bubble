@@ -434,7 +434,6 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
                     }
                 }
                 "clear-key" => i.push(Intent::ClearBindings(id, Some(true))),
-                "clear-trigger" => i.push(Intent::ClearBindings(id, None)),
                 "clear-midi" => i.push(Intent::ClearBindings(id, Some(false))),
                 "replace" => {
                     if let Some((page, row, col)) = snap.project.cart_position(id) {

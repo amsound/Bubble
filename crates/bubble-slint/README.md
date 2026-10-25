@@ -122,10 +122,10 @@ Done (main window):
       gradient meter, and a window as tall as its content. On a Mac the main menu
       bar stays while Cart Setup is in front (Slint would swap in an empty one),
       and Cut/Copy/Paste/Undo/Redo act on its text fields.
-      Opens at its smallest size (860 points wide). Seven rows a side: Sound
+      Opens at 860 × 686 points and no narrower (taller gives the waveform more room). Seven rows a side: Sound
       (Output, Gain with Mute, Pan, Speed, Speed Bar, Fades In/Out, On Retrigger)
       and Cart (Label, Colour, Group, Playback Loop/Play Next/Hold, On Play Stop
-      Page/Stop All, Trigger: hotkey and MIDI with one Learn and Clear, Notes).
+      Page/Stop All, Trigger: the hotkey and MIDI note, each with its own ✕, and one Learn at the end, Notes).
       Replace… and Locate… sit in the header by the file. A label's lines show as
       "Audio Track | line 2" in the header, title and Label field, and a typed "|"
       is a new line; only quick edit adds a line break. ⌘. (Stop All Immediately)

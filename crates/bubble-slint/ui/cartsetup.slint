@@ -285,6 +285,32 @@ component Swatch inherits Rectangle {
     }
 }
 
+// A small round ✕ that clears the thing beside it.
+component ClearX inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    background: ta.pressed ? Theme.text.transparentize(65%) : ta.has-hover ? Theme.text.transparentize(75%) : Theme.text.transparentize(85%);
+    accessible-role: button;
+    accessible-label: label;
+    Path {
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M1 1L7 7M7 1L1 7";
+        stroke: Theme.text;
+        stroke-width: 1.4px;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 // Two pop-ups, each after a short label ("In" / "Out", "x0" / "x1"), in fixed
 // columns so rows of pairs line up.
 component PopPair inherits HorizontalLayout {
@@ -355,9 +381,10 @@ export component CartSetupWindow inherits Window {
     in property <string> window-title: "Cart Setup";
     title: window-title;
     icon: window-icon;
-    // Opens at its smallest.
+    // The size it opens at; no narrower (taller is up to the waveform).
     preferred-width: 860px;
-    min-width: 640px;
+    preferred-height: 686px;
+    min-width: 860px;
     property <length> label-width: Theme.mac ? 92px : 104px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
@@ -1202,12 +1229,13 @@ export component CartSetupWindow inherits Window {
                             }
                         }
                         if Theme.mac: Rule { }
-                        // The hotkey and MIDI note that play it; Learn takes either.
+                        // The hotkey and MIDI note that play it, each with its own ✕;
+                        // Learn takes whichever comes next.
                         FieldRow {
                             label-width: root.label-width;
                             label: "Trigger";
                             HorizontalLayout {
-                                spacing: 8px;
+                                spacing: 6px;
                                 if info.learning: Text {
                                     text: info.show-midi ? "Press a key or MIDI…" : "Press a key…";
                                     color: Theme.accent;
@@ -1221,6 +1249,8 @@ export component CartSetupWindow inherits Window {
                                     width: key-text.preferred-width + 14px;
                                     border-radius: 4px;
                                     background: #ffffffe0;
+                                    border-width: Theme.dark ? 0px : 1px;
+                                    border-color: Theme.panel-border;
                                     key-text := Text {
                                         text: info.hotkey;
                                         font-size: 12px;
@@ -1228,12 +1258,27 @@ export component CartSetupWindow inherits Window {
                                         color: info.cart-color;
                                     }
                                 }
+                                if !info.learning && info.hotkey != "": ClearX {
+                                    label: "Clear hotkey";
+                                    clicked => {
+                                        root.action("clear-key");
+                                    }
+                                }
+                                if !info.learning && info.hotkey != "" && info.midi != "": Rectangle {
+                                    width: 6px;
+                                }
                                 if !info.learning && info.midi != "": Text {
                                     text: info.midi;
                                     color: Theme.text;
                                     vertical-alignment: center;
                                     overflow: elide;
                                     min-width: 0;
+                                }
+                                if !info.learning && info.midi != "": ClearX {
+                                    label: "Clear MIDI";
+                                    clicked => {
+                                        root.action("clear-midi");
+                                    }
                                 }
                                 if !info.learning && info.hotkey == "" && info.midi == "": Text {
                                     text: "None";
@@ -1247,13 +1292,6 @@ export component CartSetupWindow inherits Window {
                                     text: info.learning ? "Cancel" : "Learn";
                                     clicked => {
                                         root.action("learn");
-                                    }
-                                }
-                                SysButton {
-                                    text: "Clear";
-                                    enabled: info.hotkey != "" || info.midi != "";
-                                    clicked => {
-                                        root.action("clear-trigger");
                                     }
                                 }
                             }
