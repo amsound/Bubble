@@ -74,8 +74,8 @@ Done (main window):
       followed live, on a Mac, the Colour dialog on Windows); Gain (−12…+12 dB, 0 in the
       middle, double-click the slider or the value for 0 dB); Output, Fade Out, Group
       ("Group 1"; pop-up buttons as wide as their choice on a Mac, opening a native menu
-      with the current choice checked); Hotkey (Learn takes one key, no modifiers; the
-      key drawn as on the tile); Loop / Play Next / Stop All toggle buttons with the
+      with the current choice checked); Hotkey (the key drawn as on the tile with its ✕,
+      then Learn at the end, as in Cart Setup; Learn takes one key, no modifiers); Loop / Play Next / Stop All toggle buttons with the
       tile's icons; Copy, Paste, Replace File…, Delete. Flat system-like buttons (Slint's Mac style draws gradients). Right-clicking another
       cell while it is open moves it there (or opens that empty cell's menu).
 - [x] Bottom bar: page tabs (the current page is the inverted neutral tab; a page with
@@ -184,12 +184,21 @@ Done (main window):
       port). Session Settings is the session's: General (Name, Audio Files, the
       default Fade-Out and On Retrigger for new carts, Ending Warning, Same Hotkey on
       Several, Hotkeys Act On), Tiles (typeface, sizes, alignment), Groups and Pages
-      (name, grid, cart numbers). Bubble ▸ Settings… on a Mac, File ▸ Settings…
+      (name, rows and columns with − and +, cart numbers). Bubble ▸ Settings… on a Mac, File ▸ Settings…
       elsewhere; Session Settings is ⌘, / Ctrl+,. There is no Page Settings window:
       the tab menu has Grid Size ▸ (sizes that would cut off carts are greyed) and
       Session ▸ Grid Size does the same for the current page. Cart numbers count on
       across pages. The menus hold commands, not settings (the egui app keeps its
-      settings submenus).
+      settings submenus); View keeps Page Bar Size and Appearance for quick use.
+- [x] Fixes after the first Windows run (2026-10-25): assigning several files carries
+      on into the next empty cells by cart number, across pages, adding pages when
+      they run out; a right-click on another cell or tab while a context menu is open
+      opens that one's menu (Windows kept the click); the Colour dialog no longer
+      leaves Cart Setup's swatch pressed; a cart's own colour shows in the other-colour
+      swatch; tool windows open in the middle of the main window; page tabs sit on
+      whole pixels; Cart Setup zooms to 10 ms with a finer envelope (16 frames per
+      bucket); an edit-mode tap may move 24 px, and a mouse press echoing a touch is
+      ignored; control buttons have no Cart Setup in quick edit.
 
 Checked by hand on macOS 15 (MacBook Air M4, femtovg): open, play, stop, ALL STOP,
 Show/Edit, quick edit (layout against the design, arrow, colour, all three toggles on and
