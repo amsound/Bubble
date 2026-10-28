@@ -106,6 +106,17 @@ fn fmt_time(s: f64) -> String {
     format!("{}:{:05.2}", m as u32, s - m * 60.0)
 }
 
+/// A file's length for the header: "00:20", "03:41", "1:02:05".
+fn length_text(s: f64) -> String {
+    let t = s.max(0.0).round() as u64;
+    let (h, m, sec) = (t / 3600, t / 60 % 60, t % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{sec:02}")
+    } else {
+        format!("{m:02}:{sec:02}")
+    }
+}
+
 fn seconds_text(ms: u32) -> String {
     if ms == 0 {
         "Instant".into()
@@ -862,24 +873,14 @@ impl Setup {
                         .unwrap_or_else(|| "Loading the audio file…".into());
                 }
             }
-            let file = snap
-                .project
-                .asset(a)
-                .map(|x| x.path.rsplit(['/', '\\']).next().unwrap_or("").to_string())
-                .unwrap_or_default();
+            // The file's format and length; its name is in the Label and title.
             if self.dur > 0.0 {
-                let ch = match self.channels {
-                    1 => "mono".to_string(),
-                    2 => "stereo".to_string(),
-                    n => format!("{n} ch"),
-                };
                 details = format!(
-                    "{file} · {} kHz · {ch} · {}",
+                    "{} kHz  •  {} ch  •  {}",
                     self.rate / 1000.0,
-                    fmt_time(self.dur)
+                    self.channels,
+                    length_text(self.dur)
                 );
-            } else {
-                details = file;
             }
         } else {
             message = "No audio file assigned.".into();
@@ -1010,8 +1011,12 @@ impl Setup {
             .position(|s| *s == rgb)
             .map_or(-1, |i| i as i32);
         let name = model::piped(&bubble_control::display_label(c, &snap.project));
+        let button = snap
+            .project
+            .cart_position(c.id)
+            .map_or(0, |(p, r, col)| snap.project.cell_number(p, r, col));
         let info = SetupInfo {
-            name: name.clone().into(),
+            name: format!("Button {button}").into(),
             details: details.into(),
             has_audio,
             message: message.into(),

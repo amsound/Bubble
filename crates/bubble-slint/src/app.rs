@@ -103,9 +103,6 @@ pub struct App {
     cursor_empty: Option<(usize, u16, u16)>,
     /// The cart pressed with the mouse (released on pointer up).
     pressed: Option<Uuid>,
-    /// The last touch on a cell: a mouse press on the same cell just after it is the
-    /// system's copy of that touch, not a second press.
-    last_touch: Option<(i32, Instant)>,
     /// The carts in the current page's cells, as shown.
     ids: Vec<Option<Uuid>>,
     page_shown: usize,
@@ -1023,7 +1020,6 @@ impl App {
             selected: None,
             cursor_empty: None,
             pressed: None,
-            last_touch: None,
             ids: Vec::new(),
             page_shown: 0,
             tiles,
@@ -1403,11 +1399,6 @@ impl App {
         ctrl: bool,
         intents: &mut Vec<Intent>,
     ) {
-        if touch {
-            self.last_touch = Some((idx, Instant::now()));
-        } else if !right && self.touch_echo(idx) {
-            return;
-        }
         // macOS: Control-click is a right-click.
         let right = right || (cfg!(target_os = "macos") && ctrl && !touch);
         match self.cart_at(idx) {
@@ -1441,21 +1432,8 @@ impl App {
         }
     }
 
-    /// A mouse press on `idx` right after a touch there: the system's copy of the
-    /// touch (it would toggle the cart a second time).
-    fn touch_echo(&self, idx: i32) -> bool {
-        let echo = self
-            .last_touch
-            .is_some_and(|(i, t)| i == idx && t.elapsed() < Duration::from_millis(700));
-        if echo {
-            log_info("ignored a mouse press echoing a touch");
-        }
-        echo
-    }
-
     /// Touch in Edit mode: a tap selects and plays on release.
     fn cell_tap(&mut self, idx: i32, intents: &mut Vec<Intent>) {
-        self.last_touch = Some((idx, Instant::now()));
         match self.cart_at(idx) {
             Some(cart) => {
                 intents.push(Intent::PointerDown(cart, MouseButton::Primary));

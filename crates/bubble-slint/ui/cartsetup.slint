@@ -295,6 +295,53 @@ component Swatch inherits Rectangle {
     }
 }
 
+// Two options joined into one control, at most one on: pressing the one that is on
+// turns it off (neither). Drawn the same on a Mac and Windows: one outline, a divider,
+// the chosen half filled.
+component EitherOr inherits Rectangle {
+    in property <string> a-text;
+    in property <string> b-text;
+    in property <bool> a-on;
+    in property <bool> b-on;
+    callback chose-a();
+    callback chose-b();
+    border-radius: Theme.mac ? 7px : 4px;
+    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
+    border-width: Theme.mac ? 0px : 1px;
+    border-color: Theme.panel-border;
+    clip: true;
+    HorizontalLayout {
+        for half[i] in [
+            { text: root.a-text, on: root.a-on },
+            { text: root.b-text, on: root.b-on },
+        ]: Rectangle {
+            horizontal-stretch: 1;
+            background: half.on ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
+            if i == 1 && !root.a-on && !root.b-on: Rectangle {
+                x: 0;
+                width: 1px;
+                height: parent.height - 10px;
+                background: Theme.text.transparentize(75%);
+            }
+            Text {
+                text: half.text;
+                color: half.on ? #ffffff : Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            ta := TouchArea {
+                clicked => {
+                    if i == 0 {
+                        root.chose-a();
+                    } else {
+                        root.chose-b();
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Two pop-ups, each after a short label ("In" / "Out", "x0" / "x1"), in fixed
 // columns so rows of pairs line up.
 component PopPair inherits HorizontalLayout {
@@ -522,16 +569,9 @@ export component CartSetupWindow inherits Window {
             spacing: 12px;
 
             // ---- header ----
+            // "Button 12   44.1 kHz • 2 ch • 00:20", then the file's buttons.
             HorizontalLayout {
                 spacing: 10px;
-                // The cart's colour as it will be: the draft shows here before OK.
-                Rectangle {
-                    width: 14px;
-                    height: 14px;
-                    y: (parent.height - self.height) / 2;
-                    border-radius: 7px;
-                    background: info.cart-color;
-                }
                 Text {
                     text: info.name;
                     font-size: 15px;
@@ -1183,25 +1223,21 @@ export component CartSetupWindow inherits Window {
                             label: Theme.mac ? "On Play" : "On play";
                             HorizontalLayout {
                                 spacing: 6px;
-                                Toggle {
-                                    text: Theme.mac ? "Stop Page" : "Stop page";
+                                // One or the other (or neither): joined, so it reads
+                                // as a single choice.
+                                EitherOr {
+                                    a-text: Theme.mac ? "Stop Page" : "Stop page";
+                                    b-text: Theme.mac ? "Stop All" : "Stop all";
+                                    a-on: info.stop-page;
+                                    b-on: info.stop-all;
                                     height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
+                                    horizontal-stretch: 2;
                                     min-width: 0;
                                     preferred-width: 0;
-                                    on: info.stop-page;
-                                    toggled(on) => {
+                                    chose-a => {
                                         root.toggle("stop-page");
                                     }
-                                }
-                                Toggle {
-                                    text: Theme.mac ? "Stop All" : "Stop all";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    min-width: 0;
-                                    preferred-width: 0;
-                                    on: info.stop-all;
-                                    toggled(on) => {
+                                    chose-b => {
                                         root.toggle("stop-all");
                                     }
                                 }
