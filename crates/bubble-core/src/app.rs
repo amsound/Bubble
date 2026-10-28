@@ -192,7 +192,7 @@ pub struct Core {
     /// The last autosave or preferences save failed (shown until one succeeds).
     pub autosave_problem: Option<String>,
     pub prefs_problem: Option<String>,
-    /// The open session is in a cloud-synced folder (status line), when that was last
+    /// The open session is in a cloud-synced folder (logged), when that was last
     /// checked, and whether the fuller alert was shown for this session.
     pub cloud_status: Option<String>,
     pub cloud_checked: Option<Instant>,
@@ -230,7 +230,8 @@ impl Core {
             audio_error: None,
             output_errors: Vec::new(),
             midi: MidiInputs::empty(),
-            midi_ports: available_ports(),
+            // Listed in `start`, after the window is up (it can take a while).
+            midi_ports: Vec::new(),
             prefs: Prefs::load(),
             prompts: Prompts::default(),
             select: None,
@@ -284,9 +285,20 @@ impl Core {
     /// Start-up: crash reporting, audio, MIDI, recovery of unsaved work, and the
     /// session to open (a file given at launch, or the last one).
     pub fn start(&mut self) {
+        let t = Instant::now();
+        // Each step is timed in the log: the window waits for none of them, but a slow
+        // device shows here (Windows took 11 s before the window existed).
+        let step = |what: &str, since: Instant| {
+            crate::log::info(&format!(
+                "start-up: {what} in {:.2} s",
+                since.elapsed().as_secs_f32()
+            ));
+        };
         crash::install(self.ctrl.clone(), self.session_id);
         self.scan_devices();
+        let s = Instant::now();
         self.open_audio();
+        step("audio outputs opened", s);
         for a in &self.audio {
             crate::log::info(&format!(
                 "audio output: {} at {} Hz, {} ch, {}",
@@ -296,8 +308,15 @@ impl Core {
         for e in self.output_errors.iter().chain(self.audio_error.iter()) {
             crate::log::info(&format!("audio problem: {e}"));
         }
+        let s = Instant::now();
+        self.midi_ports = available_ports();
+        step("MIDI ports listed", s);
+        let s = Instant::now();
         self.open_midi();
+        step("MIDI inputs opened", s);
+        let s = Instant::now();
         self.find_recoverable();
+        step("recovery files checked", s);
         if let Some(report) = crash::take_unreported() {
             self.prompts.error = Some(format!(
                 "Bubble quit unexpectedly last time.\n\nA crash report was saved to:\n{}\n\n\
@@ -316,6 +335,7 @@ impl Core {
         {
             self.start_open(p, true);
         }
+        step("all of start-up", t);
     }
 
     /// Takes a finished device scan, if any.

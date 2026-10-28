@@ -155,6 +155,8 @@ pub struct App {
     last_title: String,
     exited: bool,
     first_tick: bool,
+    /// The core has started (audio, MIDI, the session): see `App::begin`.
+    started: bool,
     /// The next refresh, chosen after each tick (input ticks too, so a cart that just
     /// started gets the playing rate at once, not after the idle interval).
     interval: Duration,
@@ -207,7 +209,12 @@ fn name(mac: &str, other: &str) -> String {
 
 /// Opens the window and runs until it closes.
 pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
+    let t = Instant::now();
     let ui = MainWindow::new()?;
+    log_info(&format!(
+        "start-up: window made in {:.2} s",
+        t.elapsed().as_secs_f32()
+    ));
     ui.set_window_icon(window::icon());
     ui.global::<Theme>().set_mac(cfg!(target_os = "macos"));
     ui.global::<Theme>().set_ui_font(ui_font.into());
@@ -240,8 +247,6 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
 
     let app = Rc::new(RefCell::new(App::new(core, &ui)));
     app.borrow_mut().me = Rc::downgrade(&app);
-    // Audio, MIDI, recovery and the session to open (in the background).
-    app.borrow_mut().core.start();
     log_info(&format!("window ready ({renderer})"));
 
     let timer = Rc::new(slint::Timer::default());
@@ -274,12 +279,39 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     }
 
     ui.show()?;
-    // The first tick runs at once (the session opening, the window's place).
+    // The first tick runs at once (the window's place).
     WAKE.with(|w| {
         if let Some(f) = w.borrow().as_ref() {
             f();
         }
     });
+    // Audio, MIDI, recovery and the session to open start once the window has drawn
+    // its first frame ("Starting…" in the busy popover meanwhile): opening devices
+    // can take seconds, and the window should not wait for it.
+    {
+        let a = app.clone();
+        let begin: Rc<dyn Fn()> = Rc::new(move || {
+            let a = a.clone();
+            slint::Timer::single_shot(Duration::from_millis(1), move || {
+                with(&a, |app| app.begin());
+            });
+        });
+        let once = Rc::new(Cell::new(false));
+        let b = begin.clone();
+        let o = once.clone();
+        let notified = ui.window().set_rendering_notifier(move |state, _| {
+            if matches!(state, slint::RenderingState::AfterRendering) && !o.replace(true) {
+                b();
+            }
+        });
+        if notified.is_err() {
+            // A renderer without the notifier: just after the window opens.
+            let a = app.clone();
+            slint::Timer::single_shot(Duration::from_millis(150), move || {
+                with(&a, |app| app.begin());
+            });
+        }
+    }
     let result = slint::run_event_loop();
     if let Ok(mut a) = app.try_borrow_mut() {
         a.on_exit();
@@ -1061,6 +1093,7 @@ impl App {
             last_title: String::new(),
             exited: false,
             first_tick: true,
+            started: false,
             interval: IDLE,
             timer: std::rc::Weak::new(),
             last_input: Instant::now(),
@@ -1082,6 +1115,22 @@ impl App {
             self.selected = s;
             self.cursor_empty = None;
         }
+    }
+
+    /// Starts audio, MIDI, recovery and the session, once (after the first frame).
+    fn begin(&mut self) {
+        if self.started {
+            return;
+        }
+        let t = Instant::now();
+        log_info("first frame drawn; starting audio, MIDI and the session");
+        self.core.start();
+        self.started = true;
+        log_info(&format!(
+            "start-up: core started in {:.2} s",
+            t.elapsed().as_secs_f32()
+        ));
+        self.tick();
     }
 
     /// One refresh: the core's per-frame work, then everything shown.
@@ -1315,6 +1364,13 @@ impl App {
         // Keeps the core's "n of total" count going.
         let _ = self.core.busy(snap);
         let mut rows = Vec::new();
+        if !self.started {
+            rows.push(BusyRow {
+                text: "Starting audio…".into(),
+                progress: -1.0,
+                ..Default::default()
+            });
+        }
         if let Some((p, _, _)) = &self.core.opening {
             rows.push(BusyRow {
                 text: format!("Opening {}…", bubble_core::app::session::file_name(p)).into(),
@@ -2466,6 +2522,7 @@ impl App {
     /// Nothing open, being opened or imported, and nothing on the grid.
     fn needs_session(&self) -> bool {
         if self.first_tick
+            || !self.started
             || self.core.opening.is_some()
             || self.core.open_at_start.is_some()
             || self.core.job.is_some()

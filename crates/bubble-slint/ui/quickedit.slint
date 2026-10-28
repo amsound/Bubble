@@ -13,8 +13,7 @@
 //   [↻ Loop] [⇥ Play Next] [■ Stop All]
 //   [Copy] [Paste] [Replace File…]        [Delete]
 
-import { Slider } from "std-widgets.slint";
-import { Theme, TextCommand, Panel, SysButton, PopButton, ClearX } from "theme.slint";
+import { Theme, TextCommand, Panel, SysButton, PopButton, ClearX, SetupSlider } from "theme.slint";
 
 export struct QuickEdit {
     title: string,
@@ -185,12 +184,10 @@ export component QuickEditPanel inherits Panel {
     callback choice-menu(string, length, length);
     // "loop", "next" or "stop-all".
     callback flag(string, bool);
-    // "done", "learn", "replace", "copy", "paste", "delete", "gain-reset",
-    // "pick-colour" (the system colour picker) or "setup" (Cart Setup).
+    // "done", "learn", "clear-key", "replace", "copy", "paste", "delete",
+    // "gain-reset" or "setup" (Cart Setup).
     callback action(string);
 
-    // When the gain slider was last released (a double-click resets it).
-    property <duration> gain-release: -1s;
     // The arrow points at the cart: on the left edge (panel right of the cart) or the
     // right edge, this far down.
     in property <bool> arrow-left: true;
@@ -240,23 +237,24 @@ export component QuickEditPanel inherits Panel {
     layout := VerticalLayout {
         padding: 12px;
         spacing: 10px;
+        // Cart Setup… first, the cart's number on the right.
         HorizontalLayout {
             spacing: 6px;
-            Text {
-                text: qe.title;
-                font-weight: 700;
-                color: Theme.text;
-                vertical-alignment: center;
-            }
-            Rectangle {
-                horizontal-stretch: 1;
-            }
             // A control button has nothing to set up.
             if !qe.control: SysButton {
                 text: "Cart Setup…";
                 clicked => {
                     root.action("setup");
                 }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: qe.title;
+                font-weight: 700;
+                color: Theme.text;
+                vertical-alignment: center;
             }
         }
 
@@ -276,55 +274,30 @@ export component QuickEditPanel inherits Panel {
             if Theme.mac: Rule { }
             FieldRow {
                 label: "Colour";
-                HorizontalLayout {
-                    spacing: 5px;
-                    alignment: start;
+                // The swatches only (any other colour is in Cart Setup). On Windows each
+                // is a 40 px touch target (Microsoft's minimum for touch), in two rows.
+                swatches := Rectangle {
+                    property <length> size: Theme.mac ? 20px : 34px;
+                    property <length> cell: Theme.mac ? 25px : 40px;
+                    property <int> per-row: Theme.mac ? 10 : 5;
+                    horizontal-stretch: 1;
+                    height: ceil(qe.swatches.length / per-row) * cell;
                     for c[i] in qe.swatches: Rectangle {
-                        width: 20px;
-                        height: 20px;
-                        y: (parent.height - self.height) / 2;
-                        border-radius: Theme.mac ? 10px : 4px;
-                        background: c;
-                        border-width: i == qe.color ? 2px : 0px;
-                        border-color: Theme.text;
+                        x: mod(i, swatches.per-row) * swatches.cell;
+                        y: floor(i / swatches.per-row) * swatches.cell;
+                        width: swatches.cell;
+                        height: swatches.cell;
+                        Rectangle {
+                            width: swatches.size;
+                            height: swatches.size;
+                            border-radius: Theme.mac ? self.width / 2 : 4px;
+                            background: c;
+                            border-width: i == qe.color ? 2px : 0px;
+                            border-color: Theme.text;
+                        }
                         TouchArea {
                             clicked => {
                                 root.colour(i);
-                            }
-                        }
-                    }
-                    Rectangle {
-                        width: 1px;
-                        height: 16px;
-                        y: (parent.height - self.height) / 2;
-                        background: Theme.panel-border;
-                    }
-                    // Any other colour.
-                    Rectangle {
-                        width: 20px;
-                        height: 20px;
-                        y: (parent.height - self.height) / 2;
-                        border-radius: Theme.mac ? 10px : 4px;
-                        background: @radial-gradient(circle, #ffffff 0%, #ffffff 20%, transparent 21%);
-                        Rectangle {
-                            border-radius: parent.border-radius;
-                            background: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
-                            border-width: qe.color < 0 ? 2px : 0px;
-                            border-color: Theme.text;
-                        }
-                        // A colour of its own (not a swatch): shown in the middle.
-                        if qe.color < 0: Rectangle {
-                            width: 10px;
-                            height: 10px;
-                            border-radius: Theme.mac ? 5px : 2px;
-                            background: qe.cart-color;
-                            border-width: 1px;
-                            border-color: #ffffff;
-                        }
-                        // Any other colour, in the system colour picker.
-                        TouchArea {
-                            clicked => {
-                                root.action("pick-colour");
                             }
                         }
                     }
@@ -335,33 +308,19 @@ export component QuickEditPanel inherits Panel {
         Group {
             if !qe.control: FieldRow {
                 label: "Gain";
-                Rectangle {
-                    horizontal-stretch: 1;
-                    min-height: 28px;
-                    // 0 dB is in the middle of the range.
-                    Rectangle {
-                        x: parent.width / 2 - 0.5px;
-                        y: 0;
-                        width: 1px;
-                        height: 5px;
-                        background: Theme.weak-text;
+                // As tall as a drop-down on Windows, for a finger; a press on the track
+                // jumps there and a double-click on the knob goes back to 0 dB.
+                gain-slider := SetupSlider {
+                    y: (parent.height - self.height) / 2;
+                    minimum: -12;
+                    maximum: 12;
+                    value: qe.gain;
+                    changed(v) => {
+                        root.gain(v);
                     }
-                    gain-slider := Slider {
-                        width: parent.width;
-                        minimum: -12;
-                        maximum: 12;
-                        value: qe.gain;
-                        changed(v) => {
-                            root.gain(v);
-                        }
-                        // A double-click (two quick releases) goes back to 0 dB.
-                        released => {
-                            if animation-tick() - root.gain-release < 400ms {
-                                self.value = 0;
-                                root.action("gain-reset");
-                            }
-                            root.gain-release = animation-tick();
-                        }
+                    reset => {
+                        self.value = 0;
+                        root.action("gain-reset");
                     }
                 }
                 Text {

@@ -61,6 +61,9 @@ export component MainWindow inherits Window {
     // system face: the window names the system UI font, or (macOS) leaves it to the
     // San Francisco Text instances put first in the chain (fonts.rs).
     default-font-family: Theme.ui-font;
+    // The size Windows 11 and macOS draw their own controls' text at; otherwise Slint
+    // uses the system message font (12 px on Windows), smaller than our buttons.
+    default-font-size: Theme.mac ? 13px : 14px;
 
     // ---- state from Rust ----
     in property <[MenuTop]> menus;

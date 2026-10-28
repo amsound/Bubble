@@ -15,9 +15,9 @@
 //     Pages:   each page's name, grid and cart numbers
 
 import { ScrollView } from "std-widgets.slint";
-import { Theme, TextCommand, SysButton, PopupRow, ClearX } from "theme.slint";
+import { Theme, TextCommand, SysButton, PopupRow, ClearX, SetupSlider } from "theme.slint";
 import { LabelField, FieldRow, Rule, Group } from "quickedit.slint";
-import { SetupSlider, Choice } from "cartsetup.slint";
+import { Choice } from "cartsetup.slint";
 
 export struct OutputRow {
     letter: string,
@@ -216,6 +216,9 @@ export component SettingsWindow inherits Window {
     min-height: 380px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
+    // The size Windows 11 and macOS draw their own controls' text at; otherwise Slint
+    // uses the system message font (12 px on Windows), smaller than our buttons.
+    default-font-size: Theme.mac ? 13px : 14px;
     property <length> label-width: Theme.mac ? 132px : 148px;
 
     in-out property <int> section;
@@ -679,6 +682,9 @@ export component SessionSettingsWindow inherits Window {
     min-height: 380px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
+    // The size Windows 11 and macOS draw their own controls' text at; otherwise Slint
+    // uses the system message font (12 px on Windows), smaller than our buttons.
+    default-font-size: Theme.mac ? 13px : 14px;
     property <length> label-width: Theme.mac ? 168px : 184px;
 
     in-out property <int> section;

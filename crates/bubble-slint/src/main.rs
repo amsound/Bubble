@@ -52,6 +52,7 @@ fn main() {
         return;
     }
 
+    no_power_throttling();
     let ui_font = fonts::prepare();
     let renderer = renderer();
     log::info(&format!(
@@ -70,6 +71,43 @@ fn main() {
         }
     }
 }
+
+/// Windows 10 and 11 slow down the threads of a program they think is in the
+/// background to save power (EcoQoS), and may stop honouring its timer requests. During
+/// a show Bubble often sits behind another window while it plays, and its disk reader
+/// and refresh must keep their pace: opt out for the whole process.
+#[cfg(windows)]
+fn no_power_throttling() {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetProcessInformation,
+    };
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        // Control both, and turn both off (state 0).
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+            | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        StateMask: 0,
+    };
+    // SAFETY: the current process's pseudo-handle and a correctly sized struct.
+    let ok = unsafe {
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessPowerThrottling,
+            &state as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        )
+    };
+    log::info(if ok != 0 {
+        "power throttling off for Bubble"
+    } else {
+        "could not turn power throttling off (Windows older than 10 1709?)"
+    });
+}
+
+#[cfg(not(windows))]
+fn no_power_throttling() {}
 
 /// femtovg (OpenGL) unless `BUBBLE_RENDERER=software`. On a Windows Surface femtovg
 /// performed best; the software renderer needs no GPU at all.

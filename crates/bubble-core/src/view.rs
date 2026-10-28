@@ -251,9 +251,8 @@ impl Core {
                 Level::Warn,
             ));
         }
-        if let Some(c) = &self.cloud_status {
-            out.push(item(c.clone(), Level::Warn));
-        }
+        // A session in a cloud-synced folder is only logged; the status line says
+        // nothing. An alert still comes if any of its audio is online-only.
         // Never let a failing autosave or preferences save go unnoticed.
         for p in self
             .autosave_problem

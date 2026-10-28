@@ -197,8 +197,18 @@ Done (main window):
       leaves Cart Setup's swatch pressed; a cart's own colour shows in the other-colour
       swatch; tool windows open in the middle of the main window; page tabs sit on
       whole pixels; Cart Setup zooms to 10 ms with a finer envelope (16 frames per
-      bucket); an edit-mode tap may move 24 px, and a mouse press echoing a touch is
-      ignored; control buttons have no Cart Setup in quick edit.
+      bucket); control buttons have no Cart Setup in quick edit.
+- [x] 2026-10-28: the window shows first and audio, MIDI, recovery and the session
+      start after its first frame ("Starting audio…"), each step timed in the log;
+      Windows manifest (Windows 10/11, per-monitor DPI v2, long paths) and power
+      throttling turned off for the process; the iCloud line is gone from the status
+      bar (still logged; the alert for online-only audio stays); every window's text
+      at 14 px on Windows (13 on a Mac); quick edit: Cart Setup… left and the number
+      right, the swatches only (40 px touch targets in two rows on Windows), gain on
+      the 32 px slider; Cart Setup's header "Button 12  44.1 kHz • 2 ch • 00:20" and
+      On Play as one joined control.
+- [ ] Open: edit-mode touch taps missed on the Surface (cause unknown; the two
+      guessed tweaks were taken out again).
 
 Checked by hand on macOS 15 (MacBook Air M4, femtovg): open, play, stop, ALL STOP,
 Show/Edit, quick edit (layout against the design, arrow, colour, all three toggles on and

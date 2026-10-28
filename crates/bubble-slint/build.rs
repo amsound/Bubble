@@ -60,6 +60,15 @@ fn main() {
     }
 }
 
+/// The Windows application manifest:
+/// - Common Controls 6, which has the native TaskDialog alerts (alerts.rs falls back to
+///   the plain message box without it);
+/// - Windows 10 and 11 as supported systems (otherwise Windows runs Bubble with the
+///   behaviour kept for programs written for Vista);
+/// - per-monitor DPI awareness v2 from the first moment, so every window is sharp at
+///   any scale and on mixed-scale monitors (winit asks for the same at start-up);
+/// - long paths, so a session or audio file deeper than 260 characters opens where
+///   Windows allows long paths (a system setting).
 const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <dependency>
@@ -68,6 +77,18 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
         processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
     </dependentAssembly>
   </dependency>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
 </assembly>
 "#;
 

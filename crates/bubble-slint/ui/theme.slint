@@ -264,3 +264,99 @@ export component ClearX inherits Rectangle {
         }
     }
 }
+
+// A slider drawn like the system's (a Mac slider, or Windows 11's with its accent dot).
+// Pressing the track jumps there; the knob drags from where it was taken. A
+// double-click on the knob puts it back to its default (`reset`); one on the track
+// only moves it. With `log-scale` the middle of the track is the geometric mean
+// (Speed: 25% · 100% · 400%).
+export component SetupSlider inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <bool> log-scale;
+    callback changed(float);
+    callback reset();
+    property <float> pos: clamp(log-scale ? log(value / minimum, 2) / log(maximum / minimum, 2) : (value - minimum) / (maximum - minimum), 0, 1);
+    property <length> knob: Theme.mac ? 18px : 20px;
+    property <length> knob-x: (self.width - knob) * pos;
+    property <length> grab;
+    // Whether the last two presses were on the knob (a double-click there resets).
+    property <bool> down-on-knob;
+    property <bool> before-on-knob;
+    // Windows: as tall as a drop-down (32 px), a finger's target; the Mac's is smaller.
+    height: Theme.mac ? 22px : 32px;
+    min-width: 80px;
+    horizontal-stretch: 1;
+    accessible-role: slider;
+    accessible-value: value;
+
+    function set-from(x: length) {
+        let p = clamp((x - root.grab) / max(1px, root.width - root.knob), 0, 1);
+        let v = root.log-scale ? root.minimum * pow(root.maximum / root.minimum, p) : root.minimum + p * (root.maximum - root.minimum);
+        root.value = v;
+        root.changed(v);
+    }
+
+    Rectangle {
+        x: root.knob / 2;
+        width: root.width - root.knob;
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.text.transparentize(Theme.mac ? 80% : 60%);
+    }
+    Rectangle {
+        x: root.knob / 2;
+        width: root.knob-x;
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.mac ? #0a84ff : Theme.accent;
+    }
+    Rectangle {
+        x: root.knob-x;
+        y: (parent.height - self.height) / 2;
+        width: root.knob;
+        height: root.knob;
+        border-radius: self.width / 2;
+        background: Theme.mac ? #f2f2f2 : (Theme.dark ? #454545 : #ffffff);
+        border-width: Theme.mac ? 0px : 1px;
+        border-color: Theme.panel-border;
+        drop-shadow-blur: 3px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #00000070;
+        if !Theme.mac: Rectangle {
+            width: ta.pressed ? 10px : ta.has-hover ? 14px : 12px;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: Theme.accent;
+            animate width { duration: 100ms; }
+        }
+    }
+    ta := TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                let on-knob = self.mouse-x >= root.knob-x - 2px && self.mouse-x <= root.knob-x + root.knob + 2px;
+                root.before-on-knob = root.down-on-knob;
+                root.down-on-knob = on-knob;
+                if on-knob {
+                    root.grab = self.mouse-x - root.knob-x;
+                } else {
+                    root.grab = root.knob / 2;
+                    root.set-from(self.mouse-x);
+                }
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.set-from(self.mouse-x);
+            }
+        }
+        double-clicked => {
+            if root.down-on-knob && root.before-on-knob {
+                root.reset();
+            }
+        }
+    }
+}
