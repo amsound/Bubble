@@ -206,7 +206,8 @@ export component QuickEditPanel inherits Panel {
         self.shown = true;
     }
 
-    width: Theme.mac ? 392px : 404px;
+    // Windows: as wide as the seven 40 px swatches need, with no gap after them.
+    width: Theme.mac ? 392px : 386px;
     height: layout.preferred-height;
     border-radius: Theme.mac ? 12px : 8px;
     background: Theme.popover;
@@ -278,8 +279,9 @@ export component QuickEditPanel inherits Panel {
                 // The swatches only (any other colour is in Cart Setup), on one line. On
                 // Windows each is a 40 px touch target (Microsoft's minimum for touch).
                 swatches := Rectangle {
-                    property <length> size: Theme.mac ? 20px : 34px;
-                    property <length> cell: Theme.mac ? 25px : 40px;
+                    // The Mac's spread across the row; Windows' fill it exactly.
+                    property <length> size: Theme.mac ? 22px : 34px;
+                    property <length> cell: Theme.mac ? 39px : 40px;
                     property <int> per-row: max(1, qe.swatches.length);
                     horizontal-stretch: 1;
                     height: ceil(qe.swatches.length / per-row) * cell;

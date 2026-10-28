@@ -1006,7 +1006,7 @@ impl Setup {
             .map(|b| describe(&b.source))
             .collect();
         let rgb = self.current_rgb();
-        let swatch = model::SWATCHES
+        let swatch = model::SETUP_SWATCHES
             .iter()
             .position(|s| *s == rgb)
             .map_or(-1, |i| i as i32);
@@ -1041,7 +1041,7 @@ impl Setup {
             muted: c.muted,
             hold: c.hold_to_play,
             swatches: ModelRc::new(VecModel::from(
-                model::SWATCHES
+                model::SETUP_SWATCHES
                     .iter()
                     .map(|s| Color::from_rgb_u8(s[0], s[1], s[2]))
                     .collect::<Vec<_>>(),

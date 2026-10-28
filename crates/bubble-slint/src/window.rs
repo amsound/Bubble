@@ -154,9 +154,16 @@ pub fn finish_restore(ui: &MainWindow) {
             wp.rcNormalPosition.right = (p.x * s) as i32 + (p.w * s) as i32 + fw;
             wp.rcNormalPosition.bottom = (p.y * s) as i32 + (p.h * s) as i32 + fh;
             wp.showCmd = SW_SHOWMAXIMIZED as u32;
+            // Without Windows' maximise animation (a half blink as the frame and the
+            // rounded corners change), on for this moment only.
+            set_transitions(hwnd as isize, false);
             if SetWindowPlacement(hwnd, &wp) == 0 {
                 w.set_maximized(true);
             }
+            let h = hwnd as isize;
+            slint::Timer::single_shot(std::time::Duration::from_millis(500), move || {
+                set_transitions(h, true)
+            });
         }
     }
     #[cfg(not(windows))]
@@ -294,6 +301,24 @@ pub fn place_over(child: &slint::Window, parent: &slint::Window, w: f32, h: f32)
     let x = px + ((pw - w) / 2.0).max(0.0);
     let y = py + ((ph - h - TITLE) / 2.0).max(0.0);
     child.set_position(slint::LogicalPosition::new(x, y));
+}
+
+/// Windows: turns the window's open, close, minimise and maximise animations on or off.
+#[cfg(windows)]
+fn set_transitions(hwnd: isize, on: bool) {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DWMWA_TRANSITIONS_FORCEDISABLED, DwmSetWindowAttribute,
+    };
+    let disabled: i32 = (!on).into();
+    // SAFETY: the window's own handle and a BOOL, as the attribute takes.
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd as _,
+            DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+            &disabled as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&disabled) as u32,
+        );
+    }
 }
 
 /// Puts Bubble's logo in the window's title bar and the taskbar (Windows). Slint only

@@ -449,7 +449,7 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
         s.draft.notes = t.to_string();
     });
     on_setup!(win, me, on_colour, |s, a, _snap, _i, idx| {
-        if let Some(c) = model::SWATCHES.get(idx as usize).copied() {
+        if let Some(c) = model::SETUP_SWATCHES.get(idx as usize).copied() {
             s.set_colour(Some(c));
         }
     });
@@ -2190,7 +2190,7 @@ impl App {
         let panel = if cfg!(target_os = "macos") {
             392.0
         } else {
-            404.0
+            386.0
         };
         let right = x + w + 10.0;
         let fits_right = right + panel <= width - 8.0;
