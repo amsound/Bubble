@@ -11,6 +11,7 @@ cargo run -p bubble-slint -- path/to/session.bubble
 BUBBLE_RENDERER=software cargo run -p bubble-slint     # no GPU needed
 SLINT_NO_MUDA=1 cargo run -p bubble-slint              # in-window menu bar (as on Linux)
 scripts/macos-slint-test-bundle.sh path/to/session.bubble  # a throwaway .app with its own home folder
+BUBBLE_SNAPSHOT=out.bmp cargo run -p bubble-slint -- session.bubble  # saves the window once started, then quits
 CARGO_PROFILE_RELEASE_STRIP=debuginfo cargo zigbuild --release -p bubble-slint --target x86_64-pc-windows-gnu
 ```
 
@@ -215,6 +216,12 @@ Done (main window):
       line along the edge; only the page shown has an outline.
       Settings ▸ General ▸ Page Bar Position puts the bar at the top or the bottom
       (the default).
+- [x] Page bar to docs/pagebar-spec.md (2026-10-28): strip colour, the page shown
+      fused to the cart wall with a 3 px accent bar, the others recessed 6 px and
+      outlined, one width, names on up to two lines; red dot for playing; dashed +;
+      EDIT an outlined toggle (filled when on), a divider, PAGE STOP and ALL STOP
+      with square icons; sizes from the spec's table (bar 56 / 68 / 80 px); every
+      element on whole device pixels. The cart wall itself is unchanged.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

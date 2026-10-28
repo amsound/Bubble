@@ -78,7 +78,10 @@ export component MainWindow inherits Window {
     in property <bool> status-clickable;
     in property <int> renaming: -1;
     in property <string> rename-text;
-    in property <length> bar-height: 44px;
+    in property <length> bar-height: 56px;
+    // Page bar size (0 small, 1 medium, 2 large) and the + button's dashed outline.
+    in property <int> bar-size;
+    in property <string> plus-dashes;
     // The page bar at the top of the window, not the bottom (Settings ▸ General).
     in property <bool> bar-top;
     // Starting up: the cart wall stays empty with a progress ring and what is happening
@@ -529,6 +532,8 @@ export component MainWindow inherits Window {
 
     BottomBar {
         unit: 1px / root.scale;
+        size: root.bar-size;
+        plus-dashes: root.plus-dashes;
         at-top: root.bar-top;
         x: 0;
         y: root.bar-top ? 0 : root.height - root.bar-height;

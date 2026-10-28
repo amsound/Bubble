@@ -20,8 +20,24 @@ export global Theme {
 
     out property <color> window-bg: dark ? #1b1d21 : #eceef1;
     out property <color> bar-bg: dark ? #24272c : #dde1e6;
-    // A page tab that is not the one shown: a step off the bar, so each is a block.
-    out property <color> tab-bg: dark ? #30343a : #cdd2d9;
+    // The page bar (docs/pagebar-spec.md). The page shown is fused to the cart wall,
+    // so it takes the wall's own colour (the window background).
+    out property <color> strip: dark ? #15171b : #d9dee6;
+    out property <color> cart-panel: window-bg;
+    out property <color> tab-on-text: dark ? #ffffff : #15171b;
+    out property <color> tab-off: dark ? #1d2025 : #c9d0db;
+    out property <color> tab-off-border: dark ? #626a79 : #6f7b90;
+    out property <color> tab-off-text: dark ? #b4bbc6 : #1f2630;
+    out property <color> tab-dot: dark ? #ff6b70 : #d92d36;
+    out property <color> edit-line: dark ? #f0a030 : #a65f00;
+    out property <color> edit-off-text: dark ? #f0a030 : #7a4500;
+    out property <color> edit-on: #f0a030;
+    out property <color> edit-on-text: #1a1200;
+    out property <color> page-stop: dark ? #2b2f36 : #c9d0db;
+    out property <color> page-stop-line: dark ? #626a79 : #6f7b90;
+    out property <color> page-stop-text: dark ? #e8ebf0 : #15171b;
+    out property <color> all-stop: #b3202a;
+    out property <color> bar-divider: dark ? #3a3f48 : #aab3c1;
     out property <color> empty-tile: dark ? #363a40 : #d5dae0;
     out property <color> empty-mark: dark ? #6a7078 : #8a929c;
     out property <color> button: dark ? #3a3f46 : #c7cdd5;

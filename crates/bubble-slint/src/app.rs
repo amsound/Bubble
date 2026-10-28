@@ -254,6 +254,8 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     ui.global::<Theme>()
         .set_appearance(appearance_index(core.prefs.appearance));
     ui.set_bar_height(bar_height(core.prefs.bar_size));
+    ui.set_bar_size(core.prefs.bar_size.min(2) as i32);
+    ui.set_plus_dashes(dashed_square(tab_height(core.prefs.bar_size)).into());
     ui.set_bar_top(core.prefs.bar_top);
 
     let app = Rc::new(RefCell::new(App::new(core, &ui)));
@@ -355,12 +357,108 @@ fn appearance_index(a: Appearance) -> i32 {
     }
 }
 
-fn bar_height(size: u8) -> f32 {
+/// A test aid: with `BUBBLE_SNAPSHOT=file.bmp`, once start-up is over the window is
+/// saved as a picture there and Bubble quits (a check of the layout without a screen).
+fn snapshot_and_quit(ui: &slint::Weak<MainWindow>) {
+    let Some(path) = std::env::var_os("BUBBLE_SNAPSHOT") else {
+        return;
+    };
+    let ui = ui.clone();
+    // A moment for the session's frame to be drawn.
+    slint::Timer::single_shot(Duration::from_millis(600), move || {
+        let Some(ui) = ui.upgrade() else { return };
+        match ui.window().take_snapshot() {
+            Ok(buf) => {
+                let (w, h) = (buf.width(), buf.height());
+                let mut bmp = Vec::with_capacity(54 + (w * h * 4) as usize);
+                let size = 54 + w * h * 4;
+                bmp.extend(b"BM");
+                bmp.extend(size.to_le_bytes());
+                bmp.extend(0u32.to_le_bytes());
+                bmp.extend(54u32.to_le_bytes());
+                bmp.extend(40u32.to_le_bytes());
+                bmp.extend((w as i32).to_le_bytes());
+                bmp.extend((-(h as i32)).to_le_bytes());
+                bmp.extend(1u16.to_le_bytes());
+                bmp.extend(32u16.to_le_bytes());
+                bmp.extend([0u8; 24]);
+                for p in buf.as_slice() {
+                    bmp.extend([p.b, p.g, p.r, p.a]);
+                }
+                match std::fs::write(&path, bmp) {
+                    Ok(()) => log_info(&format!("snapshot saved ({w} x {h})")),
+                    Err(e) => log_info(&format!("snapshot not saved: {e}")),
+                }
+            }
+            Err(e) => log_info(&format!("snapshot failed: {e}")),
+        }
+        let _ = slint::quit_event_loop();
+    });
+}
+
+/// The page bar's tab height for a size (0 small, 1 medium, 2 large), from the table in
+/// docs/pagebar-spec.md; the bar is 12 px taller (6 px each side).
+fn tab_height(size: u8) -> f32 {
     match size {
         0 => 44.0,
-        1 => 64.0,
-        _ => 92.0,
+        1 => 56.0,
+        _ => 68.0,
     }
+}
+
+fn bar_height(size: u8) -> f32 {
+    tab_height(size) + 12.0
+}
+
+/// The + button's 1 px dashed outline, as path commands for a square of `side` points
+/// with 8 px corners (Slint draws no dashed lines): 3 px dashes, 3 px apart.
+fn dashed_square(side: f32) -> String {
+    let (r, a, b) = (8.0f32, 0.5f32, side - 0.5);
+    // The outline as many short steps, clockwise from the top-left corner's end.
+    let mut pts: Vec<(f32, f32)> = Vec::new();
+    let arc = |pts: &mut Vec<(f32, f32)>, cx: f32, cy: f32, from: f32| {
+        for k in 0..=12 {
+            let t = (from + 90.0 * k as f32 / 12.0).to_radians();
+            pts.push((cx + (r - 0.5) * t.cos(), cy + (r - 0.5) * t.sin()));
+        }
+    };
+    pts.push((a + r - 0.5, a));
+    pts.push((b - r + 0.5, a));
+    arc(&mut pts, b - r + 0.5, a + r - 0.5, 270.0);
+    pts.push((b, b - r + 0.5));
+    arc(&mut pts, b - r + 0.5, b - r + 0.5, 0.0);
+    pts.push((a + r - 0.5, b));
+    arc(&mut pts, a + r - 0.5, b - r + 0.5, 90.0);
+    pts.push((a, a + r - 0.5));
+    arc(&mut pts, a + r - 0.5, a + r - 0.5, 180.0);
+    let (dash, gap) = (3.0f32, 3.0f32);
+    let mut out = String::new();
+    let (mut along, mut on) = (0.0f32, true);
+    out += &format!("M{:.2} {:.2}", pts[0].0, pts[0].1);
+    for w in pts.windows(2) {
+        let (p, q) = (w[0], w[1]);
+        let len = ((q.0 - p.0).powi(2) + (q.1 - p.1).powi(2)).sqrt();
+        let mut done = 0.0f32;
+        while done < len {
+            let left = (if on { dash } else { gap }) - along;
+            let step = left.min(len - done);
+            done += step;
+            along += step;
+            let t = done / len.max(1e-6);
+            let (x, y) = (p.0 + (q.0 - p.0) * t, p.1 + (q.1 - p.1) * t);
+            if on {
+                out += &format!("L{x:.2} {y:.2}");
+            }
+            if along >= (if on { dash } else { gap }) - 1e-4 {
+                along = 0.0;
+                on = !on;
+                if on {
+                    out += &format!("M{x:.2} {y:.2}");
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Runs `f` with the app, then applies what it asked for and refreshes. If the app
@@ -1389,6 +1487,10 @@ impl App {
         ui.set_current_page(snap.page as i32);
         ui.set_renaming(self.renaming.map_or(-1, |i| i as i32));
         ui.set_bar_height(bar_height(self.prefs.bar_size));
+        if ui.get_bar_size() != self.prefs.bar_size.min(2) as i32 {
+            ui.set_bar_size(self.prefs.bar_size.min(2) as i32);
+            ui.set_plus_dashes(dashed_square(tab_height(self.prefs.bar_size)).into());
+        }
         ui.set_bar_top(self.prefs.bar_top);
         let scale = ui.window().scale_factor();
         if ui.get_scale() != scale {
@@ -1439,6 +1541,7 @@ impl App {
         } else {
             self.startup_over = true;
             log_info("start-up over: the session is shown");
+            snapshot_and_quit(&self.ui);
             return None;
         };
         Some(text)

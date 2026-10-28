@@ -1,13 +1,14 @@
-// The page bar, at the bottom of the window or the top (Settings ▸ General): page tabs
-// (click, double-click to rename, drag to reorder, right-click or press-and-hold for
-// more), add page, a status line when there is news, then Edit/Show, STOP PAGE and
-// STOP ALL. Placed by arithmetic, so nothing is clipped at any bar height.
-//
-// The bar is the cart wall's colour. The tabs are buttons like Edit and the stops, each
-// the same size; the page shown is the inverted one. A page with something playing
-// (not the one shown) has a red corner on the outer edge.
+// The page bar, at the bottom of the window or the top (Settings ▸ General), to the
+// settled design in docs/pagebar-spec.md:
+//   [page tabs…] [+] [status, in the flexible space] [EDIT] | [PAGE STOP] [ALL STOP]
+// The page shown is fused to the cart panel: the panel's colour, touching its edge,
+// with a 3 px bar in the system accent. The other tabs are recessed 6 px, outlined,
+// all one width. A red dot marks a page with something playing. EDIT is an outlined
+// toggle, filled when on; PAGE STOP and ALL STOP are the only filled controls.
+// Everything sits on the bar's centre line. Sizes come from the bar size (small,
+// medium, large), as in the spec's table.
 
-import { Theme, FlatButton, Field } from "theme.slint";
+import { Theme, Field } from "theme.slint";
 
 export struct PageTab {
     name: string,
@@ -25,9 +26,11 @@ export struct StatusItem {
 component Tab inherits Rectangle {
     in property <PageTab> page;
     in property <bool> current;
-    in property <length> font-size;
     // The bar is at the top of the window: the carts are below the tab.
     in property <bool> at-top;
+    // From the size table: tab text size, the red dot's diameter.
+    in property <length> text-size;
+    in property <length> dot;
     callback select();
     callback rename();
     callback menu(length, length);
@@ -38,32 +41,62 @@ component Tab inherits Rectangle {
     property <bool> dragging;
     property <bool> holding;
     property <bool> held;
-    // A button; the page shown is inverted.
-    border-radius: 5px;
-    background: current ? Theme.text : ta.has-hover ? Theme.button-hover : Theme.button;
+    // The active tab is 6 px taller, toward the cart panel; its text sits where an
+    // inactive tab's would, on the bar's centre line.
+    property <length> inset: current ? 6px : 0px;
+    property <length> r: 8px;
+    background: current ? Theme.cart-panel : Theme.tab-off;
+    border-width: current ? 0px : 1px;
+    border-color: Theme.tab-off-border;
+    border-top-left-radius: current && !at-top ? 0 : r;
+    border-top-right-radius: current && !at-top ? 0 : r;
+    border-bottom-left-radius: current && at-top ? 0 : r;
+    border-bottom-right-radius: current && at-top ? 0 : r;
     clip: true;
-    // Something is playing on this page (not the one shown): a red corner on the
-    // outer edge. The name never moves.
-    if page.playing && !root.current: Path {
-        x: 0;
+    accessible-role: button;
+    accessible-label: page.name + (page.playing ? ", playing" : "");
+    accessible-checkable: true;
+    accessible-checked: current;
+    // The active tab's accent: 3 px along its outer edge.
+    if root.current: Rectangle {
         y: root.at-top ? 0 : parent.height - self.height;
-        width: 12px;
-        height: 12px;
-        viewbox-width: 12;
-        viewbox-height: 12;
-        commands: root.at-top ? "M0 0L12 0L0 12Z" : "M0 0L12 12L0 12Z";
-        fill: Theme.error;
+        height: 3px;
+        background: Theme.accent;
     }
-    Text {
-        x: 6px;
-        width: parent.width - 12px;
-        text: page.name;
-        color: root.current ? Theme.window-bg : Theme.text;
-        font-size: root.font-size;
-        font-weight: root.current ? 700 : 400;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        overflow: elide;
+    // The name: centred, up to two lines, then clipped.
+    one-line := Text {
+        visible: false;
+        text: "Ag";
+        font-size: root.text-size;
+    }
+    Rectangle {
+        x: 10px;
+        y: root.at-top ? 0 : root.inset;
+        width: parent.width - 20px;
+        height: parent.height - root.inset;
+        clip: true;
+        Text {
+            width: parent.width;
+            height: min(self.preferred-height, 2 * one-line.preferred-height);
+            y: (parent.height - self.height) / 2;
+            text: page.name;
+            wrap: word-wrap;
+            overflow: clip;
+            color: root.current ? Theme.tab-on-text : Theme.tab-off-text;
+            font-size: root.text-size;
+            font-weight: root.current ? 600 : 400;
+            horizontal-alignment: center;
+            vertical-alignment: top;
+        }
+    }
+    // Something is playing on this page: a red dot, top right.
+    if page.playing: Rectangle {
+        x: parent.width - 8px - root.dot / 2;
+        y: (root.at-top ? 0 : root.inset) + 8px - root.dot / 2;
+        width: root.dot;
+        height: root.dot;
+        border-radius: root.dot / 2;
+        background: Theme.tab-dot;
     }
     Timer {
         interval: 500ms;
@@ -116,6 +149,58 @@ component Tab inherits Rectangle {
     }
 }
 
+
+// A bar button: EDIT (an outlined toggle), PAGE STOP and ALL STOP. Uppercase, bold,
+// spaced; the stops have a square icon.
+component BarButton inherits Rectangle {
+    in property <string> text;
+    in property <length> text-size;
+    in property <length> pad;
+    in property <length> icon;
+    in property <color> fill;
+    in property <color> line;
+    in property <length> line-width;
+    in property <color> ink;
+    in property <bool> checkable;
+    in property <bool> checked;
+    callback clicked();
+    border-radius: 8px;
+    background: ta.pressed ? fill.darker(20%) : ta.has-hover && fill.alpha > 0 ? fill.brighter(8%) : fill;
+    border-width: line-width;
+    border-color: line;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-checkable: checkable;
+    accessible-checked: checked;
+    preferred-width: row.preferred-width;
+    row := HorizontalLayout {
+        padding-left: root.pad;
+        padding-right: root.pad;
+        spacing: 8px;
+        alignment: center;
+        if root.icon > 0: Rectangle {
+            width: root.icon;
+            height: root.icon;
+            y: (parent.height - self.height) / 2;
+            border-radius: 2px;
+            background: root.ink;
+        }
+        Text {
+            text: root.text;
+            color: root.ink;
+            font-size: root.text-size;
+            font-weight: 700;
+            letter-spacing: root.text-size * 0.06;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 export component BottomBar inherits Rectangle {
     in property <[PageTab]> pages;
     in property <int> current;
@@ -126,6 +211,10 @@ export component BottomBar inherits Rectangle {
     in property <string> rename-text;
     // Missing files are listed in the status: clicking it opens Relink.
     in property <bool> status-clickable;
+    // 0 small, 1 medium, 2 large (Settings ▸ General ▸ Page Bar Size).
+    in property <int> size;
+    // The + button's dashed outline, as a path for a `tab-h` square (from Rust).
+    in property <string> plus-dashes;
 
     callback toggle-mode();
     callback select-page(int);
@@ -138,7 +227,7 @@ export component BottomBar inherits Rectangle {
     callback stop-all();
     callback status-clicked();
 
-    background: Theme.window-bg;
+    background: Theme.strip;
 
     // One physical pixel (1px / the window's scale): tabs sit on whole pixels, so
     // their names stay sharp at 125% and 150%.
@@ -146,60 +235,57 @@ export component BottomBar inherits Rectangle {
     // At the top of the window (the carts below it), not the bottom.
     in property <bool> at-top;
 
-    property <length> m: 5px;
-    property <length> gap: 6px;
-    property <length> btn-h: max(20px, self.height - 2 * m);
-    // Sizes from the design (Small 44, Medium 64, Large 92 px), in between by line.
-    property <length> grow: max(0px, self.height - 44px);
-    property <length> text: min(13px + grow * 0.104, 20px);
-    property <length> stop-text: min(14px + grow * 0.167, 24px);
-    // As wide as their words plus a little padding (never narrower than Edit/Show).
-    property <length> stop-w: max(stop-btn.preferred-width, mode-w);
-    property <length> page-w: max(page-btn.preferred-width, mode-w);
-    property <length> mode-w: 56px + grow * 1.125;
-    // Edit/Show, STOP PAGE and STOP ALL on the right; the tabs from the left up to them.
-    property <length> mode-x: self.width - m - stop-w - gap - page-w - gap - mode-w;
-    property <length> right: mode-x - gap;
-    property <length> tabs-x: m;
-    property <length> status-w: status.length == 0 ? 0px : (right - tabs-x) * 0.35;
-    property <length> plus-w: edit-mode ? min(btn-h, 40px) + gap : 0px;
-    property <length> tabs-avail: max(40px, right - status-w - gap - tabs-x - plus-w);
-    // Tabs are 2 px apart.
-    property <length> tab-gap: gap;
-    property <length> tab-w: floor(clamp((tabs-avail - (pages.length - 1) * tab-gap) / max(pages.length, 1), 24px, 112px + grow * 1.17) / unit) * unit;
-    property <length> step: tab-w + tab-gap;
-    // The tabs run from the edge facing the carts to the bar's margin on the far side.
-    property <length> tab-y: m;
-    property <length> tab-h: btn-h;
+    // ---- the size table (docs/pagebar-spec.md) ----
+    property <length> tab-h: size == 0 ? 44px : size == 1 ? 56px : 68px;
+    property <length> btn-h: size == 0 ? 36px : size == 1 ? 44px : 52px;
+    property <length> tab-w-full: size == 0 ? 108px : 112px;
+    property <length> tab-text: size == 0 ? 13px : size == 1 ? 15px : 17px;
+    property <length> btn-text: size == 0 ? 12px : size == 1 ? 14px : 15px;
+    property <length> btn-pad: size == 0 ? 14px : 16px;
+    property <length> stop-icon: size == 0 ? 10px : 12px;
+    property <length> dot: size == 0 ? 7px : size == 1 ? 8px : 9px;
+
+    // ---- geometry ----
+    property <length> side: 12px;
+    property <length> gap: 8px;
+    // The bar's height is tab-h + 12 (set by the window); its centre line is half that.
+    property <length> btn-y: (self.height - btn-h) / 2;
+    // Inactive tabs and + are recessed 6 px from the cart panel's edge.
+    property <length> off-y: 6px;
+    // From the right: ALL STOP, PAGE STOP, the divider (4 px extra each side), EDIT.
+    property <length> stop-x: self.width - side - stop-btn.preferred-width;
+    property <length> page-x: stop-x - gap - page-btn.preferred-width;
+    property <length> divider-x: page-x - gap - 4px - 1px;
+    property <length> edit-x: divider-x - 4px - gap - edit-btn.preferred-width;
+    // The tabs from the left; they shrink together when they do not fit.
+    property <length> plus-w: edit-mode ? tab-h + gap : 0px;
+    property <length> tabs-avail: max(40px, edit-x - gap - side - plus-w);
+    property <length> tab-w: floor(min(tab-w-full, (tabs-avail - (pages.length - 1) * gap) / max(pages.length, 1)) / unit) * unit;
+    property <length> step: tab-w + gap;
+    property <length> tabs-end: side + pages.length * step - gap;
     // Where a dragged tab would land (-1: not dragging).
     property <int> drag-from: -1;
     property <int> drag-to: -1;
 
-    // Edit/Show, beside the stops.
-    FlatButton {
-        x: mode-x;
-        y: m;
-        width: mode-w;
-        height: btn-h;
-        text: edit-mode ? "EDIT" : "SHOW";
-        fill: edit-mode ? Theme.edit-mode : Theme.show-mode;
-        text-color: #ffffff;
-        font-size: text;
-        clicked => {
-            root.toggle-mode();
-        }
+    // On whole device pixels at any display scale (125%, 150%…), so edges and text
+    // stay sharp.
+    pure function snap(v: length) -> length {
+        round(v / unit) * unit
     }
 
     for p[i] in pages: Rectangle {
-        x: round((tabs-x + i * step) / unit) * unit;
-        y: round(tab-y / unit) * unit;
+        x: round((side + i * step) / unit) * unit;
+        // The page shown touches the cart panel: at the bar's top edge (bar at the
+        // bottom of the window) or its bottom edge (bar at the top).
+        y: snap(i == root.current ? (root.at-top ? off-y : 0px) : off-y);
         width: tab-w;
-        height: round(tab-h / unit) * unit;
+        height: snap(i == root.current ? tab-h + 6px : tab-h);
         if i != root.renaming: Tab {
             page: p;
             current: i == root.current;
             at-top: root.at-top;
-            font-size: text;
+            text-size: root.tab-text;
+            dot: root.dot;
             select => {
                 root.select-page(i);
             }
@@ -211,7 +297,7 @@ export component BottomBar inherits Rectangle {
             }
             drag(x) => {
                 root.drag-from = i;
-                root.drag-to = clamp(floor((parent.x + x - tabs-x + step / 2) / step), 0, pages.length);
+                root.drag-to = clamp(floor((parent.x + x - side + step / 2) / step), 0, pages.length);
             }
             drop(x) => {
                 if root.drag-to >= 0 {
@@ -226,7 +312,7 @@ export component BottomBar inherits Rectangle {
             width: parent.width;
             height: parent.height;
             text: root.rename-text;
-            font-size: text;
+            font-size: root.tab-text;
             min-width: 0;
             init => {
                 self.focus();
@@ -245,33 +331,53 @@ export component BottomBar inherits Rectangle {
     // Where a dragged tab will land.
     if drag-from >= 0 && drag-to >= 0: Rectangle {
         z: 2;
-        x: tabs-x + drag-to * step - tab-gap / 2 - 1.5px;
-        y: tab-y;
+        x: side + drag-to * step - gap / 2 - 1.5px;
+        y: off-y;
         width: 3px;
         height: tab-h;
         background: Theme.select;
     }
-    // Add page: just the +, no outline.
-    if edit-mode: FlatButton {
-        x: tabs-x + pages.length * step - tab-gap + gap;
-        y: m;
-        width: min(btn-h, 40px);
-        height: btn-h;
-        text: "+";
-        fill: transparent;
-        text-color: Theme.text;
-        bold: false;
-        font-size: text + 6px;
-        clicked => {
-            root.add-page();
+    // Add page (Edit mode): a tab-high square with a dashed outline.
+    if edit-mode: Rectangle {
+        x: snap(tabs-end + gap);
+        y: snap(off-y);
+        width: tab-h;
+        height: tab-h;
+        border-radius: 8px;
+        background: plus-ta.has-hover ? Theme.tab-off : transparent;
+        accessible-role: button;
+        accessible-label: "Add page";
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: parent.width / 1px;
+            viewbox-height: parent.height / 1px;
+            commands: root.plus-dashes;
+            stroke: Theme.tab-off-border;
+            stroke-width: 1px;
+            fill: transparent;
+        }
+        Path {
+            width: 14px;
+            height: 14px;
+            viewbox-width: 14;
+            viewbox-height: 14;
+            commands: "M7 0V14M0 7H14";
+            stroke: Theme.tab-off-text;
+            stroke-width: 1.6px;
+        }
+        plus-ta := TouchArea {
+            clicked => {
+                root.add-page();
+            }
         }
     }
 
-    // Status line, only when there is something to say.
+    // Status line, in the flexible space, only when there is something to say.
     if status.length > 0: Rectangle {
-        x: right - status-w;
-        y: m;
-        width: status-w;
+        x: (edit-mode ? tabs-end + gap + tab-h : tabs-end) + gap;
+        y: btn-y;
+        width: max(0px, edit-x - gap - self.x);
         height: btn-h;
         clip: true;
         HorizontalLayout {
@@ -302,26 +408,62 @@ export component BottomBar inherits Rectangle {
         }
     }
 
-    page-btn := FlatButton {
-        x: root.width - m - stop-w - gap - page-w;
-        y: m;
-        width: page-w;
-        height: btn-h;
-        text: "■ PAGE STOP";
-        font-size: text;
+    // EDIT: outlined when off (Show mode), filled when on.
+    edit-btn := BarButton {
+        x: snap(edit-x);
+        y: snap(btn-y);
+        width: snap(self.preferred-width);
+        height: snap(btn-h);
+        text: "EDIT";
+        text-size: btn-text;
+        pad: btn-pad;
+        fill: edit-mode ? Theme.edit-on : transparent;
+        line: Theme.edit-line;
+        line-width: 2px;
+        ink: edit-mode ? Theme.edit-on-text : Theme.edit-off-text;
+        checkable: true;
+        checked: edit-mode;
+        clicked => {
+            root.toggle-mode();
+        }
+    }
+    Rectangle {
+        x: snap(divider-x);
+        y: snap((parent.height - self.height) / 2);
+        width: 1px;
+        height: snap(round(btn-h * 0.6 / 1px) * 1px);
+        background: Theme.bar-divider;
+    }
+    page-btn := BarButton {
+        x: snap(page-x);
+        y: snap(btn-y);
+        width: snap(self.preferred-width);
+        height: snap(btn-h);
+        text: "PAGE STOP";
+        text-size: btn-text;
+        pad: btn-pad;
+        icon: stop-icon;
+        fill: Theme.page-stop;
+        line: Theme.page-stop-line;
+        line-width: 1px;
+        ink: Theme.page-stop-text;
         clicked => {
             root.stop-page();
         }
     }
-    stop-btn := FlatButton {
-        x: root.width - m - stop-w;
-        y: m;
-        width: stop-w;
-        height: btn-h;
-        text: "■ ALL STOP";
-        fill: Theme.stop-all;
-        text-color: #ffffff;
-        font-size: stop-text;
+    stop-btn := BarButton {
+        x: snap(stop-x);
+        y: snap(btn-y);
+        width: snap(self.preferred-width);
+        height: snap(btn-h);
+        text: "ALL STOP";
+        text-size: btn-text;
+        pad: btn-pad;
+        icon: stop-icon;
+        fill: Theme.all-stop;
+        line: transparent;
+        line-width: 0px;
+        ink: #ffffff;
         clicked => {
             root.stop-all();
         }
