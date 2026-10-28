@@ -366,6 +366,9 @@ export component MainWindow inherits Window {
             root.cell-tap(i);
         }
         hold => {
+            // The cell's menu opens where the finger is (the press may not have set it).
+            root.press-x = self.x + self.press-x;
+            root.press-y = self.y + self.press-y;
             root.cell-hold(i);
         }
         double => {
@@ -541,16 +544,53 @@ export component MainWindow inherits Window {
     for g in qe-gen: Rectangle {
         // A click outside closes it, and does nothing else; a right-click (or
         // Control-click) on another cell goes on to open that cell's quick edit or menu.
+        // By touch, a tap outside closes it, and a press-and-hold on another cell opens
+        // that cell's quick edit or menu, as a right-click does.
+        property <int> hold-cell: -1;
+        property <length> hold-x;
+        property <length> hold-y;
+        hold-timer := Timer {
+            interval: 500ms;
+            running: false;
+            triggered => {
+                self.running = false;
+                root.press-x = parent.hold-x;
+                root.press-y = parent.hold-y;
+                let i = parent.hold-cell;
+                root.qe-close();
+                root.cell-hold(i);
+                parent.hold-cell = -1;
+            }
+        }
         TouchArea {
             pointer-event(e) => {
+                let touch = e.touch-finger-id != 0;
                 if e.kind == PointerEventKind.down {
-                    root.qe-close();
                     let i = root.cell-at(self.mouse-x, self.mouse-y);
+                    if touch && e.button == PointerEventButton.left && i >= 0 {
+                        parent.hold-cell = i;
+                        parent.hold-x = self.mouse-x;
+                        parent.hold-y = self.mouse-y;
+                        hold-timer.running = true;
+                        return;
+                    }
+                    root.qe-close();
                     if i >= 0 && (e.button == PointerEventButton.right || (Theme.mac && e.modifiers.control)) {
                         root.press-x = self.mouse-x;
                         root.press-y = self.mouse-y;
                         root.cell-down(i, e.button == PointerEventButton.right, false, e.modifiers.shift, e.modifiers.alt, e.modifiers.control);
                     }
+                } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) && parent.hold-cell >= 0 {
+                    // Lifted before the hold time: a tap, which closes quick edit.
+                    hold-timer.running = false;
+                    parent.hold-cell = -1;
+                    root.qe-close();
+                }
+            }
+            moved => {
+                if parent.hold-cell >= 0 && (abs(self.mouse-x - parent.hold-x) > 12px || abs(self.mouse-y - parent.hold-y) > 12px) {
+                    // A finger that moves is not a hold: it closes quick edit on lifting.
+                    hold-timer.running = false;
                 }
             }
         }

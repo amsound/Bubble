@@ -266,24 +266,27 @@ export component ClearX inherits Rectangle {
 }
 
 // A slider drawn like the system's (a Mac slider, or Windows 11's with its accent dot).
-// Pressing the track jumps there; the knob drags from where it was taken. A
-// double-click on the knob puts it back to its default (`reset`); one on the track
-// only moves it. With `log-scale` the middle of the track is the geometric mean
-// (Speed: 25% · 100% · 400%).
+// Pressing the track jumps there; the knob drags from where it was taken. Two presses
+// on the knob within 400 ms (a double-click, or a double tap on a touch screen) put it
+// back to its default (`reset`); on the track they only move it. With `log-scale` the
+// middle of the track is the geometric mean (Speed: 25% · 100% · 400%). With
+// `centre-mark`, a short line marks the middle (0 dB, centre pan, 100%).
 export component SetupSlider inherits Rectangle {
     in-out property <float> value;
     in property <float> minimum;
     in property <float> maximum;
     in property <bool> log-scale;
+    in property <bool> centre-mark;
     callback changed(float);
     callback reset();
     property <float> pos: clamp(log-scale ? log(value / minimum, 2) / log(maximum / minimum, 2) : (value - minimum) / (maximum - minimum), 0, 1);
     property <length> knob: Theme.mac ? 18px : 20px;
     property <length> knob-x: (self.width - knob) * pos;
     property <length> grab;
-    // Whether the last two presses were on the knob (a double-click there resets).
-    property <bool> down-on-knob;
-    property <bool> before-on-knob;
+    // When the knob was last pressed (a second press soon after resets), and a reset
+    // happening: the rest of that press does not move the knob.
+    property <duration> knob-down-at: -10s;
+    property <bool> resetting;
     // Windows: as tall as a drop-down (32 px), a finger's target; the Mac's is smaller.
     height: Theme.mac ? 22px : 32px;
     min-width: 80px;
@@ -305,6 +308,13 @@ export component SetupSlider inherits Rectangle {
         height: 4px;
         border-radius: 2px;
         background: Theme.text.transparentize(Theme.mac ? 80% : 60%);
+    }
+    if root.centre-mark: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 1px;
+        height: 12px;
+        background: Theme.text.transparentize(45%);
     }
     Rectangle {
         x: root.knob / 2;
@@ -337,25 +347,29 @@ export component SetupSlider inherits Rectangle {
     ta := TouchArea {
         pointer-event(e) => {
             if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
-                let on-knob = self.mouse-x >= root.knob-x - 2px && self.mouse-x <= root.knob-x + root.knob + 2px;
-                root.before-on-knob = root.down-on-knob;
-                root.down-on-knob = on-knob;
+                // A finger is wider than the pointer: the knob is easier to hit by touch.
+                let slack = e.touch-finger-id != 0 ? 10px : 2px;
+                let on-knob = self.mouse-x >= root.knob-x - slack && self.mouse-x <= root.knob-x + root.knob + slack;
+                root.resetting = false;
                 if on-knob {
-                    root.grab = self.mouse-x - root.knob-x;
+                    if animation-tick() - root.knob-down-at < 400ms {
+                        root.knob-down-at = -10s;
+                        root.resetting = true;
+                        root.reset();
+                    } else {
+                        root.knob-down-at = animation-tick();
+                        root.grab = self.mouse-x - root.knob-x;
+                    }
                 } else {
+                    root.knob-down-at = -10s;
                     root.grab = root.knob / 2;
                     root.set-from(self.mouse-x);
                 }
             }
         }
         moved => {
-            if self.pressed {
+            if self.pressed && !root.resetting {
                 root.set-from(self.mouse-x);
-            }
-        }
-        double-clicked => {
-            if root.down-on-knob && root.before-on-knob {
-                root.reset();
             }
         }
     }

@@ -34,6 +34,8 @@ export struct QuickEdit {
     group: int,
     // The learned hotkey, drawn as on the tile; empty when there is none.
     hotkey: string,
+    // Learn is waiting for this cart's key or MIDI note.
+    learning: bool,
     // The cart's colour (the keycap's text colour).
     cart-color: color,
     looping: bool,
@@ -252,7 +254,6 @@ export component QuickEditPanel inherits Panel {
             }
             Text {
                 text: qe.title;
-                font-weight: 700;
                 color: Theme.text;
                 vertical-alignment: center;
             }
@@ -274,12 +275,12 @@ export component QuickEditPanel inherits Panel {
             if Theme.mac: Rule { }
             FieldRow {
                 label: "Colour";
-                // The swatches only (any other colour is in Cart Setup). On Windows each
-                // is a 40 px touch target (Microsoft's minimum for touch), in two rows.
+                // The swatches only (any other colour is in Cart Setup), on one line. On
+                // Windows each is a 40 px touch target (Microsoft's minimum for touch).
                 swatches := Rectangle {
                     property <length> size: Theme.mac ? 20px : 34px;
                     property <length> cell: Theme.mac ? 25px : 40px;
-                    property <int> per-row: Theme.mac ? 10 : 5;
+                    property <int> per-row: max(1, qe.swatches.length);
                     horizontal-stretch: 1;
                     height: ceil(qe.swatches.length / per-row) * cell;
                     for c[i] in qe.swatches: Rectangle {
@@ -312,6 +313,7 @@ export component QuickEditPanel inherits Panel {
                 // jumps there and a double-click on the knob goes back to 0 dB.
                 gain-slider := SetupSlider {
                     y: (parent.height - self.height) / 2;
+                    centre-mark: true;
                     minimum: -12;
                     maximum: 12;
                     value: qe.gain;
@@ -325,7 +327,10 @@ export component QuickEditPanel inherits Panel {
                 }
                 Text {
                     width: 58px;
-                    text: (round(gain-slider.value * 10) > 0 ? "+" : "") + round(gain-slider.value * 10) / 10 + " dB";
+                    // As stored: within ±0.25 dB is exactly 0, else to 0.1 dB. Always one
+                    // decimal, never "−0".
+                    property <int> tenths: abs(gain-slider.value) < 0.25 ? 0 : round(gain-slider.value * 10);
+                    text: self.tenths == 0 ? "0.0 dB" : (self.tenths > 0 ? "+" : "−") + floor(abs(self.tenths) / 10) + "." + mod(abs(self.tenths), 10) + " dB";
                     color: Theme.text;
                     horizontal-alignment: right;
                     vertical-alignment: center;
@@ -390,7 +395,7 @@ export component QuickEditPanel inherits Panel {
                 HorizontalLayout {
                     spacing: 6px;
                     // The hotkey as its keycap on the tile.
-                    if qe.hotkey != "": Rectangle {
+                    if qe.hotkey != "" && !qe.learning: Rectangle {
                         y: (parent.height - self.height) / 2;
                         height: 20px;
                         min-width: key.preferred-width + 14px;
@@ -405,14 +410,19 @@ export component QuickEditPanel inherits Panel {
                             vertical-alignment: center;
                         }
                     }
-                    if qe.hotkey != "": ClearX {
+                    if qe.learning: Text {
+                        text: "Press a key or play a MIDI note…";
+                        color: Theme.learning;
+                        vertical-alignment: center;
+                    }
+                    if qe.hotkey != "" && !qe.learning: ClearX {
                         y: (parent.height - self.height) / 2;
                         label: "Clear Hotkey";
                         clicked => {
                             root.action("clear-key");
                         }
                     }
-                    if qe.hotkey == "": Text {
+                    if qe.hotkey == "" && !qe.learning: Text {
                         text: "none";
                         color: Theme.weak-text;
                         vertical-alignment: center;
@@ -422,7 +432,7 @@ export component QuickEditPanel inherits Panel {
                     }
                     SysButton {
                         y: (parent.height - self.height) / 2;
-                        text: "Learn";
+                        text: qe.learning ? "Cancel" : "Learn";
                         clicked => {
                             root.action("learn");
                         }

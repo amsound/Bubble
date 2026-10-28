@@ -169,8 +169,9 @@ export component BottomBar inherits Rectangle {
     property <length> grow: max(0px, self.height - 44px);
     property <length> text: min(13px + grow * 0.104, 20px);
     property <length> stop-text: min(14px + grow * 0.167, 24px);
-    property <length> stop-w: 140px + grow * 2.5;
-    property <length> page-w: 110px + grow * 1.67;
+    // As wide as their words plus a little padding (never narrower than Edit/Show).
+    property <length> stop-w: max(stop-btn.preferred-width, mode-w);
+    property <length> page-w: max(page-btn.preferred-width, mode-w);
     property <length> mode-w: 56px + grow * 1.125;
     // Edit/Show, STOP PAGE and STOP ALL on the right; the tabs from the left up to them.
     property <length> mode-x: self.width - m - stop-w - gap - page-w - gap - mode-w;
@@ -327,7 +328,7 @@ export component BottomBar inherits Rectangle {
         }
     }
 
-    FlatButton {
+    page-btn := FlatButton {
         x: root.width - m - stop-w - gap - page-w;
         y: m;
         width: page-w;
@@ -338,7 +339,7 @@ export component BottomBar inherits Rectangle {
             root.stop-page();
         }
     }
-    FlatButton {
+    stop-btn := FlatButton {
         x: root.width - m - stop-w;
         y: m;
         width: stop-w;

@@ -200,50 +200,55 @@ component Swatch inherits Rectangle {
     }
 }
 
-// Two options joined into one control, at most one on: pressing the one that is on
-// turns it off (neither). Drawn the same on a Mac and Windows: one outline, a divider,
-// the chosen half filled.
-component EitherOr inherits Rectangle {
-    in property <string> a-text;
-    in property <string> b-text;
-    in property <bool> a-on;
-    in property <bool> b-on;
-    callback chose-a();
-    callback chose-b();
-    border-radius: Theme.mac ? 7px : 4px;
-    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
-    border-width: Theme.mac ? 0px : 1px;
+// One half of On Play's joined pair: shaped like the Playback buttons above it, with
+// only its outer corners rounded, so the two read as one control.
+component Half inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    in property <bool> left;
+    callback clicked();
+    property <length> r: Theme.mac ? 7px : 4px;
+    background: on ? Theme.accent : ta.has-hover ? Theme.hover : Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
+    border-width: on || Theme.mac ? 0px : 1px;
     border-color: Theme.panel-border;
-    clip: true;
-    HorizontalLayout {
-        for half[i] in [
-            { text: root.a-text, on: root.a-on },
-            { text: root.b-text, on: root.b-on },
-        ]: Rectangle {
-            horizontal-stretch: 1;
-            background: half.on ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
-            if i == 1 && !root.a-on && !root.b-on: Rectangle {
-                x: 0;
-                width: 1px;
-                height: parent.height - 10px;
-                background: Theme.text.transparentize(75%);
-            }
-            Text {
-                text: half.text;
-                color: half.on ? #ffffff : Theme.text;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-            ta := TouchArea {
-                clicked => {
-                    if i == 0 {
-                        root.chose-a();
-                    } else {
-                        root.chose-b();
-                    }
-                }
-            }
+    border-top-left-radius: left ? r : 0;
+    border-bottom-left-radius: left ? r : 0;
+    border-top-right-radius: left ? 0 : r;
+    border-bottom-right-radius: left ? 0 : r;
+    Text {
+        text: root.text;
+        color: root.on ? #ffffff : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
         }
+    }
+}
+
+// The gap between the two halves, filled so they join: a line in the middle while
+// neither is on.
+component Joint inherits Rectangle {
+    in property <bool> divided;
+    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
+    if !Theme.mac: Rectangle {
+        y: 0;
+        height: 1px;
+        background: Theme.panel-border;
+    }
+    if !Theme.mac: Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.panel-border;
+    }
+    if root.divided: Rectangle {
+        x: (parent.width - 1px) / 2;
+        y: 6px;
+        width: 1px;
+        height: parent.height - 12px;
+        background: Theme.text.transparentize(70%);
     }
 }
 
@@ -895,6 +900,7 @@ export component CartSetupWindow inherits Window {
                             label-width: root.label-width;
                             label: "Gain";
                             SetupSlider {
+                                centre-mark: true;
                                 minimum: -12;
                                 maximum: 12;
                                 value <=> root.gain;
@@ -927,6 +933,7 @@ export component CartSetupWindow inherits Window {
                             label-width: root.label-width;
                             label: "Pan";
                             SetupSlider {
+                                centre-mark: true;
                                 minimum: -1;
                                 maximum: 1;
                                 value <=> root.pan;
@@ -950,6 +957,7 @@ export component CartSetupWindow inherits Window {
                             label-width: root.label-width;
                             label: "Speed";
                             SetupSlider {
+                                centre-mark: true;
                                 minimum: 0.25;
                                 maximum: 4;
                                 log-scale: true;
@@ -1129,25 +1137,42 @@ export component CartSetupWindow inherits Window {
                         FieldRow {
                             label-width: root.label-width;
                             label: Theme.mac ? "On Play" : "On play";
+                            // Laid out exactly as Playback's three (each a third, 6 px apart),
+                            // the first two joined across their gap: one or the other, or
+                            // neither.
                             HorizontalLayout {
-                                spacing: 6px;
-                                // One or the other (or neither): joined, so it reads
-                                // as a single choice.
-                                EitherOr {
-                                    a-text: Theme.mac ? "Stop Page" : "Stop page";
-                                    b-text: Theme.mac ? "Stop All" : "Stop all";
-                                    a-on: info.stop-page;
-                                    b-on: info.stop-all;
+                                spacing: 0;
+                                Half {
+                                    text: Theme.mac ? "Stop Page" : "Stop page";
+                                    left: true;
+                                    on: info.stop-page;
                                     height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 2;
+                                    horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
-                                    chose-a => {
+                                    clicked => {
                                         root.toggle("stop-page");
                                     }
-                                    chose-b => {
+                                }
+                                Joint {
+                                    width: 6px;
+                                    height: Theme.mac ? 26px : 32px;
+                                    divided: !info.stop-page && !info.stop-all;
+                                }
+                                Half {
+                                    text: Theme.mac ? "Stop All" : "Stop all";
+                                    left: false;
+                                    on: info.stop-all;
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
+                                    clicked => {
                                         root.toggle("stop-all");
                                     }
+                                }
+                                Rectangle {
+                                    width: 6px;
                                 }
                                 // Lines up with Playback's three.
                                 Rectangle {
@@ -1174,6 +1199,7 @@ export component CartSetupWindow inherits Window {
                                     horizontal-stretch: 1;
                                 }
                                 if !info.learning && info.hotkey != "": Rectangle {
+                                    y: (parent.height - self.height) / 2;
                                     height: 20px;
                                     width: key-text.preferred-width + 14px;
                                     border-radius: 4px;
@@ -1188,6 +1214,7 @@ export component CartSetupWindow inherits Window {
                                     }
                                 }
                                 if !info.learning && info.hotkey != "": ClearX {
+                                    y: (parent.height - self.height) / 2;
                                     label: "Clear hotkey";
                                     clicked => {
                                         root.action("clear-key");
@@ -1204,6 +1231,7 @@ export component CartSetupWindow inherits Window {
                                     min-width: 0;
                                 }
                                 if !info.learning && info.midi != "": ClearX {
+                                    y: (parent.height - self.height) / 2;
                                     label: "Clear MIDI";
                                     clicked => {
                                         root.action("clear-midi");

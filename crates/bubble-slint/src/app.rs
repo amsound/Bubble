@@ -120,6 +120,9 @@ pub struct App {
     qe_seen: Option<Cart>,
     qe_soft: bool,
     qe_gen: i32,
+    /// The hotkey text and Learn state quick edit shows (they live in the session's
+    /// bindings, not the cart, so they are followed on their own).
+    qe_keys: (String, bool),
     renaming: Option<usize>,
     dialog: Option<Dialog>,
     /// The native alert on screen, and which prompt it asks.
@@ -969,9 +972,17 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     ui.window().on_winit_window_event(move |_w, ev| {
         match ev {
             WindowEvent::KeyboardInput { event, .. } => {
+                // While Learn waits, the key is the trigger: it must not also type into
+                // the field that has the keyboard (quick edit's Label).
+                let learning = app
+                    .try_borrow()
+                    .is_ok_and(|a| a.lock().learning().is_some());
                 if let PhysicalKey::Code(code) = event.physical_key {
                     let (pressed, repeat) = (event.state == ElementState::Pressed, event.repeat);
                     act(&app, move |a, i| a.key(code, pressed, repeat, i));
+                }
+                if learning {
+                    return EventResult::PreventDefault;
                 }
             }
             WindowEvent::ModifiersChanged(m) => {
@@ -1068,6 +1079,7 @@ impl App {
             qe_seen: None,
             qe_soft: false,
             qe_gen: 0,
+            qe_keys: Default::default(),
             renaming: None,
             dialog: None,
             alerts: Alerts::new(),
@@ -2332,6 +2344,13 @@ impl App {
     }
 
     fn close_quick_edit(&mut self) {
+        // Learn started from quick edit ends with it.
+        if let Some(id) = self.quick_edit {
+            let mut c = self.lock();
+            if c.learning().is_some_and(|l| l.cart == id) {
+                c.cancel_learn();
+            }
+        }
         self.picker.close();
         self.quick_edit = None;
         self.qe_cart = None;
@@ -2368,6 +2387,18 @@ impl App {
             }
             return;
         };
+        // The hotkey and Learn: shown as they change, without rebuilding the panel.
+        let keys = (
+            bubble_core::view::trigger_names(&cart, &snap.project).join("  "),
+            snap.learning.is_some_and(|l| l.cart == cart.id),
+        );
+        if keys != self.qe_keys {
+            self.qe_keys = keys.clone();
+            let mut q = ui.get_qe();
+            q.hotkey = keys.0.into();
+            q.learning = keys.1;
+            ui.set_qe(q);
+        }
         if self.qe_soft && self.qe_cart.as_ref() == Some(&cart) {
             self.qe_soft = false;
             self.qe_seen = Some(cart.clone());
@@ -2440,9 +2471,14 @@ impl App {
                 self.close_quick_edit();
                 self.open_setup(id);
             }
+            // Quick edit stays open: the key or note learned shows in it.
             "learn" => {
-                intents.push(Intent::LearnDefault(id));
-                self.close_quick_edit();
+                let learning = self.lock().learning().is_some_and(|l| l.cart == id);
+                intents.push(if learning {
+                    Intent::CancelLearn
+                } else {
+                    Intent::LearnDefault(id)
+                });
             }
             // The hotkey only; a MIDI note stays (Cart Setup clears that).
             "clear-key" => intents.push(Intent::ClearBindings(id, Some(true))),

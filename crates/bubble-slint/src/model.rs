@@ -13,17 +13,15 @@ use uuid::Uuid;
 use crate::{CartState, LabelStyle, PageTab, QuickEdit, StatusItem, Tile};
 
 pub const DEFAULT_CART_COLOR: [u8; 3] = [0x3A, 0x6E, 0xA5];
-/// Quick colour choices for tiles (as in the egui quick edit).
-pub const SWATCHES: [[u8; 3]; 10] = [
+/// Quick colour choices for tiles: seven, so quick edit shows them on one line at a
+/// 40 px touch size on Windows. Any other colour is in Cart Setup.
+pub const SWATCHES: [[u8; 3]; 7] = [
     DEFAULT_CART_COLOR,
     [0x2E, 0x7D, 0x32],
     [0xC6, 0x28, 0x28],
     [0xEF, 0x6C, 0x00],
     [0xF9, 0xA8, 0x25],
     [0x6A, 0x1B, 0x9A],
-    [0xAD, 0x14, 0x57],
-    [0x00, 0x83, 0x8F],
-    [0x5D, 0x40, 0x37],
     [0x54, 0x5B, 0x64],
 ];
 /// Fade lengths offered in quick edit (ms): zero, 0.1–0.9 s, 1–5 s by 0.5 s.
@@ -449,6 +447,7 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
         groups: strings(groups),
         group: group as i32,
         hotkey: trigger_names(cart, &snap.project).join("  ").into(),
+        learning: snap.learning.is_some_and(|l| l.cart == cart.id),
         cart_color: self::rgb(rgb),
         looping: cart.looping,
         next: cart.play_next.is_some(),

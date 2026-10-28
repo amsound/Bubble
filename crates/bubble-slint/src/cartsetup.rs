@@ -153,7 +153,7 @@ fn pan_text(p: f32) -> String {
 fn gain_text(db: f32) -> String {
     let v = (db * 10.0).round() / 10.0;
     if v == 0.0 {
-        "0 dB".into()
+        "0.0 dB".into()
     } else if v > 0.0 {
         format!("+{v:.1} dB")
     } else {
