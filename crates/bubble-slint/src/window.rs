@@ -33,16 +33,134 @@ pub fn place(ui: &MainWindow) -> Option<WindowPlace> {
 }
 
 /// Opens the window where it was last closed (call before showing it).
+///
+/// Windows: a window created maximised is shown, hidden and shown again (winit
+/// maximises it on creation with `ShowWindow(SW_MAXIMIZE)`, which shows it, then hides
+/// it because it is not visible yet; Slint shows it after its first frame). So a
+/// maximised window opens instead filling the screen's work area, not maximised, and
+/// `finish_restore` maximises it after the first frame and puts back the size it
+/// returns to.
 pub fn restore_place(ui: &MainWindow, place: Option<WindowPlace>) {
     let Some(p) = place.filter(WindowPlace::usable) else {
         return;
     };
     let w = ui.window();
+    #[cfg(windows)]
+    if p.maximized
+        && let Some((x, y, width, height)) = work_area_at(&p)
+    {
+        w.set_position(slint::PhysicalPosition::new(x, y));
+        w.set_size(slint::PhysicalSize::new(width, height));
+        MAXIMISE_LATER.with(|m| m.set(Some(p)));
+        return;
+    }
     w.set_size(slint::LogicalSize::new(p.w, p.h));
     w.set_position(slint::LogicalPosition::new(p.x, p.y));
     if p.maximized {
         w.set_maximized(true);
     }
+}
+
+#[cfg(windows)]
+thread_local! {
+    /// The place to maximise into after the first frame (see `restore_place`).
+    static MAXIMISE_LATER: std::cell::Cell<Option<WindowPlace>> = const { std::cell::Cell::new(None) };
+}
+
+/// Windows: the window still has to be maximised (its place is not worth saving yet).
+pub fn restore_pending() -> bool {
+    #[cfg(windows)]
+    return MAXIMISE_LATER.with(|m| m.get().is_some());
+    #[cfg(not(windows))]
+    false
+}
+
+/// Windows: the work area (screen without the taskbar), in pixels, of the monitor
+/// holding the middle of the saved place: (x, y, width, height).
+#[cfg(windows)]
+fn work_area_at(p: &WindowPlace) -> Option<(i32, i32, u32, u32)> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
+    };
+    // The saved place is in logical points; the monitor's scale is not known yet, but
+    // any point inside the window picks the right monitor at scale 1 to 2.
+    let centre = POINT {
+        x: (p.x + p.w / 4.0) as i32,
+        y: (p.y + p.h / 4.0) as i32,
+    };
+    // SAFETY: plain queries; MONITORINFO is sized before the call.
+    unsafe {
+        let mon = MonitorFromPoint(centre, MONITOR_DEFAULTTOPRIMARY);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut info) == 0 {
+            return None;
+        }
+        let r = info.rcWork;
+        Some((
+            r.left,
+            r.top,
+            (r.right - r.left).max(1) as u32,
+            (r.bottom - r.top).max(1) as u32,
+        ))
+    }
+}
+
+/// Windows: maximises a window `restore_place` opened filling the screen (call once it
+/// has drawn), and sets the place un-maximising returns to.
+pub fn finish_restore(ui: &MainWindow) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowPlacement, SW_SHOWMAXIMIZED, SetWindowPlacement, WINDOWPLACEMENT,
+        };
+        let Some(p) = MAXIMISE_LATER.with(|m| m.take()) else {
+            return;
+        };
+        let w = ui.window();
+        let Ok(RawWindowHandle::Win32(h)) = w.window_handle().window_handle().map(|h| h.as_raw())
+        else {
+            w.set_maximized(true);
+            return;
+        };
+        let hwnd = h.hwnd.get() as _;
+        let s = w.scale_factor();
+        // The saved size is the inside of the window; the restore rectangle is its
+        // outside, so add the frame (title bar and borders) as it is now, unmaximised.
+        let (fw, fh) = w
+            .with_winit_window(|ww| {
+                let (o, i) = (ww.outer_size(), ww.inner_size());
+                (
+                    o.width.saturating_sub(i.width) as i32,
+                    o.height.saturating_sub(i.height) as i32,
+                )
+            })
+            .unwrap_or((0, 0));
+        // SAFETY: the window's own handle; WINDOWPLACEMENT is sized before use.
+        unsafe {
+            let mut wp: WINDOWPLACEMENT = std::mem::zeroed();
+            wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+            if GetWindowPlacement(hwnd, &mut wp) == 0 {
+                w.set_maximized(true);
+                return;
+            }
+            // The restore rectangle is in workspace coordinates; with the taskbar at
+            // the bottom or right they are screen coordinates, and Windows moves a
+            // window that would sit under a taskbar on the top or left itself.
+            wp.rcNormalPosition.left = (p.x * s) as i32;
+            wp.rcNormalPosition.top = (p.y * s) as i32;
+            wp.rcNormalPosition.right = (p.x * s) as i32 + (p.w * s) as i32 + fw;
+            wp.rcNormalPosition.bottom = (p.y * s) as i32 + (p.h * s) as i32 + fh;
+            wp.showCmd = SW_SHOWMAXIMIZED as u32;
+            if SetWindowPlacement(hwnd, &wp) == 0 {
+                w.set_maximized(true);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = ui;
 }
 
 /// After a second monitor is unplugged, a restored place can be off every screen:

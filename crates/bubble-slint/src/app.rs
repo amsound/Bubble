@@ -1136,6 +1136,9 @@ impl App {
             return;
         }
         let t = Instant::now();
+        if let Some(ui) = self.ui.upgrade() {
+            window::finish_restore(&ui);
+        }
         log_info("first frame drawn; starting audio, MIDI and the session");
         self.core.start();
         self.started = true;
@@ -3024,6 +3027,10 @@ impl App {
 
     fn track_place(&mut self) {
         let Some(ui) = self.ui.upgrade() else { return };
+        // Opening maximised (Windows): the place it opens at is not the one to keep.
+        if window::restore_pending() {
+            return;
+        }
         if let Some(p) = window::place(&ui)
             && self.place.update(&mut self.core, p)
         {
