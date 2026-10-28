@@ -336,6 +336,56 @@ pub fn set_icon(w: &slint::Window) {
     let _ = w;
 }
 
+/// The system's accent colour as (base, lighter, deeper) RGB, or `None` to keep
+/// Bubble's own. Windows: its accent palette (the shades Windows 11's own controls use
+/// in dark and light appearance). macOS: the accent colour in all three.
+pub fn system_accent() -> Option<[[u8; 3]; 3]> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Registry::{
+            HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RegGetValueW,
+        };
+        let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+        let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent");
+        let value = wide("AccentPalette");
+        // Eight RGBA colours: light 3, light 2, light 1, the accent, dark 1, 2, 3, unused.
+        let mut buf = [0u8; 32];
+        let mut len = buf.len() as u32;
+        // SAFETY: a plain registry read into a buffer of the size given.
+        let ok = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_BINARY,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut len,
+            )
+        } == 0;
+        if !ok || len < 32 {
+            return None;
+        }
+        let at = |i: usize| [buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2]];
+        Some([at(3), at(1), at(4)])
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSColor, NSColorSpace};
+        let c =
+            NSColor::controlAccentColor().colorUsingColorSpace(&NSColorSpace::sRGBColorSpace())?;
+        let v = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let rgb = [
+            v(c.redComponent()),
+            v(c.greenComponent()),
+            v(c.blueComponent()),
+        ];
+        Some([rgb, rgb, rgb])
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    None
+}
+
 /// Windows 11: asks for the system's rounded window corners (Windows 10 has none and
 /// ignores it). Call once the window exists.
 pub fn round_corners(w: &slint::Window) {

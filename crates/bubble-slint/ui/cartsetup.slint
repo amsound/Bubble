@@ -78,7 +78,7 @@ component IconButton inherits Rectangle {
         viewbox-width: 16;
         viewbox-height: 16;
         commands: root.icon;
-        stroke: root.on ? #ffffff : Theme.text;
+        stroke: root.on ? Theme.on-accent : Theme.text;
         stroke-width: root.filled ? 0px : 1.7px;
         fill: root.filled ? Theme.text : transparent;
     }
@@ -197,58 +197,6 @@ component Swatch inherits Rectangle {
                 root.pressed();
             }
         }
-    }
-}
-
-// One half of On Play's joined pair: shaped like the Playback buttons above it, with
-// only its outer corners rounded, so the two read as one control.
-component Half inherits Rectangle {
-    in property <string> text;
-    in property <bool> on;
-    in property <bool> left;
-    callback clicked();
-    property <length> r: Theme.mac ? 7px : 4px;
-    background: on ? Theme.accent : ta.has-hover ? Theme.hover : Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
-    border-width: on || Theme.mac ? 0px : 1px;
-    border-color: Theme.panel-border;
-    border-top-left-radius: left ? r : 0;
-    border-bottom-left-radius: left ? r : 0;
-    border-top-right-radius: left ? 0 : r;
-    border-bottom-right-radius: left ? 0 : r;
-    Text {
-        text: root.text;
-        color: root.on ? #ffffff : Theme.text;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    ta := TouchArea {
-        clicked => {
-            root.clicked();
-        }
-    }
-}
-
-// The gap between the two halves, filled so they join: a line in the middle while
-// neither is on.
-component Joint inherits Rectangle {
-    in property <bool> divided;
-    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
-    if !Theme.mac: Rectangle {
-        y: 0;
-        height: 1px;
-        background: Theme.panel-border;
-    }
-    if !Theme.mac: Rectangle {
-        y: parent.height - 1px;
-        height: 1px;
-        background: Theme.panel-border;
-    }
-    if root.divided: Rectangle {
-        x: (parent.width - 1px) / 2;
-        y: 6px;
-        width: 1px;
-        height: parent.height - 12px;
-        background: Theme.text.transparentize(70%);
     }
 }
 
@@ -586,7 +534,7 @@ export component CartSetupWindow inherits Window {
                                 viewbox-width: parent.width / 1px;
                                 viewbox-height: parent.height / 1px;
                                 commands: root.wave-path;
-                                stroke: Theme.dark ? #6ea8ff : #2f6fdb;
+                                stroke: Theme.accent;
                                 stroke-width: 1.2px;
                             }
                             // Outside In and Out is dimmed.
@@ -1137,48 +1085,42 @@ export component CartSetupWindow inherits Window {
                         FieldRow {
                             label-width: root.label-width;
                             label: Theme.mac ? "On Play" : "On play";
-                            // Laid out exactly as Playback's three (each a third, 6 px apart),
-                            // the first two joined across their gap: one or the other, or
-                            // neither.
+                            // Three buttons like Playback's above, exactly one lit: what
+                            // else stops when this cart starts.
                             HorizontalLayout {
-                                spacing: 0;
-                                Half {
-                                    text: Theme.mac ? "Stop Page" : "Stop page";
-                                    left: true;
-                                    on: info.stop-page;
+                                spacing: 6px;
+                                Toggle {
+                                    text: "Nothing";
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
-                                    clicked => {
+                                    on: !info.stop-page && !info.stop-all;
+                                    toggled(on) => {
+                                        root.toggle("stop-none");
+                                    }
+                                }
+                                Toggle {
+                                    text: Theme.mac ? "Stop Page" : "Stop page";
+                                    height: Theme.mac ? 26px : 32px;
+                                    horizontal-stretch: 1;
+                                    min-width: 0;
+                                    preferred-width: 0;
+                                    on: info.stop-page;
+                                    toggled(on) => {
                                         root.toggle("stop-page");
                                     }
                                 }
-                                Joint {
-                                    width: 6px;
-                                    height: Theme.mac ? 26px : 32px;
-                                    divided: !info.stop-page && !info.stop-all;
-                                }
-                                Half {
+                                Toggle {
                                     text: Theme.mac ? "Stop All" : "Stop all";
-                                    left: false;
-                                    on: info.stop-all;
                                     height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
-                                    clicked => {
+                                    on: info.stop-all;
+                                    toggled(on) => {
                                         root.toggle("stop-all");
                                     }
-                                }
-                                Rectangle {
-                                    width: 6px;
-                                }
-                                // Lines up with Playback's three.
-                                Rectangle {
-                                    min-width: 0;
-                                    preferred-width: 0;
-                                    horizontal-stretch: 1;
                                 }
                             }
                         }

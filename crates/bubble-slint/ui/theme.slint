@@ -32,7 +32,16 @@ export global Theme {
     out property <color> panel-border: dark ? #474d55 : #c5cad1;
     out property <color> hover: dark ? #3d434b : #e3e7ec;
 
-    out property <color> accent: #2f6bff;
+    // The system's accent colour, set from Rust and followed while Bubble runs: on a
+    // Mac the accent itself; on Windows its palette, a lighter shade in dark appearance
+    // and a deeper one in light, as Windows 11's own controls use them.
+    in-out property <color> accent-base: #0a84ff;
+    in-out property <color> accent-light: #4cc2ff;
+    in-out property <color> accent-deep: #005fb8;
+    // Buttons that are on, OK, sliders, switches, focus, text selection, the waveform.
+    out property <color> accent: mac ? accent-base : dark ? accent-light : accent-deep;
+    // Text and icons on the accent.
+    out property <color> on-accent: mac ? #ffffff : dark ? #000000 : #ffffff;
     out property <color> current-tab: #2f5f9a;
     out property <color> stop-all: #b02020;
     out property <color> edit-mode: #f09a2a;
@@ -112,7 +121,8 @@ export component FlatButton inherits Rectangle {
         text: root.text;
         color: root.enabled ? root.text-color : root.text-color.transparentize(50%);
         font-size: root.font-size;
-        font-weight: root.bold ? 700 : 400;
+        // Semibold: the buttons read clearly without pulling the eye from the carts.
+        font-weight: root.bold ? 600 : 400;
         horizontal-alignment: center;
         vertical-alignment: center;
         overflow: elide;
@@ -222,14 +232,14 @@ export component SysButton inherits Rectangle {
     border-width: Theme.mac || primary ? 0px : 1px;
     border-color: Theme.panel-border;
     background: destructive ? (ta.has-hover ? #ff453a40 : #ff453a2e)
-        : primary ? (Theme.mac ? #0a84ff : #4cc2ff).darker(ta.pressed ? 15% : 0%)
+        : primary ? Theme.accent.darker(ta.pressed ? 15% : 0%)
         : Theme.mac ? Theme.text.transparentize(ta.pressed ? 76% : ta.has-hover ? 82% : 87%)
         : ta.has-hover ? Theme.hover : Theme.button;
     opacity: enabled ? 1 : 0.45;
     label := Text {
         text: root.text;
         font-size: Theme.mac ? 13px : 14px;
-        color: root.destructive ? #ff6961 : root.primary ? (Theme.mac ? #ffffff : #000000) : Theme.text;
+        color: root.destructive ? #ff6961 : root.primary ? Theme.on-accent : Theme.text;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -324,7 +334,7 @@ export component SetupSlider inherits Rectangle {
         y: (parent.height - self.height) / 2;
         height: 4px;
         border-radius: 2px;
-        background: Theme.mac ? #0a84ff : Theme.accent;
+        background: Theme.accent;
     }
     Rectangle {
         x: root.knob-x;

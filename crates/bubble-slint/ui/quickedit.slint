@@ -60,7 +60,7 @@ export component LabelField inherits Rectangle {
     border-radius: Theme.mac ? 5px : 4px;
     background: Theme.mac ? Theme.text.transparentize(90%) : Theme.window-bg;
     border-width: input.has-focus ? 2px : (Theme.mac ? 0px : 1px);
-    border-color: input.has-focus ? (Theme.mac ? #0a84ff99 : #4cc2ff) : Theme.panel-border;
+    border-color: input.has-focus ? (Theme.mac ? Theme.accent.transparentize(40%) : Theme.accent) : Theme.panel-border;
     clip: true;
     input := TextInput {
         x: 8px;
@@ -160,13 +160,13 @@ export component Toggle inherits Rectangle {
             viewbox-width: 16;
             viewbox-height: 16;
             commands: root.icon;
-            stroke: root.on ? #ffffff : Theme.text;
+            stroke: root.on ? Theme.on-accent : Theme.text;
             stroke-width: 1.6px;
             fill: transparent;
         }
         Text {
             text: root.text;
-            color: root.on ? #ffffff : Theme.text;
+            color: root.on ? Theme.on-accent : Theme.text;
             vertical-alignment: center;
         }
     }

@@ -81,6 +81,11 @@ export component MainWindow inherits Window {
     in property <length> bar-height: 44px;
     // The page bar at the top of the window, not the bottom (Settings ▸ General).
     in property <bool> bar-top;
+    // Starting up: the cart wall stays empty with a progress ring and what is happening
+    // ("Starting audio…", "Opening …", "Loading audio 3 of 32") until the session is
+    // ready, then shows all at once.
+    in property <bool> starting: true;
+    in property <string> starting-text;
     // The window's scale factor (1, 1.25, 1.5, 2), set from Rust.
     in property <float> scale: 1;
     in property <[BusyRow]> busy;
@@ -396,6 +401,34 @@ export component MainWindow inherits Window {
         }
         hide-tip => {
             root.tip-text = "";
+        }
+    }
+
+    // ---- start-up: a progress ring in the empty cart wall ----
+    if root.starting: Rectangle {
+        x: pad;
+        y: wall-top;
+        width: wall-w;
+        height: wall-h;
+        background: Theme.window-bg;
+        // Nothing underneath can be pressed meanwhile.
+        TouchArea { }
+        VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+            HorizontalLayout {
+                alignment: center;
+                Spinner {
+                    width: 32px;
+                    height: 32px;
+                    indeterminate: true;
+                }
+            }
+            Text {
+                text: root.starting-text;
+                color: Theme.weak-text;
+                horizontal-alignment: center;
+            }
         }
     }
 

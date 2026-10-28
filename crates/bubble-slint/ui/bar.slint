@@ -3,9 +3,8 @@
 // more), add page, a status line when there is news, then Edit/Show, STOP PAGE and
 // STOP ALL. Placed by arithmetic, so nothing is clipped at any bar height.
 //
-// The tabs hang from the edge facing the cart wall: each the same size, a solid block
-// 2 px from the next, with no outline. The page shown is in the wall's colour with an
-// outline open towards the carts, so it joins the wall. A page with something playing
+// The bar is the cart wall's colour. The tabs are buttons like Edit and the stops, each
+// the same size; the page shown is the inverted one. A page with something playing
 // (not the one shown) has a red corner on the outer edge.
 
 import { Theme, FlatButton, Field } from "theme.slint";
@@ -39,25 +38,10 @@ component Tab inherits Rectangle {
     property <bool> dragging;
     property <bool> holding;
     property <bool> held;
-    // Only the page shown has an outline. Rounded on the outer side only.
-    property <length> bw: current ? 2px : 0px;
-    property <length> r: 7px;
-    background: current ? Theme.window-bg : ta.has-hover ? Theme.hover : Theme.tab-bg;
-    border-width: bw;
-    border-color: Theme.text.transparentize(20%);
-    border-top-left-radius: at-top ? r : 0;
-    border-top-right-radius: at-top ? r : 0;
-    border-bottom-left-radius: at-top ? 0 : r;
-    border-bottom-right-radius: at-top ? 0 : r;
+    // A button; the page shown is inverted.
+    border-radius: 5px;
+    background: current ? Theme.text : ta.has-hover ? Theme.button-hover : Theme.button;
     clip: true;
-    // No outline on the side facing the carts: the tab opens into the wall.
-    if root.current: Rectangle {
-        x: root.bw;
-        y: root.at-top ? parent.height - root.bw : 0;
-        width: parent.width - 2 * root.bw;
-        height: root.bw;
-        background: root.background;
-    }
     // Something is playing on this page (not the one shown): a red corner on the
     // outer edge. The name never moves.
     if page.playing && !root.current: Path {
@@ -74,7 +58,7 @@ component Tab inherits Rectangle {
         x: 6px;
         width: parent.width - 12px;
         text: page.name;
-        color: Theme.text;
+        color: root.current ? Theme.window-bg : Theme.text;
         font-size: root.font-size;
         font-weight: root.current ? 700 : 400;
         horizontal-alignment: center;
@@ -154,7 +138,7 @@ export component BottomBar inherits Rectangle {
     callback stop-all();
     callback status-clicked();
 
-    background: Theme.bar-bg;
+    background: Theme.window-bg;
 
     // One physical pixel (1px / the window's scale): tabs sit on whole pixels, so
     // their names stay sharp at 125% and 150%.
@@ -181,12 +165,12 @@ export component BottomBar inherits Rectangle {
     property <length> plus-w: edit-mode ? min(btn-h, 40px) + gap : 0px;
     property <length> tabs-avail: max(40px, right - status-w - gap - tabs-x - plus-w);
     // Tabs are 2 px apart.
-    property <length> tab-gap: 2px;
+    property <length> tab-gap: gap;
     property <length> tab-w: floor(clamp((tabs-avail - (pages.length - 1) * tab-gap) / max(pages.length, 1), 24px, 112px + grow * 1.17) / unit) * unit;
     property <length> step: tab-w + tab-gap;
     // The tabs run from the edge facing the carts to the bar's margin on the far side.
-    property <length> tab-y: at-top ? m : 0px;
-    property <length> tab-h: self.height - m;
+    property <length> tab-y: m;
+    property <length> tab-h: btn-h;
     // Where a dragged tab would land (-1: not dragging).
     property <int> drag-from: -1;
     property <int> drag-to: -1;

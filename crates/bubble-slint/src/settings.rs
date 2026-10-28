@@ -942,6 +942,11 @@ macro_rules! share_theme {
         if t.get_system_dark() != theme.get_system_dark() {
             t.set_system_dark(theme.get_system_dark());
         }
+        if t.get_accent_base() != theme.get_accent_base() {
+            t.set_accent_base(theme.get_accent_base());
+            t.set_accent_light(theme.get_accent_light());
+            t.set_accent_deep(theme.get_accent_deep());
+        }
     }};
 }
 pub(crate) use share_theme;

@@ -160,6 +160,13 @@ pub struct App {
     first_tick: bool,
     /// The core has started (audio, MIDI, the session): see `App::begin`.
     started: bool,
+    /// When it started, and whether start-up is over (the session and its audio are
+    /// ready, or five seconds have passed): until then the wall shows a progress ring.
+    started_at: Option<Instant>,
+    startup_over: bool,
+    /// The system accent colour shown, and when it was last read (it is followed).
+    accent: Option<[[u8; 3]; 3]>,
+    accent_read: Option<Instant>,
     /// The next refresh, chosen after each tick (input ticks too, so a cart that just
     /// started gets the playing rate at once, not after the idle interval).
     interval: Duration,
@@ -1107,6 +1114,10 @@ impl App {
             exited: false,
             first_tick: true,
             started: false,
+            started_at: None,
+            startup_over: false,
+            accent: None,
+            accent_read: None,
             interval: IDLE,
             timer: std::rc::Weak::new(),
             last_input: Instant::now(),
@@ -1130,6 +1141,29 @@ impl App {
         }
     }
 
+    /// The system accent colour, read every two seconds and passed to the windows.
+    fn follow_accent(&mut self, ui: &MainWindow) {
+        if self
+            .accent_read
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(2))
+        {
+            return;
+        }
+        self.accent_read = Some(Instant::now());
+        let a = window::system_accent();
+        if a == self.accent {
+            return;
+        }
+        self.accent = a;
+        if let Some([base, light, deep]) = a {
+            let c = |v: [u8; 3]| slint::Color::from_rgb_u8(v[0], v[1], v[2]);
+            let t = ui.global::<Theme>();
+            t.set_accent_base(c(base));
+            t.set_accent_light(c(light));
+            t.set_accent_deep(c(deep));
+        }
+    }
+
     /// Starts audio, MIDI, recovery and the session, once (after the first frame).
     fn begin(&mut self) {
         if self.started {
@@ -1144,6 +1178,7 @@ impl App {
         log_info("first frame drawn; starting audio, MIDI and the session");
         self.core.start();
         self.started = true;
+        self.started_at = Some(Instant::now());
         log_info(&format!(
             "start-up: core started in {:.2} s",
             t.elapsed().as_secs_f32()
@@ -1167,6 +1202,7 @@ impl App {
             }
             window::set_title_bar_theme(&ui, self.prefs.appearance);
         }
+        self.follow_accent(&ui);
         if cfg!(target_os = "macos")
             && let Some(dark) = window::system_dark(&ui)
             && ui.global::<Theme>().get_system_dark() != dark
@@ -1379,16 +1415,53 @@ impl App {
 
     /// What the busy popover lists: the running job or the session being opened, then
     /// audio still loading (with a count).
+    /// Start-up: whether it is still going, and what to say under the progress ring.
+    fn startup(&mut self, snap: &Snapshot) -> Option<String> {
+        if self.startup_over {
+            return None;
+        }
+        let text = if !self.started {
+            "Starting audio…".to_string()
+        } else if let Some((p, _, _)) = &self.core.opening {
+            format!("Opening {}…", bubble_core::app::session::file_name(p))
+        } else if snap.pending > 0
+            && self
+                .started_at
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+        {
+            let total = self.core.loading_total.max(snap.pending).max(1);
+            format!(
+                "Loading audio {} of {total}",
+                total - snap.pending.min(total)
+            )
+        } else if self.core.open_at_start.is_some() {
+            "Opening…".to_string()
+        } else {
+            self.startup_over = true;
+            log_info("start-up over: the session is shown");
+            return None;
+        };
+        Some(text)
+    }
+
     fn busy_rows(&mut self, snap: &Snapshot) -> Vec<BusyRow> {
         // Keeps the core's "n of total" count going.
         let _ = self.core.busy(snap);
         let mut rows = Vec::new();
-        if !self.started {
-            rows.push(BusyRow {
-                text: "Starting audio…".into(),
-                progress: -1.0,
-                ..Default::default()
-            });
+        // Start-up has its own ring in the wall.
+        let starting = self.startup(snap);
+        let ui_starting = starting.is_some();
+        if let Some(ui) = self.ui.upgrade() {
+            if ui.get_starting() != ui_starting {
+                ui.set_starting(ui_starting);
+            }
+            let t = starting.unwrap_or_default();
+            if ui.get_starting_text() != t.as_str() {
+                ui.set_starting_text(t.into());
+            }
+        }
+        if ui_starting {
+            return rows;
         }
         if let Some((p, _, _)) = &self.core.opening {
             rows.push(BusyRow {
@@ -2225,12 +2298,7 @@ impl App {
         let (Ok(win), Some(ui)) = (crate::CartSetupWindow::new(), self.ui.upgrade()) else {
             return;
         };
-        let theme = ui.global::<Theme>();
-        let t = win.global::<Theme>();
-        t.set_mac(theme.get_mac());
-        t.set_ui_font(theme.get_ui_font());
-        t.set_appearance(theme.get_appearance());
-        t.set_system_dark(theme.get_system_dark());
+        settings::share_theme!(ui, win);
         win.set_window_icon(window::icon());
         window::remember_menu();
         wire_setup(&win, &self.me);
@@ -2271,13 +2339,7 @@ impl App {
         let Some(mut s) = self.setup.take() else {
             return;
         };
-        let (theme, t) = (ui.global::<Theme>(), s.win.global::<Theme>());
-        if t.get_appearance() != theme.get_appearance() {
-            t.set_appearance(theme.get_appearance());
-        }
-        if t.get_system_dark() != theme.get_system_dark() {
-            t.set_system_dark(theme.get_system_dark());
-        }
+        settings::share_theme!(ui, s.win);
         s.show(&mut self.core, snap);
         self.setup = Some(s);
     }

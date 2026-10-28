@@ -561,15 +561,10 @@ impl Setup {
                 }
             }
             // Stop Page and Stop All: one or the other, or neither (stop nothing).
-            "stop-page" | "stop-all" => {
-                let s = if what == "stop-page" {
-                    StopScope::Page
-                } else {
-                    StopScope::All
-                };
-                let on = &mut self.draft.on_play.stop;
-                *on = if *on == s { StopScope::None } else { s };
-            }
+            // On Play: exactly one of Nothing, Stop Page and Stop All.
+            "stop-none" => self.draft.on_play.stop = StopScope::None,
+            "stop-page" => self.draft.on_play.stop = StopScope::Page,
+            "stop-all" => self.draft.on_play.stop = StopScope::All,
             _ => self.draft.hold_to_play = !self.draft.hold_to_play,
         }
     }
