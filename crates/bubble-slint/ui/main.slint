@@ -56,7 +56,8 @@ export component MainWindow inherits Window {
     preferred-height: 760px;
     min-width: 640px;
     min-height: 420px;
-    background: Theme.window-bg;
+    // The cart panel behind the carts (the page bar draws its own strip).
+    background: Theme.cart-panel;
     // Slint's default falls to the generic sans-serif (Helvetica, Arial) before the
     // system face: the window names the system UI font, or (macOS) leaves it to the
     // San Francisco Text instances put first in the chain (fonts.rs).
@@ -413,7 +414,7 @@ export component MainWindow inherits Window {
         y: wall-top;
         width: wall-w;
         height: wall-h;
-        background: Theme.window-bg;
+        background: Theme.cart-panel;
         // Nothing underneath can be pressed meanwhile.
         TouchArea { }
         VerticalLayout {

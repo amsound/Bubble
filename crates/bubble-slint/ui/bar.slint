@@ -57,6 +57,18 @@ component Tab inherits Rectangle {
     accessible-label: page.name + (page.playing ? ", playing" : "");
     accessible-checkable: true;
     accessible-checked: current;
+    // The active tab's sides: a 1 px outline round its shape, with the edge facing the
+    // carts pushed out of view (no line there). The accent bar covers the outer edge.
+    if root.current: Rectangle {
+        y: root.at-top ? 0 : -1px;
+        height: parent.height + 1px;
+        border-width: 1px;
+        border-color: Theme.tab-off-border;
+        border-top-left-radius: root.at-top ? root.r : 0;
+        border-top-right-radius: root.at-top ? root.r : 0;
+        border-bottom-left-radius: root.at-top ? 0 : root.r;
+        border-bottom-right-radius: root.at-top ? 0 : root.r;
+    }
     // The active tab's accent: 3 px along its outer edge.
     if root.current: Rectangle {
         y: root.at-top ? 0 : parent.height - self.height;

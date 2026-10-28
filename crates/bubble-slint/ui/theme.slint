@@ -20,24 +20,25 @@ export global Theme {
 
     out property <color> window-bg: dark ? #1b1d21 : #eceef1;
     out property <color> bar-bg: dark ? #24272c : #dde1e6;
-    // The page bar (docs/pagebar-spec.md). The page shown is fused to the cart wall,
-    // so it takes the wall's own colour (the window background).
-    out property <color> strip: dark ? #15171b : #d9dee6;
-    out property <color> cart-panel: window-bg;
+    // The page bar (docs/pagebar-spec.md, colours revised 2026-10-28). The cart panel
+    // is the main window's background behind the carts; the page shown takes it too.
+    out property <color> strip: dark ? #07080a : #bcc4d1;
+    out property <color> cart-panel: dark ? #22252b : #f4f6f9;
     out property <color> tab-on-text: dark ? #ffffff : #15171b;
-    out property <color> tab-off: dark ? #1d2025 : #c9d0db;
-    out property <color> tab-off-border: dark ? #626a79 : #6f7b90;
-    out property <color> tab-off-text: dark ? #b4bbc6 : #1f2630;
+    // Dark: no fill, the bar shows through the outline.
+    out property <color> tab-off: dark ? transparent : #cdd4de;
+    out property <color> tab-off-border: dark ? #626a79 : #5f6b80;
+    out property <color> tab-off-text: dark ? #c3c9d4 : #141a24;
     out property <color> tab-dot: dark ? #ff6b70 : #d92d36;
-    out property <color> edit-line: dark ? #f0a030 : #a65f00;
-    out property <color> edit-off-text: dark ? #f0a030 : #7a4500;
+    out property <color> edit-line: dark ? #f0a030 : #8f5200;
+    out property <color> edit-off-text: dark ? #f0a030 : #6b3c00;
     out property <color> edit-on: #f0a030;
     out property <color> edit-on-text: #1a1200;
-    out property <color> page-stop: dark ? #2b2f36 : #c9d0db;
-    out property <color> page-stop-line: dark ? #626a79 : #6f7b90;
+    out property <color> page-stop: dark ? #2b2f36 : #cdd4de;
+    out property <color> page-stop-line: dark ? #626a79 : #5f6b80;
     out property <color> page-stop-text: dark ? #e8ebf0 : #15171b;
     out property <color> all-stop: #b3202a;
-    out property <color> bar-divider: dark ? #3a3f48 : #aab3c1;
+    out property <color> bar-divider: dark ? #3a3f48 : #8c97aa;
     out property <color> empty-tile: dark ? #363a40 : #d5dae0;
     out property <color> empty-mark: dark ? #6a7078 : #8a929c;
     out property <color> button: dark ? #3a3f46 : #c7cdd5;
