@@ -124,6 +124,8 @@ pub enum Cmd {
     SpeedBar,
     /// Height of the bottom page/stop bar (0 small, 1 medium, 2 large).
     BarSize(u8),
+    /// The page bar at the top of the window (true) or the bottom.
+    BarTop(bool),
     /// Interface appearance: follow the system, light or dark.
     Appearance(Appearance),
     Quit,
@@ -635,6 +637,10 @@ pub fn apply_common(
         Cmd::GridSize(r, c) => intents.push(crate::Intent::ResizePage(snap.page, *r, *c)),
         Cmd::BarSize(b) => {
             core.prefs.bar_size = (*b).min(2);
+            core.save_prefs();
+        }
+        Cmd::BarTop(top) => {
+            core.prefs.bar_top = *top;
             core.save_prefs();
         }
         _ => return false,

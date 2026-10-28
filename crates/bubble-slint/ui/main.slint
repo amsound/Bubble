@@ -79,6 +79,8 @@ export component MainWindow inherits Window {
     in property <int> renaming: -1;
     in property <string> rename-text;
     in property <length> bar-height: 44px;
+    // The page bar at the top of the window, not the bottom (Settings ▸ General).
+    in property <bool> bar-top;
     // The window's scale factor (1, 1.25, 1.5, 2), set from Rust.
     in property <float> scale: 1;
     in property <[BusyRow]> busy;
@@ -139,7 +141,7 @@ export component MainWindow inherits Window {
     // ---- layout ----
     property <length> gap: 6px;
     property <length> pad: 6px;
-    property <length> wall-top: pad;
+    property <length> wall-top: bar-top ? bar-height + pad : pad;
     property <length> wall-w: self.width - 2 * pad;
     property <length> wall-h: self.height - bar-height - 2 * pad;
     property <length> tile-w: max(40px, (wall-w - (cols - 1) * gap) / max(cols, 1));
@@ -410,7 +412,7 @@ export component MainWindow inherits Window {
         width: min(460px, root.width - 24px);
         height: busy-layout.preferred-height;
         x: clamp((root.width - self.width) / 2 + root.busy-dx, 0px, max(0px, root.width - self.width));
-        y: clamp(10px + root.busy-dy, 0px, max(0px, root.height - self.height));
+        y: clamp((root.bar-top ? root.bar-height : 0px) + 10px + root.busy-dy, 0px, max(0px, root.height - self.height));
         border-radius: Theme.mac ? 12px : 8px;
         background: Theme.popover;
         border-width: 1px;
@@ -491,8 +493,9 @@ export component MainWindow inherits Window {
 
     BottomBar {
         unit: 1px / root.scale;
+        at-top: root.bar-top;
         x: 0;
-        y: root.height - root.bar-height;
+        y: root.bar-top ? 0 : root.height - root.bar-height;
         width: root.width;
         height: root.bar-height;
         pages: root.pages;

@@ -225,6 +225,7 @@ export component SettingsWindow inherits Window {
     // General
     in property <string> appearance;
     in property <string> bar-size;
+    in property <string> bar-position;
     in property <string> mouse;
     in property <string> session-folder;
     // Audio
@@ -249,7 +250,7 @@ export component SettingsWindow inherits Window {
     in property <length> popup-y;
 
     callback section-chosen(int);
-    // A pop-up button: "appearance", "bar", "mouse", "rate", "buffer", or an
+    // A pop-up button: "appearance", "bar", "bar-position", "mouse", "rate", "buffer", or an
     // output's "device" / "channels" (with its row).
     callback choice-menu(string, int, length, length);
     callback popup-chosen(int);
@@ -313,6 +314,17 @@ export component SettingsWindow inherits Window {
                                 value: root.bar-size;
                                 open(x, y) => {
                                     root.choice-menu("bar", 0, x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Page Bar Position" : "Page bar position";
+                            Choice {
+                                value: root.bar-position;
+                                open(x, y) => {
+                                    root.choice-menu("bar-position", 0, x, y);
                                 }
                             }
                         }

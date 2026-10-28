@@ -207,6 +207,12 @@ Done (main window):
       right, the swatches only (40 px touch targets in two rows on Windows), gain on
       the 32 px slider; Cart Setup's header "Button 12  44.1 kHz • 2 ch • 00:20" and
       On Play as one joined control.
+- [x] Page bar (2026-10-28): tabs of one size side by side, sharing a faint outline
+      and open towards the carts; the page shown is in the wall's colour with a
+      thicker outline, so it joins the wall; a page playing elsewhere has a red
+      corner on the outer edge; + has no outline; Edit/Show sits beside the stops.
+      Settings ▸ General ▸ Page Bar Position puts the bar at the top or the bottom
+      (the default).
 - [ ] Open: edit-mode touch taps missed on the Surface (cause unknown; the two
       guessed tweaks were taken out again).
 

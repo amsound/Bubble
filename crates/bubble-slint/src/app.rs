@@ -244,6 +244,7 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     ui.global::<Theme>()
         .set_appearance(appearance_index(core.prefs.appearance));
     ui.set_bar_height(bar_height(core.prefs.bar_size));
+    ui.set_bar_top(core.prefs.bar_top);
 
     let app = Rc::new(RefCell::new(App::new(core, &ui)));
     app.borrow_mut().me = Rc::downgrade(&app);
@@ -1335,6 +1336,7 @@ impl App {
         ui.set_current_page(snap.page as i32);
         ui.set_renaming(self.renaming.map_or(-1, |i| i as i32));
         ui.set_bar_height(bar_height(self.prefs.bar_size));
+        ui.set_bar_top(self.prefs.bar_top);
         let scale = ui.window().scale_factor();
         if ui.get_scale() != scale {
             ui.set_scale(scale);

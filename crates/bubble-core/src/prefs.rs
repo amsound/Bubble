@@ -92,6 +92,8 @@ pub struct Prefs {
     pub ui_scale: Option<f32>,
     /// Bottom page/stop bar height: 0 small, 1 medium, 2 large (touch screens).
     pub bar_size: u8,
+    /// The page bar at the top of the window instead of the bottom (Bubble Slint).
+    pub bar_top: bool,
     /// Enabled outputs in letter order; empty = the system default device as Output A.
     pub outputs: Vec<OutputPref>,
     /// Engine sample rate for every output device; 0 = 48 kHz.

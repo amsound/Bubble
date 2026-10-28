@@ -76,6 +76,10 @@ fn mouse_text(m: MouseMode) -> String {
     }
 }
 
+fn bar_position_text(top: bool) -> String {
+    if top { "Top" } else { "Bottom" }.into()
+}
+
 fn rate_text(r: u32) -> String {
     let khz = format!("{} kHz", r as f32 / 1000.0);
     if r == bubble_core::prefs::DEFAULT_SAMPLE_RATE {
@@ -102,6 +106,7 @@ fn level_text(db: f32) -> String {
 enum Pick {
     Appearance(Appearance),
     Bar(u8),
+    BarTop(bool),
     Mouse(MouseMode),
     Rate(u32),
     Buffer(Option<u32>),
@@ -201,6 +206,7 @@ impl Settings {
                 .unwrap_or("Small")
                 .into(),
         );
+        w.set_bar_position(bar_position_text(p.bar_top).into());
         w.set_mouse(mouse_text(m.mouse_mode).into());
         w.set_session_folder(core.session_root().display().to_string().into());
 
@@ -290,6 +296,16 @@ impl Settings {
                     add(Pick::Bar(i as u8), n.into(), true, p.bar_size == i as u8);
                 }
             }
+            "bar-position" => {
+                for top in [false, true] {
+                    add(
+                        Pick::BarTop(top),
+                        bar_position_text(top),
+                        true,
+                        p.bar_top == top,
+                    );
+                }
+            }
             "mouse" => {
                 for mm in [MouseMode::Toggle, MouseMode::LeftPlayRightStop] {
                     add(Pick::Mouse(mm), mouse_text(mm), true, m.mouse_mode == mm);
@@ -351,6 +367,7 @@ impl Settings {
         match pick {
             Pick::Appearance(a) => return Some(Cmd::Appearance(a)),
             Pick::Bar(b) => return Some(Cmd::BarSize(b)),
+            Pick::BarTop(top) => return Some(Cmd::BarTop(top)),
             Pick::Mouse(MouseMode::Toggle) => return Some(Cmd::MouseToggle),
             Pick::Mouse(MouseMode::LeftPlayRightStop) => return Some(Cmd::MouseLeftRight),
             Pick::Rate(r) => self.rate = r,
