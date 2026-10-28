@@ -3,10 +3,10 @@
 // more), add page, a status line when there is news, then Edit/Show, STOP PAGE and
 // STOP ALL. Placed by arithmetic, so nothing is clipped at any bar height.
 //
-// The tabs are joined to the cart wall: each is the same size, side by side, sharing
-// one faint outline with its neighbour and open on the side facing the carts. The page
-// shown is in the wall's colour with a thicker outline, so it runs into the wall. A
-// page with something playing (not the one shown) has a red corner on the outer edge.
+// The tabs hang from the edge facing the cart wall: each the same size, a solid block
+// 2 px from the next, with no outline. The page shown is in the wall's colour with an
+// outline open towards the carts, so it joins the wall. A page with something playing
+// (not the one shown) has a red corner on the outer edge.
 
 import { Theme, FlatButton, Field } from "theme.slint";
 
@@ -39,19 +39,19 @@ component Tab inherits Rectangle {
     property <bool> dragging;
     property <bool> holding;
     property <bool> held;
-    // The outline: thicker on the page shown. Rounded on the outer side only.
-    property <length> bw: current ? 2px : 1px;
+    // Only the page shown has an outline. Rounded on the outer side only.
+    property <length> bw: current ? 2px : 0px;
     property <length> r: 7px;
-    background: current ? Theme.window-bg : ta.has-hover ? Theme.hover : Theme.bar-bg;
+    background: current ? Theme.window-bg : ta.has-hover ? Theme.hover : Theme.tab-bg;
     border-width: bw;
-    border-color: current ? Theme.text.transparentize(30%) : Theme.text.transparentize(82%);
+    border-color: Theme.text.transparentize(20%);
     border-top-left-radius: at-top ? r : 0;
     border-top-right-radius: at-top ? r : 0;
     border-bottom-left-radius: at-top ? 0 : r;
     border-bottom-right-radius: at-top ? 0 : r;
     clip: true;
     // No outline on the side facing the carts: the tab opens into the wall.
-    Rectangle {
+    if root.current: Rectangle {
         x: root.bw;
         y: root.at-top ? parent.height - root.bw : 0;
         width: parent.width - 2 * root.bw;
@@ -180,23 +180,16 @@ export component BottomBar inherits Rectangle {
     property <length> status-w: status.length == 0 ? 0px : (right - tabs-x) * 0.35;
     property <length> plus-w: edit-mode ? min(btn-h, 40px) + gap : 0px;
     property <length> tabs-avail: max(40px, right - status-w - gap - tabs-x - plus-w);
-    // Tabs overlap by a pixel, so neighbours share one outline.
-    property <length> tab-w: floor(clamp((tabs-avail + (pages.length - 1) * 1px) / max(pages.length, 1), 24px, 112px + grow * 1.17) / unit) * unit;
-    property <length> step: tab-w - 1px;
+    // Tabs are 2 px apart.
+    property <length> tab-gap: 2px;
+    property <length> tab-w: floor(clamp((tabs-avail - (pages.length - 1) * tab-gap) / max(pages.length, 1), 24px, 112px + grow * 1.17) / unit) * unit;
+    property <length> step: tab-w + tab-gap;
     // The tabs run from the edge facing the carts to the bar's margin on the far side.
     property <length> tab-y: at-top ? m : 0px;
     property <length> tab-h: self.height - m;
     // Where a dragged tab would land (-1: not dragging).
     property <int> drag-from: -1;
     property <int> drag-to: -1;
-
-    // The faint line along the edge facing the carts (the tab shown covers it).
-    Rectangle {
-        y: root.at-top ? parent.height - 1px : 0;
-        width: parent.width;
-        height: 1px;
-        background: Theme.text.transparentize(82%);
-    }
 
     // Edit/Show, beside the stops.
     FlatButton {
@@ -214,13 +207,10 @@ export component BottomBar inherits Rectangle {
     }
 
     for p[i] in pages: Rectangle {
-        // The page shown is drawn over its neighbours (its thicker outline wins), and a
-        // pixel into the line facing the carts, which it hides.
-        z: i == root.current ? 1 : 0;
         x: round((tabs-x + i * step) / unit) * unit;
-        y: i == root.current && !root.at-top ? -1px : round(tab-y / unit) * unit;
+        y: round(tab-y / unit) * unit;
         width: tab-w;
-        height: round(tab-h / unit) * unit + (i == root.current ? 1px : 0px);
+        height: round(tab-h / unit) * unit;
         if i != root.renaming: Tab {
             page: p;
             current: i == root.current;
@@ -271,7 +261,7 @@ export component BottomBar inherits Rectangle {
     // Where a dragged tab will land.
     if drag-from >= 0 && drag-to >= 0: Rectangle {
         z: 2;
-        x: tabs-x + drag-to * step - 1.5px;
+        x: tabs-x + drag-to * step - tab-gap / 2 - 1.5px;
         y: tab-y;
         width: 3px;
         height: tab-h;
@@ -279,7 +269,7 @@ export component BottomBar inherits Rectangle {
     }
     // Add page: just the +, no outline.
     if edit-mode: FlatButton {
-        x: tabs-x + pages.length * step + gap;
+        x: tabs-x + pages.length * step - tab-gap + gap;
         y: m;
         width: min(btn-h, 40px);
         height: btn-h;

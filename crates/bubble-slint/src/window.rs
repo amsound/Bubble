@@ -296,6 +296,48 @@ pub fn place_over(child: &slint::Window, parent: &slint::Window, w: f32, h: f32)
     child.set_position(slint::LogicalPosition::new(x, y));
 }
 
+/// Puts Bubble's logo in the window's title bar and the taskbar (Windows). Slint only
+/// passes a window icon on when it changes, judged by a cache key, and an icon made
+/// from pixels (ours) has none, so it never arrived: set it on the window directly.
+pub fn set_icon(w: &slint::Window) {
+    #[cfg(windows)]
+    {
+        let rgba: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/icon-256.rgba"));
+        if let Ok(icon) = winit::window::Icon::from_rgba(rgba.to_vec(), 256, 256) {
+            w.with_winit_window(|ww| ww.set_window_icon(Some(icon)));
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = w;
+}
+
+/// Windows 11: asks for the system's rounded window corners (Windows 10 has none and
+/// ignores it). Call once the window exists.
+pub fn round_corners(w: &slint::Window) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::Graphics::Dwm::{
+            DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+        };
+        if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().window_handle().map(|h| h.as_raw())
+        {
+            let pref = DWMWCP_ROUND;
+            // SAFETY: the window's own handle and a 4-byte value, as the attribute takes.
+            unsafe {
+                DwmSetWindowAttribute(
+                    h.hwnd.get() as _,
+                    DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                    &pref as *const _ as *const std::ffi::c_void,
+                    std::mem::size_of_val(&pref) as u32,
+                );
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = w;
+}
+
 /// Windows: whether the right mouse button is down now. Windows ends a context menu on
 /// a right-click elsewhere and keeps that click from the window under it.
 pub fn right_button_down() -> bool {

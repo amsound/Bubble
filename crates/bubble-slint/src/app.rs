@@ -1138,6 +1138,8 @@ impl App {
         let t = Instant::now();
         if let Some(ui) = self.ui.upgrade() {
             window::finish_restore(&ui);
+            window::round_corners(ui.window());
+            window::set_icon(ui.window());
         }
         log_info("first frame drawn; starting audio, MIDI and the session");
         self.core.start();
@@ -2234,6 +2236,8 @@ impl App {
         wire_setup(&win, &self.me);
         window::place_over(win.window(), ui.window(), 860.0, 686.0);
         let _ = win.show();
+        window::round_corners(win.window());
+        window::set_icon(win.window());
         window::keep_above(win.window(), ui.window());
         self.setup = Some(cartsetup::Setup::new(win, cart));
     }
@@ -2304,6 +2308,8 @@ impl App {
         s.show(&self.core);
         window::place_over(s.win.window(), ui.window(), 640.0, 560.0);
         let _ = s.win.show();
+        window::round_corners(s.win.window());
+        window::set_icon(s.win.window());
         window::keep_above(s.win.window(), ui.window());
         self.settings = Some(s);
     }
@@ -2331,6 +2337,8 @@ impl App {
         s.show(&self.core.snapshot());
         window::place_over(s.win.window(), ui.window(), 660.0, 540.0);
         let _ = s.win.show();
+        window::round_corners(s.win.window());
+        window::set_icon(s.win.window());
         window::keep_above(s.win.window(), ui.window());
         self.session_settings = Some(s);
     }

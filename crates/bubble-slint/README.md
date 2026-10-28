@@ -211,8 +211,17 @@ Done (main window):
       and open towards the carts; the page shown is in the wall's colour with a
       thicker outline, so it joins the wall; a page playing elsewhere has a red
       corner on the outer edge; + has no outline; Edit/Show sits beside the stops.
+      Revised the same day: tabs are solid blocks 2 px apart with no outlines and no
+      line along the edge; only the page shown has an outline.
       Settings ▸ General ▸ Page Bar Position puts the bar at the top or the bottom
       (the default).
+- [ ] Performance, to look into (measure first, then decide): progress bars that
+      update only when they move a whole screen pixel; a refresh rate that follows
+      how fast the playing carts' bars move; CPU per renderer with one cart playing;
+      the cost of the rounded clip on the progress band and of blurred shadows;
+      rebuilding every tile on each refresh. Windows' 15.6 ms timer steps (1 ms on
+      request) make the refresh slightly uneven; audio is unaffected.
+- [ ] Nice to have: an easier way to install a new test build from GitHub.
 - [ ] Open: edit-mode touch taps missed on the Surface (cause unknown; the two
       guessed tweaks were taken out again).
 
