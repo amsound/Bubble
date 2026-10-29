@@ -25,9 +25,20 @@ pub fn prepare() -> &'static str {
     }
 }
 
+/// Windows 11's UI face, Segoe UI Variable (Text optical size), where installed;
+/// Windows 10 has only Segoe UI.
 #[cfg(not(target_os = "macos"))]
 pub fn prepare() -> &'static str {
-    "Segoe UI"
+    let windir = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
+    if std::path::Path::new(&windir)
+        .join("Fonts")
+        .join("SegUIVar.ttf")
+        .is_file()
+    {
+        "Segoe UI Variable Text"
+    } else {
+        "Segoe UI"
+    }
 }
 
 #[cfg(target_os = "macos")]

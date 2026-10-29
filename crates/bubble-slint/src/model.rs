@@ -13,14 +13,15 @@ use uuid::Uuid;
 use crate::{CartState, LabelStyle, PageTab, QuickEdit, StatusItem, Tile};
 
 pub const DEFAULT_CART_COLOR: [u8; 3] = [0x3A, 0x6E, 0xA5];
-/// Quick edit's colours: seven, on one line at a 40 px touch size on Windows.
-pub const SWATCHES: [[u8; 3]; 7] = [
+/// Quick edit's colours: eight, on one line (30 px, 5 px apart).
+pub const SWATCHES: [[u8; 3]; 8] = [
     DEFAULT_CART_COLOR,
     [0x2E, 0x7D, 0x32],
     [0xC6, 0x28, 0x28],
     [0xEF, 0x6C, 0x00],
     [0xF9, 0xA8, 0x25],
     [0x6A, 0x1B, 0x9A],
+    [0x00, 0x83, 0x8F],
     [0x54, 0x5B, 0x64],
 ];
 /// Cart Setup's colours (set mostly with a mouse, so small): quick edit's seven, plus
@@ -461,6 +462,8 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
         group: group as i32,
         hotkey: trigger_names(cart, &snap.project).join("  ").into(),
         learning: snap.learning.is_some_and(|l| l.cart == cart.id),
+        output_warn: bubble_project::output_index(&cart.output)
+            .is_some_and(|i| i >= core.prefs.effective_outputs().len()),
         cart_color: self::rgb(rgb),
         looping: cart.looping,
         next: cart.play_next.is_some(),

@@ -13,7 +13,7 @@
 //                                                                       [Cancel] [OK]
 
 import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock, ClearX, SetupSlider } from "theme.slint";
-import { LabelField, FieldRow, Rule, Group, Toggle } from "quickedit.slint";
+import { LabelField, FieldRow, Card, Toggle } from "quickedit.slint";
 
 // A time on the ruler.
 export struct WaveMark {
@@ -59,17 +59,21 @@ export struct SetupInfo {
     missing: bool,
 }
 
-// A small transport button with an icon.
+// A small transport button with an icon: a control, the accent when on (Loop) or
+// when it is the main action (Play).
 component IconButton inherits Rectangle {
     in property <string> icon;
     in property <bool> on;
     in property <bool> filled;
+    in property <bool> primary;
     in property <string> label;
     callback clicked;
-    height: Theme.mac ? 28px : 32px;
+    height: 32px;
     horizontal-stretch: 1;
     border-radius: Theme.mac ? 6px : 4px;
-    background: on ? Theme.accent : ta.pressed ? Theme.text.transparentize(75%) : ta.has-hover ? Theme.text.transparentize(82%) : Theme.text.transparentize(86%);
+    background: on || primary ? Theme.accent.darker(ta.pressed ? 15% : 0%) : ta.pressed ? Theme.text.transparentize(75%) : ta.has-hover ? Theme.button-hover : Theme.control;
+    border-width: on || primary || Theme.mac ? 0px : 1px;
+    border-color: Theme.control-border;
     accessible-role: button;
     accessible-label: label;
     Path {
@@ -78,9 +82,9 @@ component IconButton inherits Rectangle {
         viewbox-width: 16;
         viewbox-height: 16;
         commands: root.icon;
-        stroke: root.on ? Theme.on-accent : Theme.text;
+        stroke: root.on || root.primary ? Theme.on-accent : Theme.text;
         stroke-width: root.filled ? 0px : 1.7px;
-        fill: root.filled ? Theme.text : transparent;
+        fill: root.filled ? (root.on || root.primary ? Theme.on-accent : Theme.text) : transparent;
     }
     ta := TouchArea {
         clicked => {
@@ -89,75 +93,127 @@ component IconButton inherits Rectangle {
     }
 }
 
-// Trim In / Trim Out: the time, − and + nudges, and Set (at the cursor or playhead).
-component TrimBox inherits Rectangle {
+// Trim In / Trim Out (they mirror each other): the title, then the time, − and +
+// nudges, Set (at the cursor or playhead) and Clear (back to the file's start or end).
+component TrimBox inherits VerticalLayout {
     in property <string> title;
     in property <[string]> time;
     in property <string> set-text;
+    // Trim Out sits against the right edge, the mirror of Trim In.
+    in property <bool> mirrored;
     callback nudge(float);
     callback set();
-    // Back to the start (In) or end (Out) of the file.
     callback clear();
     horizontal-stretch: 1;
-    border-radius: Theme.mac ? 9px : 4px;
-    background: Theme.mac ? Theme.text.transparentize(94%) : Theme.panel;
-    border-width: Theme.mac ? 0px : 1px;
-    border-color: Theme.panel-border;
-    VerticalLayout {
-        padding: 10px;
-        spacing: 8px;
-        alignment: space-between;
-        HorizontalLayout {
-            Text {
-                text: root.title;
-                color: Theme.weak-text;
+    spacing: 6px;
+    alignment: center;
+    Text {
+        text: root.title;
+        horizontal-alignment: root.mirrored ? right : left;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: Theme.weak-text;
+    }
+    HorizontalLayout {
+        spacing: 4px;
+        alignment: root.mirrored ? end : start;
+        Rectangle {
+            width: 76px;
+            height: 32px;
+            border-radius: 4px;
+            background: Theme.field;
+            border-width: 1px;
+            border-color: Theme.control-border;
+            HorizontalLayout {
+                padding-left: 8px;
+                alignment: start;
+                Clock {
+                    chars: root.time;
+                    size: 15px;
+                }
+            }
+        }
+        // The nudges are narrow: trims are mostly typed or set at the cursor.
+        SysButton {
+            text: "−";
+            min-width: 28px;
+            max-width: 28px;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.nudge(-0.01);
+            }
+        }
+        SysButton {
+            text: "+";
+            min-width: 28px;
+            max-width: 28px;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.nudge(0.01);
+            }
+        }
+        SysButton {
+            text: root.set-text;
+            y: (parent.height - self.height) / 2;
+            clicked => {
+                root.set();
+            }
+        }
+        // Clear, as plain text: the quietest of the four.
+        Rectangle {
+            width: clear-text.preferred-width + 16px;
+            clear-text := Text {
+                text: "Clear";
+                color: clear-ta.has-hover ? Theme.text : Theme.weak-text;
                 vertical-alignment: center;
             }
-            Rectangle {
-                horizontal-stretch: 1;
-            }
-            SysButton {
-                text: "Clear";
+            clear-ta := TouchArea {
                 clicked => {
                     root.clear();
                 }
             }
         }
-        HorizontalLayout {
-            spacing: 6px;
-            Rectangle {
-                horizontal-stretch: 1;
-                height: Theme.mac ? 28px : 32px;
-                border-radius: Theme.mac ? 5px : 4px;
-                background: Theme.mac ? Theme.text.transparentize(90%) : Theme.window-bg;
-                HorizontalLayout {
-                    padding-left: 9px;
-                    alignment: start;
-                    Clock {
-                        chars: root.time;
-                        size: 17px;
-                    }
-                }
+    }
+}
+
+// One choice of three, joined: equal parts in one outline, the chosen one in the
+// accent (On Play: Nothing, Stop Page, Stop All).
+component Segments inherits Rectangle {
+    in property <[string]> labels;
+    in property <int> current;
+    callback chose(int);
+    height: 32px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Theme.control-border;
+    background: Theme.control;
+    clip: true;
+    HorizontalLayout {
+        for t[i] in root.labels: Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0;
+            preferred-width: 0;
+            background: i == root.current ? Theme.accent : seg-ta.has-hover ? Theme.button-hover : transparent;
+            accessible-role: button;
+            accessible-label: t;
+            accessible-checkable: true;
+            accessible-checked: i == root.current;
+            if i > 0: Rectangle {
+                x: 0;
+                width: 1px;
+                background: Theme.control-border;
             }
-            SysButton {
-                text: "−";
-                y: (parent.height - self.height) / 2;
-                clicked => {
-                    root.nudge(-0.01);
-                }
+            Text {
+                text: t;
+                color: i == root.current ? Theme.on-accent : Theme.text;
+                font-weight: i == root.current ? 600 : 400;
+                horizontal-alignment: center;
+                vertical-alignment: center;
             }
-            SysButton {
-                text: "+";
-                y: (parent.height - self.height) / 2;
+            seg-ta := TouchArea {
                 clicked => {
-                    root.nudge(0.01);
-                }
-            }
-            SysButton {
-                text: root.set-text;
-                y: (parent.height - self.height) / 2;
-                clicked => {
-                    root.set();
+                    root.chose(i);
                 }
             }
         }
@@ -171,15 +227,15 @@ component Swatch inherits Rectangle {
     // The other-colour swatch shows the cart's own colour in its middle when chosen.
     in property <color> centre: transparent;
     callback pressed();
-    width: 24px;
-    height: 24px;
-    border-radius: Theme.mac ? 12px : 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: Theme.mac ? 11px : 5px;
     border-width: chosen ? 2px : 0px;
     border-color: Theme.text;
     Rectangle {
-        width: 16px;
-        height: 16px;
-        border-radius: Theme.mac ? 8px : 3px;
+        width: 15px;
+        height: 15px;
+        border-radius: Theme.mac ? 7.5px : 3px;
         background: root.colour;
         if root.centre.alpha > 0: Rectangle {
             width: 10px;
@@ -212,13 +268,13 @@ component PopPair inherits HorizontalLayout {
     spacing: 6px;
     alignment: start;
     Text {
-        width: 22px;
+        width: 20px;
         text: root.a-label;
         color: Theme.weak-text;
         vertical-alignment: center;
     }
     HorizontalLayout {
-        width: 96px;
+        width: 104px;
         alignment: start;
         PopButton {
             model: [root.a-value];
@@ -229,14 +285,14 @@ component PopPair inherits HorizontalLayout {
         }
     }
     Text {
-        width: 30px;
+        width: 28px;
         text: root.b-label;
         color: Theme.weak-text;
         horizontal-alignment: right;
         vertical-alignment: center;
     }
     HorizontalLayout {
-        width: 96px;
+        width: 104px;
         alignment: start;
         PopButton {
             model: [root.b-value];
@@ -274,7 +330,7 @@ export component CartSetupWindow inherits Window {
     preferred-width: 860px;
     preferred-height: 686px;
     min-width: 860px;
-    property <length> label-width: Theme.mac ? 92px : 104px;
+    property <length> label-width: 84px;
     background: Theme.window-bg;
     default-font-family: Theme.ui-font;
     // The size Windows 11 and macOS draw their own controls' text at; otherwise Slint
@@ -486,10 +542,10 @@ export component CartSetupWindow inherits Window {
                 preferred-height: 250px;
                 Rectangle {
                     horizontal-stretch: 1;
-                    border-radius: Theme.mac ? 9px : 4px;
-                    background: Theme.dark ? #15161a : #f4f5f7;
+                    border-radius: 8px;
+                    background: Theme.wave-bg;
                     border-width: 1px;
-                    border-color: Theme.dark ? #ffffff12 : Theme.panel-border;
+                    border-color: Theme.card-border;
                     clip: true;
                     VerticalLayout {
                         // Time ruler (a double-click zooms to fit).
@@ -506,7 +562,7 @@ export component CartSetupWindow inherits Window {
                             Rectangle {
                                 y: parent.height - 1px;
                                 height: 1px;
-                                background: Theme.dark ? #ffffff10 : Theme.panel-border;
+                                background: Theme.card-border;
                             }
                             TouchArea {
                                 double-clicked => {
@@ -537,16 +593,17 @@ export component CartSetupWindow inherits Window {
                                 stroke: Theme.accent;
                                 stroke-width: 1.2px;
                             }
-                            // Outside In and Out is dimmed.
+                            // Outside In and Out: a darker shade of the accent (the wave
+                            // background over it, so the shade follows any accent).
                             Rectangle {
                                 x: 0;
                                 width: clamp(root.in-x, 0, parent.width);
-                                background: Theme.dark ? #0000008c : #ffffffa8;
+                                background: Theme.wave-bg.transparentize(Theme.dark ? 45% : 40%);
                             }
                             Rectangle {
                                 x: clamp(root.out-x, 0, parent.width);
                                 width: parent.width - self.x;
-                                background: Theme.dark ? #0000008c : #ffffffa8;
+                                background: Theme.wave-bg.transparentize(Theme.dark ? 45% : 40%);
                             }
                             Path {
                                 width: parent.width;
@@ -576,7 +633,7 @@ export component CartSetupWindow inherits Window {
                             if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
                                 x: root.in-x - 1px;
                                 width: 2px;
-                                background: #ffd60a;
+                                background: Theme.trim-flag;
                             }
                             if root.in-x >= 0 && root.in-x <= parent.width: Rectangle {
                                 x: root.in-x;
@@ -584,18 +641,18 @@ export component CartSetupWindow inherits Window {
                                 width: in-flag.preferred-width + 12px;
                                 height: 16px;
                                 border-bottom-right-radius: 4px;
-                                background: #ffd60a;
+                                background: Theme.trim-flag;
                                 in-flag := Text {
                                     text: "IN";
                                     font-size: 10px;
                                     font-weight: 700;
-                                    color: #1a1a1a;
+                                    color: Theme.dark ? #1a1a1a : #ffffff;
                                 }
                             }
                             if root.out-x >= 0 && root.out-x <= parent.width: Rectangle {
                                 x: root.out-x - 1px;
                                 width: 2px;
-                                background: #ffd60a;
+                                background: Theme.trim-flag;
                             }
                             if root.out-x >= 0 && root.out-x <= parent.width: Rectangle {
                                 x: root.out-x - self.width;
@@ -603,12 +660,12 @@ export component CartSetupWindow inherits Window {
                                 width: out-flag.preferred-width + 12px;
                                 height: 16px;
                                 border-bottom-left-radius: 4px;
-                                background: #ffd60a;
+                                background: Theme.trim-flag;
                                 out-flag := Text {
                                     text: "OUT";
                                     font-size: 10px;
                                     font-weight: 700;
-                                    color: #1a1a1a;
+                                    color: Theme.dark ? #1a1a1a : #ffffff;
                                 }
                             }
                             if root.in-tab: Rectangle {
@@ -617,12 +674,12 @@ export component CartSetupWindow inherits Window {
                                 width: in-tab-text.preferred-width + 12px;
                                 height: 16px;
                                 border-bottom-right-radius: 4px;
-                                background: #ffd60a;
+                                background: Theme.trim-flag;
                                 in-tab-text := Text {
                                     text: "◀ IN " + root.in-time;
                                     font-size: 10px;
                                     font-weight: 700;
-                                    color: #1a1a1a;
+                                    color: Theme.dark ? #1a1a1a : #ffffff;
                                 }
                             }
                             if root.out-tab: Rectangle {
@@ -631,12 +688,12 @@ export component CartSetupWindow inherits Window {
                                 width: out-tab-text.preferred-width + 12px;
                                 height: 16px;
                                 border-bottom-left-radius: 4px;
-                                background: #ffd60a;
+                                background: Theme.trim-flag;
                                 out-tab-text := Text {
                                     text: "OUT " + root.out-time + " ▶";
                                     font-size: 10px;
                                     font-weight: 700;
-                                    color: #1a1a1a;
+                                    color: Theme.dark ? #1a1a1a : #ffffff;
                                 }
                             }
                             TouchArea {
@@ -668,10 +725,10 @@ export component CartSetupWindow inherits Window {
                 // Meter: two bars, a hold mark on each.
                 Rectangle {
                     width: 40px;
-                    border-radius: Theme.mac ? 9px : 4px;
-                    background: Theme.dark ? #15161a : #f4f5f7;
+                    border-radius: 8px;
+                    background: Theme.wave-bg;
                     border-width: 1px;
-                    border-color: Theme.dark ? #ffffff12 : Theme.panel-border;
+                    border-color: Theme.card-border;
                     HorizontalLayout {
                         padding: 7px;
                         padding-top: 8px;
@@ -707,56 +764,62 @@ export component CartSetupWindow inherits Window {
                 }
             }
 
-            // ---- trim in · transport · trim out ----
-            HorizontalLayout {
-                spacing: 10px;
+            // ---- trim in · transport · trim out, one card ----
+            Rectangle {
                 vertical-stretch: 0;
-                TrimBox {
-                    title: Theme.mac ? "Trim In" : "Trim in";
-                    time: root.in-chars;
-                    set-text: "Set (I)";
-                    nudge(d) => {
-                        root.nudge("in", d);
+                background: Theme.card;
+                border-width: 1px;
+                border-color: Theme.card-border;
+                border-radius: 8px;
+                HorizontalLayout {
+                    padding: 16px;
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    spacing: 12px;
+                    TrimBox {
+                        title: "TRIM IN";
+                        time: root.in-chars;
+                        set-text: "Set (I)";
+                        nudge(d) => {
+                            root.nudge("in", d);
+                        }
+                        set => {
+                            root.action("in-set");
+                        }
+                        clear => {
+                            root.action("in-clear");
+                        }
                     }
-                    set => {
-                        root.action("in-set");
+                    Rectangle {
+                        width: 1px;
+                        background: Theme.card-border;
                     }
-                    clear => {
-                        root.action("in-clear");
-                    }
-                }
-                Rectangle {
-                    width: 300px;
-                    border-radius: Theme.mac ? 9px : 4px;
-                    background: Theme.mac ? Theme.text.transparentize(94%) : Theme.panel;
-                    border-width: Theme.mac ? 0px : 1px;
-                    border-color: Theme.panel-border;
                     VerticalLayout {
-                        padding: 10px;
-                        spacing: 8px;
-                        alignment: space-between;
+                        width: 200px;
+                        spacing: 6px;
+                        alignment: center;
                         HorizontalLayout {
                             spacing: 6px;
                             Rectangle {
                                 height: 30px;
-                                border-radius: 5px;
-                                background: #00000059;
+                                border-radius: 4px;
+                                background: Theme.lcd;
                                 Clock {
                                     alignment: center;
                                     chars: root.elapsed;
-                                    size: 18px;
+                                    size: 17px;
                                     weight: 600;
                                     colour: #ffd60a;
                                 }
                             }
                             Rectangle {
                                 height: 30px;
-                                border-radius: 5px;
-                                background: #00000059;
+                                border-radius: 4px;
+                                background: Theme.lcd;
                                 Clock {
                                     alignment: center;
                                     chars: root.remaining;
-                                    size: 18px;
+                                    size: 17px;
                                     weight: 600;
                                     colour: #64d2ff;
                                 }
@@ -781,6 +844,7 @@ export component CartSetupWindow inherits Window {
                             }
                             IconButton {
                                 label: root.running ? "Pause" : "Play";
+                                primary: true;
                                 icon: root.running ? "M5 3v10M11 3v10" : "M4.5 2.5L13 8L4.5 13.5Z";
                                 filled: !root.running;
                                 clicked => {
@@ -797,19 +861,24 @@ export component CartSetupWindow inherits Window {
                             }
                         }
                     }
-                }
-                TrimBox {
-                    title: Theme.mac ? "Trim Out" : "Trim out";
-                    time: root.out-chars;
-                    set-text: "Set (O)";
-                    nudge(d) => {
-                        root.nudge("out", d);
+                    Rectangle {
+                        width: 1px;
+                        background: Theme.card-border;
                     }
-                    set => {
-                        root.action("out-set");
-                    }
-                    clear => {
-                        root.action("out-clear");
+                    TrimBox {
+                        title: "TRIM OUT";
+                        mirrored: true;
+                        time: root.out-chars;
+                        set-text: "Set (O)";
+                        nudge(d) => {
+                            root.nudge("out", d);
+                        }
+                        set => {
+                            root.action("out-set");
+                        }
+                        clear => {
+                            root.action("out-clear");
+                        }
                     }
                 }
             }
@@ -825,16 +894,12 @@ export component CartSetupWindow inherits Window {
                     min-width: 150px;
                     preferred-width: 150px;
                     horizontal-stretch: 1;
-                    spacing: 6px;
                     alignment: start;
-                    Text {
-                        text: "Sound";
-                        font-weight: 700;
-                        color: Theme.text;
-                    }
-                    Group {
+                    Card {
+                        title: "Sound";
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Output";
                             Choice {
                                 value: info.output;
@@ -843,9 +908,9 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Gain";
                             SetupSlider {
                                 centre-mark: true;
@@ -859,15 +924,6 @@ export component CartSetupWindow inherits Window {
                                     root.reset("gain");
                                 }
                             }
-                            Toggle {
-                                width: 56px;
-                                height: Theme.mac ? 24px : 32px;
-                                text: "Mute";
-                                on: info.muted;
-                                toggled(on) => {
-                                    root.toggle("mute");
-                                }
-                            }
                             Text {
                                 width: 56px;
                                 text: info.gain-text;
@@ -875,10 +931,22 @@ export component CartSetupWindow inherits Window {
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
                             }
+                            // Mute: a speaker, struck through and in the accent when on.
+                            IconButton {
+                                width: 32px;
+                                horizontal-stretch: 0;
+                                y: (parent.height - self.height) / 2;
+                                label: "Mute";
+                                on: info.muted;
+                                icon: info.muted ? "M2 6h2.5L8 3v10L4.5 10H2ZM10.5 6l4 4M14.5 6l-4 4" : "M2 6h2.5L8 3v10L4.5 10H2ZM10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.6a6 6 0 0 1 0 8.8";
+                                clicked => {
+                                    root.toggle("mute");
+                                }
+                            }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Pan";
                             SetupSlider {
                                 centre-mark: true;
@@ -893,16 +961,19 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                             Text {
-                                width: 56px + 10px + 56px;
+                                width: 56px;
                                 text: info.pan-text;
                                 color: Theme.text;
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
                             }
+                            Rectangle {
+                                width: 32px;
+                            }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Speed";
                             SetupSlider {
                                 centre-mark: true;
@@ -918,16 +989,19 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                             Text {
-                                width: 56px + 10px + 56px;
+                                width: 56px;
                                 text: info.speed-text;
                                 color: Theme.text;
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
                             }
+                            Rectangle {
+                                width: 32px;
+                            }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: Theme.mac ? "Speed Bar" : "Speed bar";
                             PopPair {
                                 a-label: "x0";
@@ -942,9 +1016,9 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Fades";
                             PopPair {
                                 a-label: "In";
@@ -959,9 +1033,9 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: Theme.mac ? "On Retrigger" : "On retrigger";
                             Choice {
                                 value: info.retrigger;
@@ -977,16 +1051,12 @@ export component CartSetupWindow inherits Window {
                     min-width: 150px;
                     preferred-width: 150px;
                     horizontal-stretch: 1;
-                    spacing: 6px;
                     alignment: start;
-                    Text {
-                        text: "Cart";
-                        font-weight: 700;
-                        color: Theme.text;
-                    }
-                    Group {
+                    Card {
+                        title: "Cart";
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Label";
                             LabelField {
                                 single-line: true;
@@ -999,9 +1069,9 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Colour";
                             HorizontalLayout {
                                 spacing: 2px;
@@ -1016,7 +1086,7 @@ export component CartSetupWindow inherits Window {
                                 Rectangle {
                                     width: 1px;
                                     height: 16px;
-                                    background: Theme.panel-border;
+                                    background: Theme.card-border;
                                 }
                                 Swatch {
                                     colour: @linear-gradient(90deg, #ff3b30 0%, #ffcc00 25%, #34c759 45%, #0a84ff 70%, #bf5af2 100%);
@@ -1028,9 +1098,9 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Group";
                             Choice {
                                 value: info.group;
@@ -1039,16 +1109,15 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         // As in quick edit: what the cart does, as toggle buttons.
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Playback";
                             HorizontalLayout {
                                 spacing: 6px;
                                 Toggle {
                                     text: "Loop";
-                                    height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
@@ -1059,7 +1128,6 @@ export component CartSetupWindow inherits Window {
                                 }
                                 Toggle {
                                     text: Theme.mac ? "Play Next" : "Play next";
-                                    height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
@@ -1070,7 +1138,6 @@ export component CartSetupWindow inherits Window {
                                 }
                                 Toggle {
                                     text: "Hold";
-                                    height: Theme.mac ? 26px : 32px;
                                     horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
@@ -1081,54 +1148,25 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: Theme.mac ? "On Play" : "On play";
-                            // Three buttons like Playback's above, exactly one lit: what
-                            // else stops when this cart starts.
-                            HorizontalLayout {
-                                spacing: 6px;
-                                Toggle {
-                                    text: "Nothing";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    min-width: 0;
-                                    preferred-width: 0;
-                                    on: !info.stop-page && !info.stop-all;
-                                    toggled(on) => {
-                                        root.toggle("stop-none");
-                                    }
-                                }
-                                Toggle {
-                                    text: Theme.mac ? "Stop Page" : "Stop page";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    min-width: 0;
-                                    preferred-width: 0;
-                                    on: info.stop-page;
-                                    toggled(on) => {
-                                        root.toggle("stop-page");
-                                    }
-                                }
-                                Toggle {
-                                    text: Theme.mac ? "Stop All" : "Stop all";
-                                    height: Theme.mac ? 26px : 32px;
-                                    horizontal-stretch: 1;
-                                    min-width: 0;
-                                    preferred-width: 0;
-                                    on: info.stop-all;
-                                    toggled(on) => {
-                                        root.toggle("stop-all");
-                                    }
+                            // What else stops when this cart starts: one of three.
+                            Segments {
+                                y: (parent.height - self.height) / 2;
+                                labels: ["Nothing", Theme.mac ? "Stop Page" : "Stop page", Theme.mac ? "Stop All" : "Stop all"];
+                                current: info.stop-all ? 2 : info.stop-page ? 1 : 0;
+                                chose(i) => {
+                                    root.toggle(i == 2 ? "stop-all" : i == 1 ? "stop-page" : "stop-none");
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         // The hotkey and MIDI note that play it, each with its own ✕;
                         // Learn takes whichever comes next.
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Trigger";
                             HorizontalLayout {
                                 spacing: 6px;
@@ -1195,9 +1233,9 @@ export component CartSetupWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
+                            grouped: false;
                             label: "Notes";
                             LabelField {
                                 text <=> root.notes-text;
@@ -1214,7 +1252,7 @@ export component CartSetupWindow inherits Window {
             Rectangle {
                 height: 1px;
                 vertical-stretch: 0;
-                background: Theme.dark ? #ffffff14 : Theme.panel-border;
+                background: Theme.card-border;
             }
             HorizontalLayout {
                 padding-bottom: 14px;

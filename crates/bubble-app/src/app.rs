@@ -756,6 +756,7 @@ impl eframe::App for BubbleApp {
             self.first_frame_logged = true;
             crate::log::info("first frame drawn");
         }
+        self.poll_midi();
         if let Some(d) = self.watch_audio() {
             ctx.request_repaint_after(d);
         }
@@ -1178,6 +1179,7 @@ impl BubbleApp {
         let sel = self.selected.filter(|id| snap.project.cart(*id).is_some());
         match cmd {
             Cmd::New => self.request(PendingAction::New, snap, intents),
+            Cmd::CloseSession => self.request(PendingAction::Close, snap, intents),
             Cmd::Open => self.files.request(Purpose::Open),
             Cmd::OpenRecent(i) => {
                 if let Some(p) = self.prefs.recent_projects.get(i).cloned() {

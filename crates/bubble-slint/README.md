@@ -222,6 +222,16 @@ Done (main window):
       EDIT an outlined toggle (filled when on), a divider, PAGE STOP and ALL STOP
       with square icons; sizes from the spec's table (bar 56 / 68 / 80 px); every
       element on whole device pixels. The cart wall itself is unchanged.
+- [x] 2026-10-29: MIDI ports listed and opened on a helper thread (WinMM took 10 s
+      at start-up on the Surface). File > Close Session (Ctrl+W / ⌘W) closes the
+      session and keeps Bubble open on an empty wall. No hairline between the page
+      shown and the cart wall. The design board's colour tokens (window, card,
+      control, field, danger, warning, wave, trim flag, LCD) in every window, with
+      the system accent; Segoe UI Variable where Windows has it. Quick edit, Cart
+      Setup and both settings windows rebuilt to the board (Windows layout first):
+      titled cards, 32 px controls, On Play as one joined three-part control, mute
+      as a speaker button, the trim strip as one card. `BUBBLE_SNAPSHOT_SCENE` also
+      takes `settings:N` and `session:N`.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

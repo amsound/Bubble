@@ -68,6 +68,8 @@ pub enum Cmd {
     New,
     Open,
     OpenRecent(usize),
+    /// File ▸ Close Session: an empty cart wall and the start question.
+    CloseSession,
     Save,
     SaveAs,
     Relink,
@@ -239,6 +241,9 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     }
     file.extend([
         Item::Separator,
+        Item::action("Close Session", Cmd::CloseSession)
+            .accel("CmdOrCtrl+W")
+            .enabled(snap.path.is_some() || snap.project.carts().next().is_some()),
         Item::action("Save", Cmd::Save).accel("CmdOrCtrl+S"),
         Item::action("Save Session As…", Cmd::SaveAs).accel("CmdOrCtrl+Shift+S"),
         Item::Separator,
@@ -620,7 +625,7 @@ pub fn apply_common(
             core.reopen_midi();
         }
         Cmd::RescanMidi => {
-            core.midi_ports = crate::midi::available_ports();
+            // Listed again on the helper thread.
             core.reopen_midi();
         }
         Cmd::MouseToggle => core.edit_machine(|p| p.mouse_mode = Some(M::Toggle)),

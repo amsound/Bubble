@@ -58,10 +58,12 @@ component Tab inherits Rectangle {
     accessible-checkable: true;
     accessible-checked: current;
     // The active tab's sides: a 1 px outline round its shape, with the edge facing the
-    // carts pushed out of view (no line there). The accent bar covers the outer edge.
+    // carts pushed 2 px out of view, so no part of it shows at any display scale (at
+    // 150% one pixel is 1.5 device pixels, and half a row used to show as a hairline).
+    // The accent bar covers the outer edge.
     if root.current: Rectangle {
-        y: root.at-top ? 0 : -1px;
-        height: parent.height + 1px;
+        y: root.at-top ? 0 : -2px;
+        height: parent.height + 2px;
         border-width: 1px;
         border-color: Theme.tab-off-border;
         border-top-left-radius: root.at-top ? root.r : 0;
@@ -287,11 +289,13 @@ export component BottomBar inherits Rectangle {
 
     for p[i] in pages: Rectangle {
         x: round((side + i * step) / unit) * unit;
-        // The page shown touches the cart panel: at the bar's top edge (bar at the
-        // bottom of the window) or its bottom edge (bar at the top).
-        y: snap(i == root.current ? (root.at-top ? off-y : 0px) : off-y);
+        // The page shown reaches 1 px under the cart panel (at the bar's top edge with
+        // the bar at the bottom, its bottom edge with the bar at the top), drawn above
+        // the rest, so no gap shows at the join.
+        z: i == root.current ? 1 : 0;
+        y: snap(i == root.current ? (root.at-top ? off-y : -1px) : off-y);
         width: tab-w;
-        height: snap(i == root.current ? tab-h + 6px : tab-h);
+        height: snap(i == root.current ? tab-h + 7px : tab-h);
         if i != root.renaming: Tab {
             page: p;
             current: i == root.current;

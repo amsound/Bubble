@@ -226,7 +226,10 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
         t.elapsed().as_secs_f32()
     ));
     ui.set_window_icon(window::icon());
-    ui.global::<Theme>().set_mac(cfg!(target_os = "macos"));
+    // `BUBBLE_LOOK=windows` draws the Windows look on a Mac (a test aid, for snapshots).
+    let mac_look =
+        cfg!(target_os = "macos") && std::env::var("BUBBLE_LOOK").as_deref() != Ok("windows");
+    ui.global::<Theme>().set_mac(mac_look);
     ui.global::<Theme>().set_ui_font(ui_font.into());
 
     // Other threads (jobs, dialogs, device scans, MIDI) wake the window this way.
@@ -357,43 +360,33 @@ fn appearance_index(a: Appearance) -> i32 {
     }
 }
 
-/// A test aid: with `BUBBLE_SNAPSHOT=file.bmp`, once start-up is over the window is
-/// saved as a picture there and Bubble quits (a check of the layout without a screen).
-fn snapshot_and_quit(ui: &slint::Weak<MainWindow>) {
-    let Some(path) = std::env::var_os("BUBBLE_SNAPSHOT") else {
-        return;
-    };
-    let ui = ui.clone();
-    // A moment for the session's frame to be drawn.
-    slint::Timer::single_shot(Duration::from_millis(600), move || {
-        let Some(ui) = ui.upgrade() else { return };
-        match ui.window().take_snapshot() {
-            Ok(buf) => {
-                let (w, h) = (buf.width(), buf.height());
-                let mut bmp = Vec::with_capacity(54 + (w * h * 4) as usize);
-                let size = 54 + w * h * 4;
-                bmp.extend(b"BM");
-                bmp.extend(size.to_le_bytes());
-                bmp.extend(0u32.to_le_bytes());
-                bmp.extend(54u32.to_le_bytes());
-                bmp.extend(40u32.to_le_bytes());
-                bmp.extend((w as i32).to_le_bytes());
-                bmp.extend((-(h as i32)).to_le_bytes());
-                bmp.extend(1u16.to_le_bytes());
-                bmp.extend(32u16.to_le_bytes());
-                bmp.extend([0u8; 24]);
-                for p in buf.as_slice() {
-                    bmp.extend([p.b, p.g, p.r, p.a]);
-                }
-                match std::fs::write(&path, bmp) {
-                    Ok(()) => log_info(&format!("snapshot saved ({w} x {h})")),
-                    Err(e) => log_info(&format!("snapshot not saved: {e}")),
-                }
+/// Saves a window as a 32-bit BMP (no image library needed).
+fn save_bmp(w: &slint::Window, path: &std::ffi::OsStr) {
+    match w.take_snapshot() {
+        Ok(buf) => {
+            let (wd, h) = (buf.width(), buf.height());
+            let size = 54 + wd * h * 4;
+            let mut bmp = Vec::with_capacity(size as usize);
+            bmp.extend(b"BM");
+            bmp.extend(size.to_le_bytes());
+            bmp.extend(0u32.to_le_bytes());
+            bmp.extend(54u32.to_le_bytes());
+            bmp.extend(40u32.to_le_bytes());
+            bmp.extend((wd as i32).to_le_bytes());
+            bmp.extend((-(h as i32)).to_le_bytes());
+            bmp.extend(1u16.to_le_bytes());
+            bmp.extend(32u16.to_le_bytes());
+            bmp.extend([0u8; 24]);
+            for p in buf.as_slice() {
+                bmp.extend([p.b, p.g, p.r, p.a]);
             }
-            Err(e) => log_info(&format!("snapshot failed: {e}")),
+            match std::fs::write(path, bmp) {
+                Ok(()) => log_info(&format!("snapshot saved ({wd} x {h})")),
+                Err(e) => log_info(&format!("snapshot not saved: {e}")),
+            }
         }
-        let _ = slint::quit_event_loop();
-    });
+        Err(e) => log_info(&format!("snapshot failed: {e}")),
+    }
 }
 
 /// The page bar's tab height for a size (0 small, 1 medium, 2 large), from the table in
@@ -1308,6 +1301,7 @@ impl App {
             ui.global::<Theme>().set_system_dark(dark);
         }
         let audio_wake = self.core.watch_audio();
+        self.core.poll_midi();
         self.core.poll_devices();
         self.core.poll_open();
         self.take_selection();
@@ -1517,6 +1511,66 @@ impl App {
 
     /// What the busy popover lists: the running job or the session being opened, then
     /// audio still loading (with a count).
+    /// A test aid: with `BUBBLE_SNAPSHOT=file.bmp`, once start-up is over a window is
+    /// saved as a picture there and Bubble quits (a check of the layout without a
+    /// screen). `BUBBLE_SNAPSHOT_SCENE=quickedit` or `cartsetup` first opens that for
+    /// the first cart on the page; `settings:N` or `session:N` opens Settings or
+    /// Session Settings at section N.
+    fn snapshot_and_quit(&mut self) {
+        let Some(path) = std::env::var_os("BUBBLE_SNAPSHOT") else {
+            return;
+        };
+        let scene = std::env::var("BUBBLE_SNAPSHOT_SCENE").unwrap_or_default();
+        let me = self.me.clone();
+        // Once the session's carts are shown: open the scene, then give it a moment.
+        slint::Timer::single_shot(Duration::from_millis(500), move || {
+            let Some(app) = me.upgrade() else { return };
+            if let Ok(mut a) = app.try_borrow_mut() {
+                let first = a
+                    .ids
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, id)| id.map(|id| (i as i32, id)));
+                if let Some((idx, id)) = first {
+                    match scene.as_str() {
+                        "quickedit" => {
+                            a.edit_mode = true;
+                            a.selected = Some(id);
+                            a.open_quick_edit(id, idx);
+                        }
+                        "cartsetup" => a.open_setup(id),
+                        _ => {}
+                    }
+                }
+                let section = |p: &str| scene.strip_prefix(p).and_then(|n| n.parse().ok());
+                if let Some(n) = section("settings:") {
+                    a.open_settings(Some(n));
+                } else if let Some(n) = section("session:") {
+                    a.open_session_settings(Some(n));
+                }
+                a.tick();
+            }
+            let me = me.clone();
+            slint::Timer::single_shot(Duration::from_millis(900), move || {
+                let Some(app) = me.upgrade() else { return };
+                if let Ok(a) = app.try_borrow() {
+                    match (&a.setup, a.ui.upgrade()) {
+                        (Some(s), _) if scene == "cartsetup" => save_bmp(s.win.window(), &path),
+                        _ if scene.starts_with("settings:") && a.settings.is_some() => {
+                            save_bmp(a.settings.as_ref().unwrap().win.window(), &path)
+                        }
+                        _ if scene.starts_with("session:") && a.session_settings.is_some() => {
+                            save_bmp(a.session_settings.as_ref().unwrap().win.window(), &path)
+                        }
+                        (_, Some(ui)) => save_bmp(ui.window(), &path),
+                        _ => {}
+                    }
+                }
+                let _ = slint::quit_event_loop();
+            });
+        });
+    }
+
     /// Start-up: whether it is still going, and what to say under the progress ring.
     fn startup(&mut self, snap: &Snapshot) -> Option<String> {
         if self.startup_over {
@@ -1541,7 +1595,7 @@ impl App {
         } else {
             self.startup_over = true;
             log_info("start-up over: the session is shown");
-            snapshot_and_quit(&self.ui);
+            self.snapshot_and_quit();
             return None;
         };
         Some(text)
@@ -2132,6 +2186,41 @@ impl App {
     // ---- menu commands ----
 
     fn command(&mut self, cmd: Cmd, intents: &mut Vec<Intent>) {
+        // ⌘W / Ctrl+W closes the tool window in front (Cart Setup, Settings, Session
+        // Settings) rather than the session.
+        if cmd == Cmd::CloseSession {
+            if let Some(s) = self
+                .setup
+                .as_ref()
+                .filter(|s| window::is_key(s.win.window()))
+            {
+                // As its close button: edits not kept are asked about.
+                if s.changed() {
+                    self.setup_close_ask = true;
+                } else {
+                    self.close_setup(false, intents);
+                }
+                return;
+            }
+            if let Some(s) = self
+                .settings
+                .as_ref()
+                .filter(|s| window::is_key(s.win.window()))
+            {
+                let _ = s.win.hide();
+                self.close_tool(false);
+                return;
+            }
+            if let Some(s) = self
+                .session_settings
+                .as_ref()
+                .filter(|s| window::is_key(s.win.window()))
+            {
+                let _ = s.win.hide();
+                self.close_tool(true);
+                return;
+            }
+        }
         // ⌘. is Cancel in a dialog: with Cart Setup in front it closes that, not
         // Stop All Immediately.
         if cmd == Cmd::StopAllNow
@@ -2216,6 +2305,7 @@ impl App {
         let sel = self.selection(&snap);
         match cmd {
             Cmd::New => self.request_from_ui(PendingAction::New, intents),
+            Cmd::CloseSession => self.request_from_ui(PendingAction::Close, intents),
             Cmd::Open => self.files.request(Purpose::Open),
             Cmd::OpenRecent(i) => {
                 if let Some(p) = self.prefs.recent_projects.get(i).cloned() {
@@ -2363,11 +2453,7 @@ impl App {
             .to_logical(ui.window().scale_factor())
             .width;
         let (x, w) = (ui.invoke_cell_x(idx), ui.invoke_cell_w());
-        let panel = if cfg!(target_os = "macos") {
-            392.0
-        } else {
-            386.0
-        };
+        let panel = 384.0;
         let right = x + w + 10.0;
         let fits_right = right + panel <= width - 8.0;
         ui.set_qe_x(if fits_right { right } else { x - panel - 10.0 });
@@ -3116,8 +3202,13 @@ impl App {
                 if let Some(action) = action {
                     match i {
                         0 => {
+                            // An untitled session goes to the Save panel first; it is
+                            // not closed meanwhile.
+                            let untitled = snap.path.is_none();
                             self.core.save_or_save_as(&snap, intents);
-                            self.core.perform(action, intents);
+                            if !(untitled && matches!(action, PendingAction::Close)) {
+                                self.core.perform(action, intents);
+                            }
                         }
                         2 => self.core.perform(action, intents),
                         _ => {}

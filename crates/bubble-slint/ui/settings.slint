@@ -94,9 +94,9 @@ component Segmented inherits Rectangle {
     callback chosen(int);
     height: Theme.mac ? 24px : 32px;
     border-radius: Theme.mac ? 6px : 4px;
-    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.button;
+    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.control;
     border-width: Theme.mac ? 0px : 1px;
-    border-color: Theme.panel-border;
+    border-color: Theme.control-border;
     horizontal-stretch: 0;
     HorizontalLayout {
         padding: 2px;
@@ -105,7 +105,7 @@ component Segmented inherits Rectangle {
             min-width: label.preferred-width + 28px;
             border-radius: Theme.mac ? 5px : 3px;
             background: i == root.current ? (Theme.mac ? (Theme.dark ? #636366 : #ffffff) : Theme.accent)
-                : ta.has-hover ? Theme.text.transparentize(92%) : transparent;
+                : ta.has-hover ? Theme.button-hover : transparent;
             drop-shadow-blur: i == root.current && Theme.mac ? 2px : 0px;
             drop-shadow-color: #00000040;
             label := Text {
@@ -134,7 +134,7 @@ component Switch inherits Rectangle {
     border-radius: self.height / 2;
     background: on ? Theme.accent : Theme.mac ? Theme.text.transparentize(82%) : transparent;
     border-width: on || Theme.mac ? 0px : 1px;
-    border-color: Theme.text.transparentize(40%);
+    border-color: Theme.control-border;
     opacity: enabled ? 1 : 0.45;
     accessible-role: switch;
     accessible-checked: on;
@@ -193,7 +193,7 @@ component SettingsFrame inherits VerticalLayout {
     Rectangle {
         height: 1px;
         vertical-stretch: 0;
-        background: Theme.dark ? #ffffff14 : Theme.panel-border;
+        background: Theme.card-border;
     }
     ScrollView {
         vertical-stretch: 1;
@@ -454,7 +454,7 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                                 LabelField {
-                                    width: 120px;
+                                    width: 100px;
                                     single-line: true;
                                     text: o.alias;
                                     edited(t) => {
@@ -469,6 +469,8 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                                 Choice {
+                                    // Room for "Ch 1–2" whatever the device's name.
+                                    min-width: 96px;
                                     value: o.channels;
                                     open(x, y) => {
                                         root.choice-menu("channels", i, x, y);
@@ -490,7 +492,7 @@ export component SettingsWindow inherits Window {
                             }
                         }
                         if root.outputs.length == 0: Text {
-                            x: 10px;
+                            x: Theme.mac ? 10px : 0px;
                             height: 32px;
                             text: "No outputs: Bubble plays on the system default.";
                             color: Theme.weak-text;
@@ -611,7 +613,7 @@ export component SettingsWindow inherits Window {
                         if root.ports.length == 0: VerticalLayout {
                             if Theme.mac: Rule { }
                             Text {
-                                x: 10px;
+                                x: Theme.mac ? 10px : 0px;
                                 height: 32px;
                                 text: "No MIDI ports found.";
                                 color: Theme.weak-text;

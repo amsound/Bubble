@@ -18,7 +18,22 @@ export global Theme {
     in-out property <bool> system-dark: true;
     out property <bool> dark: appearance == 2 || (appearance == 0 && system-dark);
 
-    out property <color> window-bg: dark ? #1b1d21 : #eceef1;
+    // Windows: Cart Setup, Settings, Session Settings (and quick edit's card), from the
+    // window design pass of 2026-10-29. Contrast checked on the Surface at 150%.
+    out property <color> window-bg: dark ? #1f2125 : #f3f5f8;
+    out property <color> card: dark ? #2a2d33 : #ffffff;
+    out property <color> card-border: dark ? #3a3f48 : #d5dae2;
+    out property <color> control: dark ? #383c44 : #eef1f5;
+    out property <color> control-border: dark ? #838b99 : #7f8a9c;
+    out property <color> field: dark ? #15171a : #ffffff;
+    out property <color> danger-text: dark ? #ff8d86 : #b3202a;
+    out property <color> danger-border: dark ? #cf6a70 : #d99ba0;
+    out property <color> warning: dark ? #ffb340 : #9a5b00;
+    // The waveform: its background, the trim flags and the readouts (LCD panels stay
+    // dark in both appearances: they are instruments).
+    out property <color> wave-bg: dark ? #0c0d10 : #ffffff;
+    out property <color> trim-flag: dark ? #ffd60a : #8a5a00;
+    out property <color> lcd: #121417;
     out property <color> bar-bg: dark ? #24272c : #dde1e6;
     // The page bar (docs/pagebar-spec.md, colours revised 2026-10-28). The cart panel
     // is the main window's background behind the carts; the page shown takes it too.
@@ -41,20 +56,20 @@ export global Theme {
     out property <color> bar-divider: dark ? #3a3f48 : #8c97aa;
     out property <color> empty-tile: dark ? #363a40 : #d5dae0;
     out property <color> empty-mark: dark ? #6a7078 : #8a929c;
-    out property <color> button: dark ? #3a3f46 : #c7cdd5;
-    out property <color> button-hover: dark ? #454b53 : #d3d8de;
-    out property <color> text: dark ? #e8e8e8 : #1c1f23;
-    out property <color> weak-text: dark ? #9aa0a6 : #5f6670;
-    out property <color> panel: dark ? #2b2f35 : #fbfbfc;
-    out property <color> panel-border: dark ? #474d55 : #c5cad1;
-    out property <color> hover: dark ? #3d434b : #e3e7ec;
+    out property <color> button: control;
+    out property <color> button-hover: dark ? #42464f : #e4e8ee;
+    out property <color> text: dark ? #eceef2 : #1c1f23;
+    out property <color> weak-text: dark ? #a9afb9 : #566070;
+    out property <color> panel: card;
+    out property <color> panel-border: control-border;
+    out property <color> hover: button-hover;
 
     // The system's accent colour, set from Rust and followed while Bubble runs: on a
     // Mac the accent itself; on Windows its palette, a lighter shade in dark appearance
     // and a deeper one in light, as Windows 11's own controls use them.
     in-out property <color> accent-base: #0a84ff;
     in-out property <color> accent-light: #4cc2ff;
-    in-out property <color> accent-deep: #005fb8;
+    in-out property <color> accent-deep: #0067c0;
     // Buttons that are on, OK, sliders, switches, focus, text selection, the waveform.
     out property <color> accent: mac ? accent-base : dark ? accent-light : accent-deep;
     // Text and icons on the accent.
@@ -79,7 +94,7 @@ export global Theme {
     in-out property <string> ui-font;
     // Quick edit and the busy popover. Dark: Cart Setup's background, so the same
     // controls look the same in both.
-    out property <color> popover: dark ? window-bg : (mac ? #f6f6f7 : #f9f9f9);
+    out property <color> popover: card;
 }
 
 // Copy, cut, paste, undo, redo and select-all from the menus, for whichever text
@@ -172,6 +187,8 @@ export component Panel inherits Rectangle {
 export component PopButton inherits Rectangle {
     in property <[string]> model;
     in property <int> current-index;
+    // A warning triangle before the chevron (an output not set up on this computer).
+    in property <bool> warn;
     callback open(length, length);
     property <bool> mac: Theme.mac;
     height: mac ? 22px : 32px;
@@ -180,9 +197,9 @@ export component PopButton inherits Rectangle {
     preferred-width: row.preferred-width;
     max-width: mac ? row.preferred-width : 100000px;
     border-radius: mac ? 5px : 4px;
-    background: ta.pressed ? Theme.text.transparentize(mac ? 78% : 86%) : mac ? Theme.text.transparentize(88%) : Theme.button;
+    background: ta.pressed ? Theme.text.transparentize(mac ? 78% : 86%) : mac ? Theme.text.transparentize(88%) : ta.has-hover ? Theme.button-hover : Theme.control;
     border-width: mac ? 0px : 1px;
-    border-color: Theme.panel-border;
+    border-color: Theme.control-border;
     row := HorizontalLayout {
         padding-left: mac ? 9px : 11px;
         padding-right: mac ? 7px : 11px;
@@ -193,6 +210,17 @@ export component PopButton inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
+        }
+        if root.warn: Path {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M8 1.8L15 14.2H1Z M8 6.2V10 M8 11.8V12.4";
+            stroke: Theme.warning;
+            stroke-width: 1.4px;
+            fill: transparent;
         }
         Path {
             width: mac ? 9px : 12px;
@@ -241,24 +269,45 @@ export component SysButton inherits Rectangle {
     in property <bool> enabled: true;
     // Red text on a red tint (Delete).
     in property <bool> destructive;
+    // An icon before the text (a 16-unit path), e.g. Delete's bin.
+    in property <string> icon;
     callback clicked;
     height: Theme.mac ? 24px : 32px;
-    min-width: label.preferred-width + (Theme.mac ? 22px : 24px);
+    // Never narrower than its words: button text does not wrap.
+    min-width: row.preferred-width;
     horizontal-stretch: 0;
     border-radius: Theme.mac ? 6px : 4px;
-    border-width: Theme.mac || primary ? 0px : 1px;
-    border-color: Theme.panel-border;
-    background: destructive ? (ta.has-hover ? #ff453a40 : #ff453a2e)
+    border-width: primary || (Theme.mac && !destructive) ? 0px : 1px;
+    border-color: destructive ? Theme.danger-border : Theme.control-border;
+    background: destructive ? Theme.danger-text.transparentize(ta.has-hover ? 80% : 88%)
         : primary ? Theme.accent.darker(ta.pressed ? 15% : 0%)
         : Theme.mac ? Theme.text.transparentize(ta.pressed ? 76% : ta.has-hover ? 82% : 87%)
-        : ta.has-hover ? Theme.hover : Theme.button;
+        : ta.has-hover ? Theme.button-hover : Theme.control;
     opacity: enabled ? 1 : 0.45;
-    label := Text {
-        text: root.text;
-        font-size: Theme.mac ? 13px : 14px;
-        color: root.destructive ? #ff6961 : root.primary ? Theme.on-accent : Theme.text;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    row := HorizontalLayout {
+        padding-left: Theme.mac ? 11px : 12px;
+        padding-right: Theme.mac ? 11px : 12px;
+        spacing: 6px;
+        alignment: center;
+        if root.icon != "": Path {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: root.icon;
+            stroke: root.destructive ? Theme.danger-text : Theme.text;
+            stroke-width: 1.3px;
+            fill: transparent;
+        }
+        Text {
+            text: root.text;
+            font-size: Theme.mac ? 13px : 14px;
+            font-weight: root.primary || root.destructive ? 600 : 400;
+            color: root.destructive ? Theme.danger-text : root.primary ? Theme.on-accent : Theme.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
     ta := TouchArea {
         enabled: root.enabled;

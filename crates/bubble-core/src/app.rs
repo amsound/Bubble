@@ -101,6 +101,9 @@ pub enum Intent {
     Preview(Cart),
     Undo,
     Redo,
+    /// Close the session (its unsaved changes already answered for): an empty,
+    /// untitled one takes its place, and nothing reopens at the next launch.
+    CloseSession,
     Paste(usize, u16, u16, CartClip),
     PasteAttrs(Cart, Vec<Uuid>, AttrSet),
 }
@@ -125,6 +128,8 @@ pub enum PendingAction {
     Open(PathBuf),
     /// Import a SpotOn session or package into a new session.
     Import(PathBuf),
+    /// File ▸ Close Session: an empty cart wall, as at a first launch.
+    Close,
 }
 
 /// Questions and messages for the person using Bubble. The interface shows whichever
@@ -165,6 +170,9 @@ pub struct Core {
     pub output_errors: Vec<String>,
     pub midi: MidiInputs,
     pub midi_ports: Vec<String>,
+    /// MIDI being listed and opened on a helper thread: Windows can take seconds to
+    /// list its MIDI devices (10 s seen on a Surface), and nothing should wait for it.
+    pub midi_opening: Option<std::sync::mpsc::Receiver<(Vec<String>, MidiInputs, Instant)>>,
     pub prefs: Prefs,
     pub prompts: Prompts,
     /// A cart the interface should select (`Some(None)`: clear the selection).
@@ -232,6 +240,7 @@ impl Core {
             midi: MidiInputs::empty(),
             // Listed in `start`, after the window is up (it can take a while).
             midi_ports: Vec::new(),
+            midi_opening: None,
             prefs: Prefs::load(),
             prompts: Prompts::default(),
             select: None,
@@ -308,12 +317,8 @@ impl Core {
         for e in self.output_errors.iter().chain(self.audio_error.iter()) {
             crate::log::info(&format!("audio problem: {e}"));
         }
-        let s = Instant::now();
-        self.midi_ports = available_ports();
-        step("MIDI ports listed", s);
-        let s = Instant::now();
+        // Listed and opened in the background; `poll_midi` takes them when ready.
         self.open_midi();
-        step("MIDI inputs opened", s);
         let s = Instant::now();
         self.find_recoverable();
         step("recovery files checked", s);
@@ -451,13 +456,49 @@ impl Core {
         }
     }
 
+    /// Lists the MIDI ports and opens the chosen ones on a helper thread (the current
+    /// inputs close now); `poll_midi` takes the result. The newest request wins.
     pub fn open_midi(&mut self) {
-        self.midi = if self.prefs.midi_disabled {
-            MidiInputs::empty()
-        } else {
-            let repaint = self.repaint.clone();
-            MidiInputs::open(&self.ctrl, &self.prefs.midi_inputs, move || repaint())
-        };
+        self.midi = MidiInputs::empty();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (ctrl, repaint) = (self.ctrl.clone(), self.repaint.clone());
+        let (disabled, wanted) = (self.prefs.midi_disabled, self.prefs.midi_inputs.clone());
+        std::thread::Builder::new()
+            .name("bubble-midi-open".into())
+            .spawn(move || {
+                let t = Instant::now();
+                let ports = available_ports();
+                let midi = if disabled {
+                    MidiInputs::empty()
+                } else {
+                    let r = repaint.clone();
+                    MidiInputs::open(&ctrl, &wanted, move || r())
+                };
+                let _ = tx.send((ports, midi, t));
+                repaint();
+            })
+            .expect("spawn MIDI thread");
+        self.midi_opening = Some(rx);
+    }
+
+    /// Takes MIDI once the helper thread has opened it (call every refresh).
+    pub fn poll_midi(&mut self) {
+        let Some(rx) = &self.midi_opening else { return };
+        match rx.try_recv() {
+            Ok((ports, midi, t)) => {
+                crate::log::info(&format!(
+                    "MIDI ready in {:.2} s: {} port(s), {} open",
+                    t.elapsed().as_secs_f32(),
+                    ports.len(),
+                    midi.open_ports().len()
+                ));
+                self.midi_ports = ports;
+                self.midi = midi;
+                self.midi_opening = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(_) => self.midi_opening = None,
+        }
     }
 
     /// The peaks seen since the last call (linear, per playing cart), for a meter.
@@ -784,6 +825,19 @@ impl Core {
                     c.undo();
                     Ok(())
                 }
+                Intent::CloseSession => {
+                    if let Some(p) = c.path() {
+                        // Changes were saved or given up: their autosave goes too.
+                        let _ = std::fs::remove_file(autosave_path(p));
+                    }
+                    c.replace_project(Controller::new_project("Untitled"), None);
+                    self.select = Some(None);
+                    self.saved_at = None;
+                    self.prefs.last_project = None;
+                    reopen_prefs = true;
+                    crate::log::info("session closed");
+                    Ok(())
+                }
                 Intent::Redo => {
                     c.redo();
                     Ok(())
@@ -994,12 +1048,12 @@ impl Core {
                     .unwrap_or_default();
                 self.begin_new_session(stem, AfterCreate::Import(p));
             }
+            PendingAction::Close => intents.push(Intent::CloseSession),
         }
     }
 
     pub fn reopen_midi(&mut self) {
         self.save_prefs();
-        self.midi = MidiInputs::empty();
         self.open_midi();
     }
 }

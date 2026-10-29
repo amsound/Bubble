@@ -537,9 +537,10 @@ export component MainWindow inherits Window {
         plus-dashes: root.plus-dashes;
         at-top: root.bar-top;
         x: 0;
-        y: root.bar-top ? 0 : root.height - root.bar-height;
+        // On a whole device pixel, so the join with the carts lands on a pixel edge.
+        y: root.bar-top ? 0 : round((root.height - root.bar-height) * root.scale / 1px) * 1px / root.scale;
         width: root.width;
-        height: root.bar-height;
+        height: root.bar-top ? root.bar-height : root.height - self.y;
         pages: root.pages;
         current: root.current-page;
         edit-mode: root.edit-mode;
