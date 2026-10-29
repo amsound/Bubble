@@ -101,6 +101,15 @@ impl Core {
             }
             match AudioOutput::open(&req(name, *need)) {
                 Ok((out, engine)) => {
+                    if let Some(n) = &out.rate_note {
+                        crate::log::info(&format!("audio device {}: {n}", out.device_name));
+                    }
+                    if let Some(d) = out.device_rate.filter(|d| *d != out.sample_rate) {
+                        crate::log::info(&format!(
+                            "audio device {} runs at {d} Hz, Bubble at {} Hz: Windows converts",
+                            out.device_name, out.sample_rate
+                        ));
+                    }
                     opened.push(Some(engines.len()));
                     engines.push(engine);
                     self.audio.push(out);
@@ -186,6 +195,21 @@ impl Core {
             })
             .collect();
         self.lock().attach_outputs(engines, routes);
+    }
+
+    /// Open devices the system runs at another rate than Bubble's mixer (Windows,
+    /// where setting it failed): (device key as in the outputs, its name, its rate).
+    /// Their audio is converted twice, once by Bubble and again by Windows.
+    pub fn rate_mismatches(&self) -> Vec<(String, String, u32)> {
+        self.audio_keys
+            .iter()
+            .zip(&self.audio)
+            .filter_map(|(k, a)| {
+                a.device_rate
+                    .filter(|d| *d != a.sample_rate)
+                    .map(|d| (k.clone(), a.device_name.clone(), d))
+            })
+            .collect()
     }
 
     /// Once per frame: reacts to failed streams and reconnects returning devices.

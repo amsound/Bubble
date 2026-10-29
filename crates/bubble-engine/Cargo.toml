@@ -14,6 +14,9 @@ rtrb.workspace = true
 hound.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Com"] }
+
 [dev-dependencies]
 hound.workspace = true
 tempfile.workspace = true

@@ -12,6 +12,8 @@ pub mod buffer;
 pub mod command;
 mod decode;
 pub mod device;
+#[cfg(windows)]
+mod device_rate;
 pub mod engine;
 pub mod loader;
 pub mod mixer;

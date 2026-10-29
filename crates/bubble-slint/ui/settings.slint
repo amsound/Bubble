@@ -485,11 +485,14 @@ export component SettingsWindow inherits Window {
                                     }
                                 }
                             }
-                            if o.note != "": Text {
-                                x: Theme.mac ? 42px : 36px;
-                                text: o.note;
-                                color: Theme.warn;
-                                font-size: Theme.mac ? 11px : 12px;
+                            if o.note != "": HorizontalLayout {
+                                padding-left: Theme.mac ? 42px : 36px;
+                                Text {
+                                    text: o.note;
+                                    color: Theme.warn;
+                                    font-size: Theme.mac ? 11px : 12px;
+                                    wrap: word-wrap;
+                                }
                             }
                         }
                         if root.outputs.length == 0: Text {

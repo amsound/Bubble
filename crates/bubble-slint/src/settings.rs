@@ -232,14 +232,28 @@ impl Settings {
                     (&u.device, u.first_channel, u.channels)
                         == (&o.device, o.first_channel, o.channels)
                 });
+                let mismatch = core
+                    .rate_mismatches()
+                    .into_iter()
+                    .find(|(k, _, _)| *k == o.device);
                 let note = if !applied {
                     "Not applied yet.".to_string()
+                } else if let Some(e) = core
+                    .output_errors
+                    .iter()
+                    .find(|e| e.starts_with(&format!("Output {letter}")))
+                {
+                    e.clone()
+                } else if let Some((_, _, rate)) = mismatch {
+                    // Bubble could not set it: the user must, or Windows converts again.
+                    format!(
+                        "Windows runs this device at {}. Set it to {} in Sound settings \
+                         (the device's Properties ▸ Advanced ▸ Default format).",
+                        bubble_core::view::khz(rate),
+                        bubble_core::view::khz(core.prefs.rate())
+                    )
                 } else {
-                    core.output_errors
-                        .iter()
-                        .find(|e| e.starts_with(&format!("Output {letter}")))
-                        .cloned()
-                        .unwrap_or_default()
+                    String::new()
                 };
                 OutputRow {
                     letter: letter.into(),

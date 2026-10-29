@@ -114,6 +114,12 @@ pub struct AudioOutput {
     pub channels: u16,
     pub buffer: BufferSize,
     pub sample_format: String,
+    /// Windows: the rate the system runs the device at (it converts Bubble's audio
+    /// when this differs from `sample_rate`). `None` elsewhere: macOS sets the device
+    /// to the stream's rate itself.
+    pub device_rate: Option<u32>,
+    /// Windows: what happened when the device's rate was set to Bubble's (for the log).
+    pub rate_note: Option<String>,
     problems: mpsc::Receiver<StreamProblem>,
 }
 
@@ -136,6 +142,29 @@ impl AudioOutput {
             .description()
             .map(|d| d.name().to_string())
             .unwrap_or_else(|_| "unknown".into());
+
+        // Windows: run the device at Bubble's rate, so Windows does not convert again.
+        #[cfg(windows)]
+        let (device_rate, rate_note) = match (req.sample_rate, device.id()) {
+            (Some(want), Ok(id)) => {
+                let id = id.id().to_string();
+                match crate::device_rate::device_rate(&id) {
+                    Some(have) if have != want => {
+                        match crate::device_rate::set_device_rate(&id, want) {
+                            Ok(now) => (
+                                Some(now),
+                                Some(format!("Windows ran it at {have} Hz; set to {now} Hz")),
+                            ),
+                            Err(e) => (Some(have), Some(e)),
+                        }
+                    }
+                    have => (have, None),
+                }
+            }
+            _ => (None, None),
+        };
+        #[cfg(not(windows))]
+        let (device_rate, rate_note): (Option<u32>, Option<String>) = (None, None);
 
         let default = device.default_output_config().map_err(backend)?;
         let mut sample_format = default.sample_format();
@@ -198,6 +227,8 @@ impl AudioOutput {
                 channels: config.channels,
                 buffer: config.buffer_size,
                 sample_format: sample_format.to_string(),
+                device_rate,
+                rate_note,
                 problems: prx,
             },
             handle,

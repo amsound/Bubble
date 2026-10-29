@@ -244,6 +244,12 @@ Done (main window):
       dark menus in dark mode, tool windows' icons, Cart Setup stays up until the
       tap is over, a quick right-click opens the next menu, EDIT press-to-toggle
       timing in the log.
+- [x] Windows device rate: before an output opens, Bubble sets the device's format
+      to the mixer rate (48 kHz, or 44.1 kHz) as the Sound control panel does
+      (IPolicyConfig, undocumented, every step checked), so Windows does not convert
+      a second time. If the device still runs at another rate, the page bar and the
+      output's row in Settings ▸ Audio say so and what to change. Logged either way.
+      Not yet tried on Windows.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

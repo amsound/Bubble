@@ -245,6 +245,18 @@ impl Core {
                 Level::Warn,
             ));
         }
+        if self.audio_error.is_none()
+            && let Some((_, name, rate)) = self.rate_mismatches().first()
+        {
+            out.push(item(
+                format!(
+                    "{name} is at {}, Bubble at {}: change it in Windows Sound settings",
+                    khz(*rate),
+                    khz(self.prefs.rate())
+                ),
+                Level::Warn,
+            ));
+        }
         if !snap.missing.is_empty() {
             out.push(item(
                 format!("{} missing file(s)", snap.missing.len()),
@@ -377,6 +389,11 @@ impl PlaceTracker {
     pub fn pending(&self) -> bool {
         self.changed.is_some()
     }
+}
+
+/// "48 kHz", "44.1 kHz".
+pub fn khz(rate: u32) -> String {
+    format!("{} kHz", rate as f32 / 1000.0)
 }
 
 #[cfg(test)]
