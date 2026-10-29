@@ -953,6 +953,14 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     });
     on!(ui, app, on_toggle_mode, |a, _i| {
         a.edit_mode = !a.edit_mode;
+        // EDIT seemed slower to a mouse than to a finger on the Surface: measure it.
+        if let Some((at, by)) = LAST_PRESS.get() {
+            log_info(&format!(
+                "EDIT {} by {by}, {} ms after the press",
+                if a.edit_mode { "on" } else { "off" },
+                at.elapsed().as_millis()
+            ));
+        }
     });
     on!(ui, app, on_select_page, |a, i, p| {
         i.push(Intent::SetPage(p as usize));
@@ -1061,6 +1069,11 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     });
 }
 
+thread_local! {
+    /// When the main window last saw a press, and from what (for the EDIT timing log).
+    static LAST_PRESS: Cell<Option<(Instant, &'static str)>> = const { Cell::new(None) };
+}
+
 /// Window events Slint does not report: physical keys (hot keys), modifiers, focus,
 /// the window's place, OS file drops, theme and scale changes.
 fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
@@ -1069,6 +1082,15 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     let restored = Rc::new(Cell::new(false));
     ui.window().on_winit_window_event(move |_w, ev| {
         match ev {
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                ..
+            } => LAST_PRESS.set(Some((Instant::now(), "mouse"))),
+            WindowEvent::Touch(t)
+                if t.phase == slint::winit_030::winit::event::TouchPhase::Started =>
+            {
+                LAST_PRESS.set(Some((Instant::now(), "touch")))
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 // While Learn waits, the key is the trigger: it must not also type into
                 // the field that has the keyboard (quick edit's Label).
@@ -1130,6 +1152,9 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
                 with(&app, move |a| {
                     if let Some(ui) = a.ui.upgrade() {
                         ui.global::<Theme>().set_system_dark(dark);
+                    }
+                    if a.prefs.appearance == Appearance::System {
+                        window::menus_dark(dark);
                     }
                 });
             }
@@ -1985,11 +2010,14 @@ impl App {
         window::on_main(move || {
             let Some(ui) = w.upgrade() else { return };
             let opened = Instant::now();
+            // Forget the right-click that opened the menu.
+            let _ = window::right_button_down();
             ui.invoke_open_popup();
             // Windows: a right-click on another cell or tab closed the menu, and Windows
             // kept that click from the window. Pass it on, so it opens the menu (or quick
             // edit) there. The menu waits until it closes, so a button still down is the
-            // one that closed it (and not the press that opened it).
+            // one that closed it (and not the press that opened it); so is one pressed
+            // and let go meanwhile (a quick right-click).
             if window::right_button_down()
                 && opened.elapsed() > Duration::from_millis(150)
                 && let Some((x, y)) = window::pointer_in_window(&ui)
@@ -2491,11 +2519,9 @@ impl App {
         win.set_window_icon(window::icon());
         window::remember_menu();
         wire_setup(&win, &self.me);
-        window::place_over(win.window(), ui.window(), 860.0, 686.0);
+        window::place_over(win.window(), ui.window(), 860.0, 640.0);
         let _ = win.show();
-        window::round_corners(win.window());
-        window::set_icon(win.window());
-        window::keep_above(win.window(), ui.window());
+        window::finish_tool(&win, &ui);
         self.setup = Some(cartsetup::Setup::new(win, cart));
     }
 
@@ -2521,7 +2547,17 @@ impl App {
             self.picker_setup = false;
         }
         self.setup_close_ask = false;
-        let _ = s.win.hide();
+        // Windows turns a tap into a mouse click as the finger lifts: closing at once let
+        // that click land on whatever was under OK in the main window (EDIT). Stay up
+        // until the tap is over (the window is no longer Cart Setup to Bubble).
+        if cfg!(windows) {
+            let win = s.win;
+            slint::Timer::single_shot(Duration::from_millis(250), move || {
+                let _ = win.hide();
+            });
+        } else {
+            let _ = s.win.hide();
+        }
     }
 
     fn show_setup(&mut self, ui: &MainWindow, snap: &Snapshot) {
@@ -2557,11 +2593,9 @@ impl App {
         self.core.scan_devices();
         let mut s = settings::Settings::new(win, &self.core);
         s.show(&self.core);
-        window::place_over(s.win.window(), ui.window(), 640.0, 560.0);
+        window::place_over(s.win.window(), ui.window(), 640.0, 500.0);
         let _ = s.win.show();
-        window::round_corners(s.win.window());
-        window::set_icon(s.win.window());
-        window::keep_above(s.win.window(), ui.window());
+        window::finish_tool(&s.win, &ui);
         self.settings = Some(s);
     }
 
@@ -2586,11 +2620,9 @@ impl App {
         wire_session_settings(&win, &self.me);
         let mut s = settings::SessionSettings::new(win);
         s.show(&self.core.snapshot());
-        window::place_over(s.win.window(), ui.window(), 660.0, 540.0);
+        window::place_over(s.win.window(), ui.window(), 660.0, 556.0);
         let _ = s.win.show();
-        window::round_corners(s.win.window());
-        window::set_icon(s.win.window());
-        window::keep_above(s.win.window(), ui.window());
+        window::finish_tool(&s.win, &ui);
         self.session_settings = Some(s);
     }
 

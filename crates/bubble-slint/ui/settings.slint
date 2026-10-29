@@ -211,7 +211,8 @@ export component SettingsWindow inherits Window {
     title: "Settings";
     icon: window-icon;
     preferred-width: 640px;
-    preferred-height: 560px;
+    // As tall as its tallest section (Audio, with a few outputs); more scrolls.
+    preferred-height: 500px;
     min-width: 560px;
     min-height: 380px;
     background: Theme.window-bg;
@@ -340,13 +341,10 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    Note {
-                        text: "In Show mode a right-click stops a cart either way.";
-                    }
                     Group {
                         FieldRow {
                             label-width: root.label-width;
-                            label: Theme.mac ? "New Sessions In" : "New sessions in";
+                            label: Theme.mac ? "Default Save Location" : "Default save location";
                             Text {
                                 text: root.session-folder;
                                 color: Theme.text;
@@ -362,9 +360,6 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    Note {
-                        text: "Where New Session suggests saving. Keep sessions in a folder that is not synced to the cloud.";
-                    }
                 }
 
                 // ---- Audio ----
@@ -373,7 +368,7 @@ export component SettingsWindow inherits Window {
                     Group {
                         FieldRow {
                             label-width: root.label-width;
-                            label: Theme.mac ? "Output Level" : "Output level";
+                            label: Theme.mac ? "Output Attenuation" : "Output attenuation";
                             SetupSlider {
                                 minimum: -40;
                                 maximum: 0;
@@ -397,8 +392,10 @@ export component SettingsWindow inherits Window {
                         FieldRow {
                             label-width: root.label-width;
                             label: Theme.mac ? "Safety Limiter" : "Safety limiter";
+                            // In by half the slider's knob, so it lines up with the track.
                             HorizontalLayout {
                                 alignment: start;
+                                padding-left: Theme.mac ? 9px : 10px;
                                 Switch {
                                     y: (parent.height - self.height) / 2;
                                     on: root.limiter;
@@ -408,9 +405,6 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
-                    }
-                    Note {
-                        text: "Output level lowers everything Bubble plays on this computer; −10 dB (the default, double-click the knob) leaves room to raise single carts. The limiter stops the outputs clipping.";
                     }
 
                     HorizontalLayout {
@@ -441,21 +435,26 @@ export component SettingsWindow inherits Window {
                                 padding-right: Theme.mac ? 10px : 0px;
                                 padding-top: Theme.mac ? 6px : 0px;
                                 padding-bottom: Theme.mac ? 6px : 0px;
-                                Rectangle {
-                                    width: 24px;
-                                    height: 24px;
-                                    y: (parent.height - self.height) / 2;
-                                    border-radius: 5px;
-                                    background: Theme.text.transparentize(85%);
-                                    Text {
-                                        text: o.letter;
-                                        font-weight: 700;
-                                        color: Theme.text;
+                                // The letter, centred on the row (in a layout, `parent`
+                                // is not the row, so centring goes through one).
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 28px;
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: Theme.text.transparentize(85%);
+                                        Text {
+                                            text: o.letter;
+                                            font-weight: 700;
+                                            color: Theme.text;
+                                        }
                                     }
                                 }
                                 LabelField {
                                     width: 100px;
                                     single-line: true;
+                                    placeholder: "Name";
                                     text: o.alias;
                                     edited(t) => {
                                         root.alias-edited(i, t);
@@ -476,16 +475,18 @@ export component SettingsWindow inherits Window {
                                         root.choice-menu("channels", i, x, y);
                                     }
                                 }
-                                ClearX {
-                                    y: (parent.height - self.height) / 2;
-                                    label: "Remove Output " + o.letter;
-                                    clicked => {
-                                        root.action("remove-output", i);
+                                VerticalLayout {
+                                    alignment: center;
+                                    ClearX {
+                                        label: "Remove Output " + o.letter;
+                                        clicked => {
+                                            root.action("remove-output", i);
+                                        }
                                     }
                                 }
                             }
                             if o.note != "": Text {
-                                x: Theme.mac ? 42px : 32px;
+                                x: Theme.mac ? 42px : 36px;
                                 text: o.note;
                                 color: Theme.warn;
                                 font-size: Theme.mac ? 11px : 12px;
@@ -509,14 +510,11 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    Note {
-                        text: "Carts choose an output by letter. The name shows after the letter (\"Output B - PA\"). A cart on a letter this computer has not set up plays on Output A.";
-                    }
 
                     Group {
                         FieldRow {
                             label-width: root.label-width;
-                            label: Theme.mac ? "Sample Rate" : "Sample rate";
+                            label: Theme.mac ? "Mixer Rate" : "Mixer rate";
                             Choice {
                                 value: root.rate;
                                 open(x, y) => {
@@ -621,9 +619,6 @@ export component SettingsWindow inherits Window {
                             }
                         }
                     }
-                    Note {
-                        text: "Learn in Cart Setup takes a note from any open port. With All Ports on, a device plugged in later is used too.";
-                    }
                 }
             }
 
@@ -691,7 +686,8 @@ export component SessionSettingsWindow inherits Window {
     title: window-title;
     icon: window-icon;
     preferred-width: 660px;
-    preferred-height: 540px;
+    // As tall as its tallest section (General); more scrolls.
+    preferred-height: 556px;
     min-width: 600px;
     min-height: 380px;
     background: Theme.window-bg;
@@ -802,7 +798,7 @@ export component SessionSettingsWindow inherits Window {
                     text: "Convert to WAV converts each file once, when it is added, so the session opens faster on slower computers. Playback is the same either way.";
                 }
                 Heading {
-                    text: "New Carts";
+                    text: Theme.mac ? "Cart Defaults" : "Cart defaults";
                 }
                 Group {
                     FieldRow {
@@ -826,9 +822,6 @@ export component SessionSettingsWindow inherits Window {
                             }
                         }
                     }
-                }
-                Note {
-                    text: "A cart left on Default follows these. Its own setting in Cart Setup wins.";
                 }
                 Heading {
                     text: "Playing";
@@ -866,9 +859,6 @@ export component SessionSettingsWindow inherits Window {
                             }
                         }
                     }
-                }
-                Note {
-                    text: "Ending warning turns a tile red this long before its cart ends.";
                 }
             }
 
@@ -967,9 +957,6 @@ export component SessionSettingsWindow inherits Window {
                         }
                     }
                 }
-                Note {
-                    text: "Small text is the number, group, hotkey, time and icons. Double-click a knob for 100%. The tiles change as you go.";
-                }
             }
 
             // ---- Groups ----
@@ -1004,11 +991,13 @@ export component SessionSettingsWindow inherits Window {
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
                             }
-                            ClearX {
-                                y: (parent.height - self.height) / 2;
-                                label: "Remove " + g.label;
-                                clicked => {
-                                    root.action("remove-group", i);
+                            VerticalLayout {
+                                alignment: center;
+                                ClearX {
+                                    label: "Remove " + g.label;
+                                    clicked => {
+                                        root.action("remove-group", i);
+                                    }
                                 }
                             }
                         }
@@ -1022,9 +1011,6 @@ export component SessionSettingsWindow inherits Window {
                             root.action("add-group", 0);
                         }
                     }
-                }
-                Note {
-                    text: "Starting a cart stops the other carts in its group. A named group shows as \"G1 Name\" on the tile. Removing a group leaves its carts in none.";
                 }
             }
 
@@ -1072,11 +1058,13 @@ export component SessionSettingsWindow inherits Window {
                                 horizontal-alignment: right;
                                 vertical-alignment: center;
                             }
-                            ClearX {
-                                y: (parent.height - self.height) / 2;
-                                label: "Delete " + p.name;
-                                clicked => {
-                                    root.action("delete-page", i);
+                            VerticalLayout {
+                                alignment: center;
+                                ClearX {
+                                    label: "Delete " + p.name;
+                                    clicked => {
+                                        root.action("delete-page", i);
+                                    }
                                 }
                             }
                         }
@@ -1090,9 +1078,6 @@ export component SessionSettingsWindow inherits Window {
                             root.action("add-page", 0);
                         }
                     }
-                }
-                Note {
-                    text: "Cart numbers count on from page to page. A grid cannot shrink past the carts on it: move or clear them first.";
                 }
             }
         }

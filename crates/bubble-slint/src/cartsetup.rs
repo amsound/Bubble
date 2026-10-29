@@ -751,16 +751,24 @@ impl Setup {
                 }
             }
             "retrigger" => {
+                // Default follows Session Settings; the others are this cart's own.
                 let default = snap.project.settings.default_retrigger;
-                let cur = c.retrigger.unwrap_or(default);
+                rows.push((
+                    Pick::Retrigger(None),
+                    format!("Default ({})", retrigger_text(default)),
+                    c.retrigger.is_none(),
+                ));
                 for r in [
                     Retrigger::Restart,
                     Retrigger::ToggleStop,
                     Retrigger::Overlap,
                     Retrigger::Ignore,
                 ] {
-                    let v = (r != default).then_some(r);
-                    rows.push((Pick::Retrigger(v), retrigger_text(r).to_string(), r == cur));
+                    rows.push((
+                        Pick::Retrigger(Some(r)),
+                        retrigger_text(r).to_string(),
+                        c.retrigger == Some(r),
+                    ));
                 }
             }
             _ => {
@@ -1016,15 +1024,18 @@ impl Setup {
             has_audio,
             message: message.into(),
             output: outputs.get(out_i).cloned().unwrap_or_default().into(),
+            // A letter this computer has not set up (it plays on Output A).
+            output_warn: out_i >= core.prefs.effective_outputs().len(),
             fade_in: model::fade_text(c.fade_in.map_or(0, |f| f.ms)).into(),
-            fade_out: fades.get(fo_i).cloned().unwrap_or_default().into(),
+            // The field says just "Default"; its menu says how long that is.
+            fade_out: if fo_i == 0 {
+                "Default".into()
+            } else {
+                fades.get(fo_i).cloned().unwrap_or_default().into()
+            },
             speed_x0: seconds_text(c.slowdown_ms).into(),
             speed_x1: seconds_text(c.speedup_ms).into(),
-            retrigger: retrigger_text(
-                c.retrigger
-                    .unwrap_or(snap.project.settings.default_retrigger),
-            )
-            .into(),
+            retrigger: c.retrigger.map_or("Default", retrigger_text).into(),
             play_next: c.play_next.is_some(),
             stop_page: c.on_play.stop == StopScope::Page,
             stop_all: c.on_play.stop == StopScope::All,

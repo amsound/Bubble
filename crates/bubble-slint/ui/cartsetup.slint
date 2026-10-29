@@ -12,8 +12,8 @@
 //          Notes
 //                                                                       [Cancel] [OK]
 
-import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock, ClearX, SetupSlider } from "theme.slint";
-import { LabelField, FieldRow, Card, Toggle } from "quickedit.slint";
+import { Theme, TextCommand, SysButton, PopButton, PopupRow, Clock, SetupSlider } from "theme.slint";
+import { LabelField, FieldRow, Card, Toggle, KeyChip } from "quickedit.slint";
 
 // A time on the ruler.
 export struct WaveMark {
@@ -30,6 +30,8 @@ export struct SetupInfo {
     message: string,
     // Pop-up buttons: what each shows now.
     output: string,
+    // The cart's output letter is not set up on this computer.
+    output-warn: bool,
     fade-in: string,
     fade-out: string,
     speed-x0: string,
@@ -93,84 +95,84 @@ component IconButton inherits Rectangle {
     }
 }
 
-// Trim In / Trim Out (they mirror each other): the title, then the time, − and +
+// Trim In / Trim Out (they mirror each other): the title over the time, then − and +
 // nudges, Set (at the cursor or playhead) and Clear (back to the file's start or end).
-component TrimBox inherits VerticalLayout {
+// Trim Out sits against the right edge.
+component TrimBox inherits HorizontalLayout {
     in property <string> title;
     in property <[string]> time;
     in property <string> set-text;
-    // Trim Out sits against the right edge, the mirror of Trim In.
     in property <bool> mirrored;
     callback nudge(float);
     callback set();
     callback clear();
     horizontal-stretch: 1;
-    spacing: 6px;
-    alignment: center;
-    Text {
-        text: root.title;
-        horizontal-alignment: root.mirrored ? right : left;
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 1px;
-        color: Theme.weak-text;
-    }
-    HorizontalLayout {
-        spacing: 4px;
-        alignment: root.mirrored ? end : start;
-        Rectangle {
-            width: 76px;
-            height: 32px;
-            border-radius: 4px;
-            background: Theme.field;
-            border-width: 1px;
-            border-color: Theme.control-border;
-            HorizontalLayout {
-                padding-left: 8px;
-                alignment: start;
-                Clock {
-                    chars: root.time;
-                    size: 15px;
+    alignment: root.mirrored ? end : start;
+    VerticalLayout {
+        spacing: 6px;
+        alignment: center;
+        Text {
+            text: root.title;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            color: Theme.weak-text;
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Rectangle {
+                width: 76px;
+                height: 32px;
+                border-radius: 4px;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: Theme.control-border;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    alignment: start;
+                    Clock {
+                        chars: root.time;
+                        size: 15px;
+                    }
                 }
             }
-        }
-        // The nudges are narrow: trims are mostly typed or set at the cursor.
-        SysButton {
-            text: "−";
-            min-width: 28px;
-            max-width: 28px;
-            y: (parent.height - self.height) / 2;
-            clicked => {
-                root.nudge(-0.01);
-            }
-        }
-        SysButton {
-            text: "+";
-            min-width: 28px;
-            max-width: 28px;
-            y: (parent.height - self.height) / 2;
-            clicked => {
-                root.nudge(0.01);
-            }
-        }
-        SysButton {
-            text: root.set-text;
-            y: (parent.height - self.height) / 2;
-            clicked => {
-                root.set();
-            }
-        }
-        // Clear, as plain text: the quietest of the four.
-        Rectangle {
-            width: clear-text.preferred-width + 16px;
-            clear-text := Text {
-                text: "Clear";
-                color: clear-ta.has-hover ? Theme.text : Theme.weak-text;
-                vertical-alignment: center;
-            }
-            clear-ta := TouchArea {
+            // The nudges are narrow: trims are mostly typed or set at the cursor.
+            SysButton {
+                text: "−";
+                pad: 0px;
+                min-width: 28px;
+                max-width: 28px;
                 clicked => {
-                    root.clear();
+                    root.nudge(-0.01);
+                }
+            }
+            SysButton {
+                text: "+";
+                pad: 0px;
+                min-width: 28px;
+                max-width: 28px;
+                clicked => {
+                    root.nudge(0.01);
+                }
+            }
+            SysButton {
+                text: root.set-text;
+                clicked => {
+                    root.set();
+                }
+            }
+            // Clear, as plain text: the quietest of the four.
+            Rectangle {
+                width: clear-text.preferred-width + 16px;
+                clear-text := Text {
+                    text: "Clear";
+                    color: clear-ta.has-hover ? Theme.text : Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                clear-ta := TouchArea {
+                    clicked => {
+                        root.clear();
+                    }
                 }
             }
         }
@@ -308,11 +310,14 @@ component PopPair inherits HorizontalLayout {
 // menu (`choice-menu`).
 export component Choice inherits HorizontalLayout {
     in property <string> value;
+    // A warning triangle (an output not set up here).
+    in property <bool> warn;
     callback open(length, length);
     // A Mac pop-up button is as wide as its choice; Windows fills the row.
     alignment: Theme.mac ? LayoutAlignment.start : LayoutAlignment.stretch;
     PopButton {
         y: (parent.height - self.height) / 2;
+        warn: root.warn;
         model: [root.value];
         current-index: 0;
         open(x, y) => {
@@ -328,7 +333,8 @@ export component CartSetupWindow inherits Window {
     icon: window-icon;
     // The size it opens at; no narrower (taller is up to the waveform).
     preferred-width: 860px;
-    preferred-height: 686px;
+    // Short enough to float over the carts on a 1280 px-high screen at 150%.
+    preferred-height: 640px;
     min-width: 860px;
     property <length> label-width: 84px;
     background: Theme.window-bg;
@@ -538,8 +544,8 @@ export component CartSetupWindow inherits Window {
             HorizontalLayout {
                 spacing: 10px;
                 vertical-stretch: 1;
-                min-height: 180px;
-                preferred-height: 250px;
+                min-height: 120px;
+                preferred-height: 160px;
                 Rectangle {
                     horizontal-stretch: 1;
                     border-radius: 8px;
@@ -896,13 +902,15 @@ export component CartSetupWindow inherits Window {
                     horizontal-stretch: 1;
                     alignment: start;
                     Card {
-                        title: "Sound";
+                        pad-y: 8px;
+                        gap: 2px;
                         FieldRow {
                             label-width: root.label-width;
                             grouped: false;
                             label: "Output";
                             Choice {
                                 value: info.output;
+                                warn: info.output-warn;
                                 open(x, y) => {
                                     root.choice-menu("output", x, y);
                                 }
@@ -1053,7 +1061,8 @@ export component CartSetupWindow inherits Window {
                     horizontal-stretch: 1;
                     alignment: start;
                     Card {
-                        title: "Cart";
+                        pad-y: 8px;
+                        gap: 2px;
                         FieldRow {
                             label-width: root.label-width;
                             grouped: false;
@@ -1178,42 +1187,19 @@ export component CartSetupWindow inherits Window {
                                     min-width: 0;
                                     horizontal-stretch: 1;
                                 }
-                                if !info.learning && info.hotkey != "": Rectangle {
+                                if !info.learning && info.hotkey != "": KeyChip {
                                     y: (parent.height - self.height) / 2;
-                                    height: 20px;
-                                    width: key-text.preferred-width + 14px;
-                                    border-radius: 4px;
-                                    background: #ffffffe0;
-                                    border-width: Theme.dark ? 0px : 1px;
-                                    border-color: Theme.panel-border;
-                                    key-text := Text {
-                                        text: info.hotkey;
-                                        font-size: 12px;
-                                        font-weight: 600;
-                                        color: info.cart-color;
-                                    }
-                                }
-                                if !info.learning && info.hotkey != "": ClearX {
-                                    y: (parent.height - self.height) / 2;
-                                    label: "Clear hotkey";
-                                    clicked => {
+                                    text: info.hotkey;
+                                    clear-label: "Clear hotkey";
+                                    clear => {
                                         root.action("clear-key");
                                     }
                                 }
-                                if !info.learning && info.hotkey != "" && info.midi != "": Rectangle {
-                                    width: 6px;
-                                }
-                                if !info.learning && info.midi != "": Text {
-                                    text: info.midi;
-                                    color: Theme.text;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                    min-width: 0;
-                                }
-                                if !info.learning && info.midi != "": ClearX {
+                                if !info.learning && info.midi != "": KeyChip {
                                     y: (parent.height - self.height) / 2;
-                                    label: "Clear MIDI";
-                                    clicked => {
+                                    text: info.midi;
+                                    clear-label: "Clear MIDI";
+                                    clear => {
                                         root.action("clear-midi");
                                     }
                                 }
@@ -1238,6 +1224,7 @@ export component CartSetupWindow inherits Window {
                             grouped: false;
                             label: "Notes";
                             LabelField {
+                                single-line: true;
                                 text <=> root.notes-text;
                                 edited(t) => {
                                     root.notes-edited(t);
@@ -1267,6 +1254,7 @@ export component CartSetupWindow inherits Window {
                 }
                 SysButton {
                     text: "OK";
+                    min-width: Theme.mac ? 0px : 96px;
                     primary: true;
                     clicked => {
                         root.ok();
@@ -1274,6 +1262,7 @@ export component CartSetupWindow inherits Window {
                 }
                 if !Theme.mac: SysButton {
                     text: "Cancel";
+                    min-width: 96px;
                     clicked => {
                         root.cancel();
                     }

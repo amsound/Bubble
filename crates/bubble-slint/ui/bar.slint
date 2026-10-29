@@ -34,13 +34,17 @@ component Tab inherits Rectangle {
     callback select();
     callback rename();
     callback menu(length, length);
-    // Dragging: the pointer's x in the tab, and the drop.
-    callback drag(length);
+    // Dragging: the pointer's x in the tab and where the press began, and the drop.
+    callback drag(length, length);
     callback drop(length);
 
     property <bool> dragging;
     property <bool> holding;
     property <bool> held;
+    // The last tap or click: a second one soon after, near it, renames (the same for
+    // a finger and the mouse; Slint's own double-click misses taps).
+    property <duration> last-up: -10s;
+    property <length> last-x: -100px;
     // The active tab is 6 px taller, toward the cart panel; its text sits where an
     // inactive tab's would, on the bar's centre line.
     property <length> inset: current ? 6px : 0px;
@@ -103,8 +107,9 @@ component Tab inherits Rectangle {
             vertical-alignment: top;
         }
     }
-    // Something is playing on this page: a red dot, top right.
-    if page.playing: Rectangle {
+    // Something is playing on another page: a red dot, top right (the page shown
+    // has its playing carts in front of you).
+    if page.playing && !root.current: Rectangle {
         x: parent.width - 8px - root.dot / 2;
         y: (root.at-top ? 0 : root.inset) + 8px - root.dot / 2;
         width: root.dot;
@@ -122,9 +127,6 @@ component Tab inherits Rectangle {
         }
     }
     ta := TouchArea {
-        double-clicked => {
-            root.rename();
-        }
         moved => {
             if self.pressed && !root.held {
                 if !root.dragging && abs(self.mouse-x - self.pressed-x) > 8px {
@@ -132,7 +134,7 @@ component Tab inherits Rectangle {
                     root.holding = false;
                 }
                 if root.dragging {
-                    root.drag(self.mouse-x);
+                    root.drag(self.mouse-x, self.pressed-x);
                 }
             }
         }
@@ -150,6 +152,13 @@ component Tab inherits Rectangle {
                     root.drop(self.mouse-x);
                 } else if !root.held {
                     root.select();
+                    if animation-tick() - root.last-up < 500ms && abs(self.mouse-x - root.last-x) < 24px {
+                        root.last-up = -10s;
+                        root.rename();
+                    } else {
+                        root.last-up = animation-tick();
+                        root.last-x = self.mouse-x;
+                    }
                 }
                 root.dragging = false;
                 root.holding = false;
@@ -277,9 +286,12 @@ export component BottomBar inherits Rectangle {
     property <length> tab-w: floor(min(tab-w-full, (tabs-avail - (pages.length - 1) * gap) / max(pages.length, 1)) / unit) * unit;
     property <length> step: tab-w + gap;
     property <length> tabs-end: side + pages.length * step - gap;
-    // Where a dragged tab would land (-1: not dragging).
+    // Where a dragged tab would land (-1: not dragging), and how far it has moved.
     property <int> drag-from: -1;
     property <int> drag-to: -1;
+    property <length> drag-shift;
+    // Where the dragged tab would end up in the list.
+    property <int> drag-final: drag-to > drag-from ? drag-to - 1 : drag-to;
 
     // On whole device pixels at any display scale (125%, 150%…), so edges and text
     // stay sharp.
@@ -287,12 +299,30 @@ export component BottomBar inherits Rectangle {
         round(v / unit) * unit
     }
 
+    // A tab's place: while one is dragged it follows the pointer, and the others
+    // slide apart to show where it will land.
+    pure function slot(i: int) -> int {
+        if drag-from < 0 || drag-to < 0 || i == drag-from {
+            return i;
+        }
+        let s = i > drag-from ? i - 1 : i;
+        return s >= drag-final ? s + 1 : s;
+    }
+
     for p[i] in pages: Rectangle {
-        x: round((side + i * step) / unit) * unit;
+        x: i == root.drag-from && root.drag-to >= 0
+            ? round((side + i * step + root.drag-shift) / unit) * unit
+            : round((side + root.slot(i) * step) / unit) * unit;
+        animate x {
+            duration: root.drag-from >= 0 && i != root.drag-from ? 120ms : 0ms;
+            easing: ease-out;
+        }
         // The page shown reaches 1 px under the cart panel (at the bar's top edge with
         // the bar at the bottom, its bottom edge with the bar at the top), drawn above
         // the rest, so no gap shows at the join.
-        z: i == root.current ? 1 : 0;
+        z: i == root.drag-from ? 3 : i == root.current ? 1 : 0;
+        drop-shadow-blur: i == root.drag-from && root.drag-to >= 0 ? 10px : 0px;
+        drop-shadow-color: #00000060;
         y: snap(i == root.current ? (root.at-top ? off-y : -1px) : off-y);
         width: tab-w;
         height: snap(i == root.current ? tab-h + 7px : tab-h);
@@ -311,8 +341,10 @@ export component BottomBar inherits Rectangle {
             menu(x, y) => {
                 root.page-menu(i, parent.x + x, parent.y + y);
             }
-            drag(x) => {
+            // `x` is in the tab, which follows the pointer: work in the bar's terms.
+            drag(x, px) => {
                 root.drag-from = i;
+                root.drag-shift = parent.x + x - px - (side + i * step);
                 root.drag-to = clamp(floor((parent.x + x - side + step / 2) / step), 0, pages.length);
             }
             drop(x) => {
@@ -321,6 +353,7 @@ export component BottomBar inherits Rectangle {
                 }
                 root.drag-from = -1;
                 root.drag-to = -1;
+                root.drag-shift = 0;
             }
         }
         if i == root.renaming: Field {
@@ -343,15 +376,6 @@ export component BottomBar inherits Rectangle {
                 }
             }
         }
-    }
-    // Where a dragged tab will land.
-    if drag-from >= 0 && drag-to >= 0: Rectangle {
-        z: 2;
-        x: side + drag-to * step - gap / 2 - 1.5px;
-        y: off-y;
-        width: 3px;
-        height: tab-h;
-        background: Theme.select;
     }
     // Add page (Edit mode): a tab-high square with a dashed outline.
     if edit-mode: Rectangle {

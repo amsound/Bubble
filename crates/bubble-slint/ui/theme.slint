@@ -271,6 +271,8 @@ export component SysButton inherits Rectangle {
     in property <bool> destructive;
     // An icon before the text (a 16-unit path), e.g. Delete's bin.
     in property <string> icon;
+    // Space either side of the words (none for the narrow − and + of the trims).
+    in property <length> pad: Theme.mac ? 11px : 12px;
     callback clicked;
     height: Theme.mac ? 24px : 32px;
     // Never narrower than its words: button text does not wrap.
@@ -285,8 +287,8 @@ export component SysButton inherits Rectangle {
         : ta.has-hover ? Theme.button-hover : Theme.control;
     opacity: enabled ? 1 : 0.45;
     row := HorizontalLayout {
-        padding-left: Theme.mac ? 11px : 12px;
-        padding-right: Theme.mac ? 11px : 12px;
+        padding-left: root.pad;
+        padding-right: root.pad;
         spacing: 6px;
         alignment: center;
         if root.icon != "": Path {

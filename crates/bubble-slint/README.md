@@ -232,6 +232,18 @@ Done (main window):
       titled cards, 32 px controls, On Play as one joined three-part control, mute
       as a speaker button, the trim strip as one card. `BUBBLE_SNAPSHOT_SCENE` also
       takes `settings:N` and `session:N`.
+- [x] 2026-10-29, from the Surface: Cart Setup 647 px tall (no Sound/Cart titles,
+      tighter cards), the − and + centred, TRIM OUT over its time, the output
+      warning triangle, "Default" for Fade out and On retrigger (the list says what
+      that is), the hotkey and MIDI as chips, Notes on one line, OK and Cancel one
+      width; no checks on toggle buttons. Settings: hints gone (but Convert to WAV),
+      Default save location, Output attenuation, Mixer rate, Cart defaults, rows'
+      letters and ✕ centred, a "Name" hint in the alias box, heights from the
+      tallest section. The red dot only on other pages again; double tap renames a
+      tab; a dragged tab follows the pointer and the others slide apart. Windows:
+      dark menus in dark mode, tool windows' icons, Cart Setup stays up until the
+      tap is over, a quick right-click opens the next menu, EDIT press-to-toggle
+      timing in the log.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

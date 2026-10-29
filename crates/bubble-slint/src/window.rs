@@ -231,6 +231,12 @@ pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
             Appearance::Dark => Some(winit::window::Theme::Dark),
         })
     });
+    #[cfg(windows)]
+    menus_dark(match a {
+        Appearance::System => system_dark(ui).unwrap_or(false),
+        Appearance::Light => false,
+        Appearance::Dark => true,
+    });
     #[cfg(target_os = "macos")]
     {
         use objc2::MainThreadMarker;
@@ -251,6 +257,56 @@ pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
         let appearance = name.and_then(NSAppearance::appearanceNamed);
         NSApplication::sharedApplication(mtm).setAppearance(appearance.as_deref());
     }
+}
+
+/// Windows: draws Bubble's menus (the menu bar's drop-downs, the pop-up and context
+/// menus) dark or light. Windows has no documented way to ask for this; uxtheme's
+/// SetPreferredAppMode and FlushMenuThemes (by ordinal, as Explorer and many other
+/// apps use them) do it. Where they are missing, the menus stay light.
+pub fn menus_dark(dark: bool) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+        let name: Vec<u16> = "uxtheme.dll".encode_utf16().chain(Some(0)).collect();
+        // SAFETY: a system library, and the two functions' known signatures (each
+        // looked up and checked before the call).
+        unsafe {
+            let lib = LoadLibraryW(name.as_ptr());
+            if lib.is_null() {
+                return;
+            }
+            let set = GetProcAddress(lib, 135 as _);
+            let flush = GetProcAddress(lib, 136 as _);
+            if let (Some(set), Some(flush)) = (set, flush) {
+                // PreferredAppMode: 2 force dark, 3 force light.
+                let set: extern "system" fn(i32) -> i32 = std::mem::transmute(set);
+                let flush: extern "system" fn() = std::mem::transmute(flush);
+                set(if dark { 2 } else { 3 });
+                flush();
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = dark;
+}
+
+/// A tool window just shown (Cart Setup, the settings windows): rounded corners, the
+/// icon in its title bar, kept in front of the main window. Done again a moment later:
+/// on Windows the window may not exist yet straight after `show`, and the icon set
+/// then was lost (the main window sets its own after its first frame).
+pub fn finish_tool<T: slint::ComponentHandle + 'static>(win: &T, ui: &MainWindow) {
+    fn apply(w: &slint::Window, p: &slint::Window) {
+        round_corners(w);
+        set_icon(w);
+        keep_above(w, p);
+    }
+    apply(win.window(), ui.window());
+    let (w, p) = (win.as_weak(), ui.as_weak());
+    slint::Timer::single_shot(std::time::Duration::from_millis(150), move || {
+        if let (Some(w), Some(p)) = (w.upgrade(), p.upgrade()) {
+            apply(w.window(), p.window());
+        }
+    });
 }
 
 /// Another launch asked Bubble to show itself.
@@ -415,12 +471,15 @@ pub fn round_corners(w: &slint::Window) {
 
 /// Windows: whether the right mouse button is down now. Windows ends a context menu on
 /// a right-click elsewhere and keeps that click from the window under it.
+/// Also true when it was pressed and already let go since the last call (a quick
+/// right-click), so call it once before the menu opens to start afresh.
 pub fn right_button_down() -> bool {
     #[cfg(windows)]
     {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RBUTTON};
-        // SAFETY: a plain query of the button's state.
-        unsafe { GetAsyncKeyState(VK_RBUTTON as i32) < 0 }
+        // SAFETY: a plain query of the button's state. The high bit: down now; the low
+        // bit: pressed since the last query.
+        unsafe { GetAsyncKeyState(VK_RBUTTON as i32) as u16 & 0x8001 != 0 }
     }
     #[cfg(not(windows))]
     false

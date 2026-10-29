@@ -54,6 +54,8 @@ export component LabelField inherits Rectangle {
     // One line only (Return is `accepted`), or at least this many lines tall.
     in property <bool> single-line;
     in property <int> lines: 1;
+    // Faint words shown while it is empty ("Name").
+    in property <string> placeholder;
     callback edited(string);
     callback accepted();
     property <int> seq: TextCommand.seq;
@@ -65,6 +67,15 @@ export component LabelField inherits Rectangle {
     border-width: input.has-focus ? 2px : (Theme.mac ? 0px : 1px);
     border-color: input.has-focus ? (Theme.mac ? Theme.accent.transparentize(40%) : Theme.accent) : Theme.control-border;
     clip: true;
+    if root.placeholder != "" && input.text == "": Text {
+        x: 8px;
+        width: parent.width - 16px;
+        text: root.placeholder;
+        font-size: Theme.mac ? 13px : 14px;
+        color: Theme.weak-text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
     input := TextInput {
         x: 8px;
         y: Theme.mac ? 3px : 6px;
@@ -101,6 +112,52 @@ export component LabelField inherits Rectangle {
     }
 }
 
+// A learned hotkey or MIDI note in a chip, with a ✕ that clears it.
+export component KeyChip inherits Rectangle {
+    in property <string> text;
+    in property <string> clear-label;
+    callback clear();
+    height: 32px;
+    preferred-width: chip.preferred-width;
+    max-width: chip.preferred-width;
+    min-width: 0;
+    border-radius: 4px;
+    background: Theme.control;
+    border-width: 1px;
+    border-color: Theme.control-border;
+    chip := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 8px;
+        Text {
+            text: root.text;
+            font-weight: 600;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 20px;
+            accessible-role: button;
+            accessible-label: root.clear-label;
+            Path {
+                width: 10px;
+                height: 10px;
+                viewbox-width: 10;
+                viewbox-height: 10;
+                commands: "M1 1L9 9M9 1L1 9";
+                stroke: Theme.text;
+                stroke-width: 1.5px;
+            }
+            TouchArea {
+                clicked => {
+                    root.clear();
+                }
+            }
+        }
+    }
+}
+
 // A label column and its control, as one row.
 export component FieldRow inherits HorizontalLayout {
     in property <string> label;
@@ -127,14 +184,18 @@ export component FieldRow inherits HorizontalLayout {
 // settings windows' sections).
 export component Card inherits Rectangle {
     in property <string> title;
+    // Space above and below the rows, and between them (Cart Setup is tighter).
+    in property <length> pad-y: 12px;
+    in property <length> gap: 4px;
     background: Theme.card;
     border-width: 1px;
     border-color: Theme.card-border;
     border-radius: 8px;
     VerticalLayout {
         padding: 16px;
-        padding-top: 12px;
-        spacing: 4px;
+        padding-top: root.pad-y;
+        padding-bottom: root.pad-y;
+        spacing: root.gap;
         if root.title != "": Text {
             text: root.title;
             font-weight: 600;
@@ -172,9 +233,8 @@ export component Group inherits Rectangle {
     }
 }
 
-// Loop, Play Next, Stop All: toggle buttons with the tile's icons.
-// A toggle button: the accent with a check when on, so on and off never depend on
-// colour alone. Its words never wrap.
+// A toggle button (Loop, Play Next, Hold): the accent and bold words when on. Its
+// words never wrap.
 export component Toggle inherits Rectangle {
     in property <string> text;
     in property <bool> on;
@@ -193,17 +253,6 @@ export component Toggle inherits Rectangle {
         spacing: 6px;
         padding-left: 8px;
         padding-right: 8px;
-        if root.on: Path {
-            width: 14px;
-            height: 14px;
-            y: (parent.height - self.height) / 2;
-            viewbox-width: 16;
-            viewbox-height: 16;
-            commands: "M2.5 8.5L6.5 12.5L13.5 4";
-            stroke: Theme.on-accent;
-            stroke-width: 1.8px;
-            fill: transparent;
-        }
         Text {
             text: root.text;
             color: root.on ? Theme.on-accent : Theme.text;
@@ -455,43 +504,12 @@ export component QuickEditPanel inherits Panel {
                     horizontal-stretch: 1;
                 }
                 // The key in a chip with its ✕.
-                if qe.hotkey != "" && !qe.learning: Rectangle {
+                if qe.hotkey != "" && !qe.learning: KeyChip {
                     y: (parent.height - self.height) / 2;
-                    height: 32px;
-                    width: chip.preferred-width;
-                    border-radius: 4px;
-                    background: Theme.control;
-                    border-width: 1px;
-                    border-color: Theme.control-border;
-                    chip := HorizontalLayout {
-                        padding-left: 12px;
-                        padding-right: 8px;
-                        spacing: 8px;
-                        Text {
-                            text: qe.hotkey;
-                            font-weight: 600;
-                            color: Theme.text;
-                            vertical-alignment: center;
-                        }
-                        Rectangle {
-                            width: 20px;
-                            accessible-role: button;
-                            accessible-label: "Clear Hotkey";
-                            Path {
-                                width: 10px;
-                                height: 10px;
-                                viewbox-width: 10;
-                                viewbox-height: 10;
-                                commands: "M1 1L9 9M9 1L1 9";
-                                stroke: Theme.text;
-                                stroke-width: 1.5px;
-                            }
-                            TouchArea {
-                                clicked => {
-                                    root.action("clear-key");
-                                }
-                            }
-                        }
+                    text: qe.hotkey;
+                    clear-label: "Clear Hotkey";
+                    clear => {
+                        root.action("clear-key");
                     }
                 }
                 if qe.hotkey == "" && !qe.learning: Text {
