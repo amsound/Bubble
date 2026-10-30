@@ -1554,7 +1554,7 @@ impl App {
                     .enumerate()
                     .filter_map(|(i, id)| id.map(|id| (i as i32, id)));
                 let first = if scene == "quickedit-last" {
-                    carts.last()
+                    carts.next_back()
                 } else {
                     carts.next()
                 };
