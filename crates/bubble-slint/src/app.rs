@@ -1536,7 +1536,7 @@ impl App {
     /// A test aid: with `BUBBLE_SNAPSHOT=file.bmp`, once start-up is over a window is
     /// saved as a picture there and Bubble quits (a check of the layout without a
     /// screen). `BUBBLE_SNAPSHOT_SCENE=quickedit` or `cartsetup` first opens that for
-    /// the first cart on the page; `settings:N` or `session:N` opens Settings or
+    /// the first cart on the page (`quickedit-last`: for the last); `settings:N` or `session:N` opens Settings or
     /// Session Settings at section N.
     fn snapshot_and_quit(&mut self) {
         let Some(path) = std::env::var_os("BUBBLE_SNAPSHOT") else {
@@ -1548,14 +1548,19 @@ impl App {
         slint::Timer::single_shot(Duration::from_millis(500), move || {
             let Some(app) = me.upgrade() else { return };
             if let Ok(mut a) = app.try_borrow_mut() {
-                let first = a
+                let mut carts = a
                     .ids
                     .iter()
                     .enumerate()
-                    .find_map(|(i, id)| id.map(|id| (i as i32, id)));
+                    .filter_map(|(i, id)| id.map(|id| (i as i32, id)));
+                let first = if scene == "quickedit-last" {
+                    carts.last()
+                } else {
+                    carts.next()
+                };
                 if let Some((idx, id)) = first {
                     match scene.as_str() {
-                        "quickedit" => {
+                        "quickedit" | "quickedit-last" => {
                             a.edit_mode = true;
                             a.selected = Some(id);
                             a.open_quick_edit(id, idx);

@@ -636,7 +636,10 @@ export component MainWindow inherits Window {
         }
         QuickEditPanel {
             x: clamp(root.qe-x, 8px, max(8px, root.width - self.width - 8px));
-            y: clamp(root.qe-y, 8px, max(8px, root.height - self.height - 8px));
+            // Never over the page bar, at the bottom of the window or the top.
+            property <length> top: root.bar-top ? root.bar-height + 8px : 8px;
+            property <length> bottom: root.bar-top ? root.height - 8px : root.height - root.bar-height - 8px;
+            y: clamp(root.qe-y, self.top, max(self.top, self.bottom - self.height));
             arrow-left: root.qe-arrow-left;
             arrow-y: root.qe-point-y - self.y;
             qe: root.qe;
