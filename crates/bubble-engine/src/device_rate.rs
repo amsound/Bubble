@@ -135,47 +135,46 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-/// The rate Windows runs the device at (its shared-mode mix format), by its endpoint
-/// id as cpal gives it.
-pub fn device_rate(id: &str) -> Option<u32> {
+/// The device's two rates, by its endpoint id as cpal gives it: its format (what Sound
+/// settings shows) and the format Windows mixes at. They can differ.
+pub fn device_rates(id: &str) -> Option<(u32, u32)> {
     let _com = Com::new();
     let pc = PolicyConfig::new().ok()?;
-    pc.mix_format(&wide(id)).map(|f| f.rate())
+    let id = wide(id);
+    Some((pc.device_format(&id)?.rate(), pc.mix_format(&id)?.rate()))
 }
 
-/// Sets the device's format to `rate`, keeping its channels and sample size, and
-/// returns the rate Windows then runs it at. Other apps playing on the device are
-/// interrupted briefly while it changes.
-pub fn set_device_rate(id: &str, rate: u32) -> Result<u32, String> {
+/// Sets the device's format and mix format to `rate`, keeping its channels and sample
+/// size, and returns the two rates Windows then reports. Other apps playing on the
+/// device are interrupted briefly while it changes.
+pub fn set_device_rate(id: &str, rate: u32) -> Result<(u32, u32), String> {
     let _com = Com::new();
     let pc = PolicyConfig::new()?;
     let id = wide(id);
     let mut device = pc
         .device_format(&id)
         .ok_or("Windows did not give the device's format")?;
-    let mut mix = pc.mix_format(&id);
+    let mut mix = pc
+        .mix_format(&id)
+        .ok_or("Windows did not give the device's mix format")?;
     device.set_rate(rate);
-    if let Some(m) = &mut mix {
-        m.set_rate(rate);
-    }
-    let mix_ptr = mix.as_ref().map_or(device.0, |m| m.0);
+    mix.set_rate(rate);
     // SAFETY: two valid formats Windows allocated, changed only in their rate.
-    let hr = unsafe { (pc.vtbl().set_device_format)(pc.0, id.as_ptr(), device.0, mix_ptr) };
+    let hr = unsafe { (pc.vtbl().set_device_format)(pc.0, id.as_ptr(), device.0, mix.0) };
     if hr < 0 {
         return Err(format!(
             "Windows refused {rate} Hz for this device ({hr:#x})"
         ));
     }
+    let now = || -> Option<(u32, u32)> {
+        Some((pc.device_format(&id)?.rate(), pc.mix_format(&id)?.rate()))
+    };
     // The audio service applies it a moment later.
     for _ in 0..10 {
-        if let Some(now) = pc.mix_format(&id).map(|f| f.rate())
-            && now == rate
-        {
-            return Ok(now);
+        if now() == Some((rate, rate)) {
+            break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    pc.mix_format(&id)
-        .map(|f| f.rate())
-        .ok_or_else(|| "Windows did not give the device's format".into())
+    now().ok_or_else(|| "Windows did not give the device's format".into())
 }

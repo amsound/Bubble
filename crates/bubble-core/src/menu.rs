@@ -575,7 +575,7 @@ pub fn buffer_label(b: Option<u32>) -> String {
 }
 
 /// Sample rates offered for every output device.
-pub const SAMPLE_RATES: [u32; 3] = [44_100, 48_000, 96_000];
+pub const SAMPLE_RATES: [u32; 2] = [44_100, 48_000];
 
 /// Page bar heights, in `Prefs::bar_size` order.
 pub const BAR_SIZES: [&str; 3] = ["Small", "Medium", "Large (touch screen)"];

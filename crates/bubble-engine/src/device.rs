@@ -114,8 +114,8 @@ pub struct AudioOutput {
     pub channels: u16,
     pub buffer: BufferSize,
     pub sample_format: String,
-    /// Windows: the rate the system runs the device at (it converts Bubble's audio
-    /// when this differs from `sample_rate`). `None` elsewhere: macOS sets the device
+    /// Windows: the device's rate, or its mix rate if only that is off (Windows converts
+    /// Bubble's audio when this differs from `sample_rate`). `None` elsewhere: macOS sets the device
     /// to the stream's rate itself.
     pub device_rate: Option<u32>,
     /// Windows: what happened when the device's rate was set to Bubble's (for the log).
@@ -147,18 +147,30 @@ impl AudioOutput {
         #[cfg(windows)]
         let (device_rate, rate_note) = match (req.sample_rate, device.id()) {
             (Some(want), Ok(id)) => {
+                // Whichever of the two is off, or the device's when neither is.
+                let off = |(dev, mix): (u32, u32)| if dev != want { dev } else { mix };
                 let id = id.id().to_string();
-                match crate::device_rate::device_rate(&id) {
-                    Some(have) if have != want => {
+                match crate::device_rate::device_rates(&id) {
+                    Some((dev, mix)) if dev != want || mix != want => {
+                        let before = format!("device format {dev} Hz, mix format {mix} Hz");
                         match crate::device_rate::set_device_rate(&id, want) {
-                            Ok(now) => (
-                                Some(now),
-                                Some(format!("Windows ran it at {have} Hz; set to {now} Hz")),
+                            Ok((d, m)) => (
+                                Some(off((d, m))),
+                                Some(format!(
+                                    "{before}; asked for {want} Hz; now device format {d} Hz, \
+                                     mix format {m} Hz"
+                                )),
                             ),
-                            Err(e) => (Some(have), Some(e)),
+                            Err(e) => (Some(off((dev, mix))), Some(format!("{before}; {e}"))),
                         }
                     }
-                    have => (have, None),
+                    Some((dev, mix)) => (
+                        Some(dev),
+                        Some(format!(
+                            "device format {dev} Hz, mix format {mix} Hz; as wanted"
+                        )),
+                    ),
+                    None => (None, Some("Windows did not give its formats".to_string())),
                 }
             }
             _ => (None, None),

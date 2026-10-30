@@ -241,7 +241,7 @@ Done (main window):
       letters and ✕ centred, a "Name" hint in the alias box, heights from the
       tallest section. The red dot only on other pages again; double tap renames a
       tab; a dragged tab follows the pointer and the others slide apart. Windows:
-      dark menus in dark mode, tool windows' icons, Cart Setup stays up until the
+      tool windows' icons, Cart Setup stays up until the
       tap is over, a quick right-click opens the next menu, EDIT press-to-toggle
       timing in the log.
 - [x] Windows device rate: before an output opens, Bubble sets the device's format
@@ -249,7 +249,9 @@ Done (main window):
       (IPolicyConfig, undocumented, every step checked), so Windows does not convert
       a second time. If the device still runs at another rate, the page bar and the
       output's row in Settings ▸ Audio say so and what to change. Logged either way.
-      Not yet tried on Windows.
+      Both the device format and the mix format are read, compared and logged. 96 kHz
+      removed. A mouse click on an open drop-down's button now closes it. Not yet
+      confirmed on Windows that Sound settings follows every change.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

@@ -967,11 +967,11 @@ pub(crate) use share_theme;
 
 /// Opens a native menu of the window's pop-up rows at (x, y), outside the handler
 /// that asked (see `window::on_main`).
-pub fn open_menu<C: ComponentHandle + 'static>(win: &C, open: fn(&C)) {
+pub fn open_menu<C: ComponentHandle + 'static>(win: &C, x: f32, y: f32, open: fn(&C)) {
     let w = win.as_weak();
     crate::window::on_main(move || {
         if let Some(win) = w.upgrade() {
-            open(&win);
+            crate::window::run_menu(x, y, || open(&win));
         }
     });
 }

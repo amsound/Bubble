@@ -564,7 +564,7 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
         let w = s.win.as_weak();
         window::on_main(move || {
             if let Some(win) = w.upgrade() {
-                win.invoke_open_popup();
+                window::run_menu(x, y, || win.invoke_open_popup());
             }
         });
     });
@@ -798,7 +798,7 @@ fn wire_settings(win: &crate::SettingsWindow, me: &std::rc::Weak<RefCell<App>>) 
             s.choices(field.as_str(), row.max(0) as usize, &a.core);
             s.win.set_popup_x(x);
             s.win.set_popup_y(y);
-            settings::open_menu(&s.win, |w| w.invoke_open_popup());
+            settings::open_menu(&s.win, x, y, |w| w.invoke_open_popup());
         }
     );
     on_tool!(win, me, settings, on_popup_chosen, |s, a, i, id| {
@@ -857,7 +857,7 @@ fn wire_session_settings(win: &crate::SessionSettingsWindow, me: &std::rc::Weak<
             s.choices(field.as_str(), row.max(0) as usize, &snap);
             s.win.set_popup_x(x);
             s.win.set_popup_y(y);
-            settings::open_menu(&s.win, |w| w.invoke_open_popup());
+            settings::open_menu(&s.win, x, y, |w| w.invoke_open_popup());
         }
     );
     on_tool!(win, me, session_settings, on_popup_chosen, |s, a, i, id| {
@@ -1152,9 +1152,6 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
                 with(&app, move |a| {
                     if let Some(ui) = a.ui.upgrade() {
                         ui.global::<Theme>().set_system_dark(dark);
-                    }
-                    if a.prefs.appearance == Appearance::System {
-                        window::menus_dark(dark);
                     }
                 });
             }
@@ -2012,7 +2009,7 @@ impl App {
             let opened = Instant::now();
             // Forget the right-click that opened the menu.
             let _ = window::right_button_down();
-            ui.invoke_open_popup();
+            window::run_menu(x, y, || ui.invoke_open_popup());
             // Windows: a right-click on another cell or tab closed the menu, and Windows
             // kept that click from the window. Pass it on, so it opens the menu (or quick
             // edit) there. The menu waits until it closes, so a button still down is the

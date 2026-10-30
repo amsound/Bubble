@@ -150,10 +150,11 @@ impl Prefs {
     }
 
     pub fn rate(&self) -> u32 {
-        if self.sample_rate == 0 {
-            DEFAULT_SAMPLE_RATE
+        // 48 kHz, or 44.1 kHz; anything else (an older 96 kHz setting) is the default.
+        if self.sample_rate == 44_100 {
+            44_100
         } else {
-            self.sample_rate
+            DEFAULT_SAMPLE_RATE
         }
     }
 

@@ -231,12 +231,6 @@ pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
             Appearance::Dark => Some(winit::window::Theme::Dark),
         })
     });
-    #[cfg(windows)]
-    menus_dark(match a {
-        Appearance::System => system_dark(ui).unwrap_or(false),
-        Appearance::Light => false,
-        Appearance::Dark => true,
-    });
     #[cfg(target_os = "macos")]
     {
         use objc2::MainThreadMarker;
@@ -259,35 +253,28 @@ pub fn set_title_bar_theme(ui: &MainWindow, a: Appearance) {
     }
 }
 
-/// Windows: draws Bubble's menus (the menu bar's drop-downs, the pop-up and context
-/// menus) dark or light. Windows has no documented way to ask for this; uxtheme's
-/// SetPreferredAppMode and FlushMenuThemes (by ordinal, as Explorer and many other
-/// apps use them) do it. Where they are missing, the menus stay light.
-pub fn menus_dark(dark: bool) {
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-        let name: Vec<u16> = "uxtheme.dll".encode_utf16().chain(Some(0)).collect();
-        // SAFETY: a system library, and the two functions' known signatures (each
-        // looked up and checked before the call).
-        unsafe {
-            let lib = LoadLibraryW(name.as_ptr());
-            if lib.is_null() {
-                return;
-            }
-            let set = GetProcAddress(lib, 135 as _);
-            let flush = GetProcAddress(lib, 136 as _);
-            if let (Some(set), Some(flush)) = (set, flush) {
-                // PreferredAppMode: 2 force dark, 3 force light.
-                let set: extern "system" fn(i32) -> i32 = std::mem::transmute(set);
-                let flush: extern "system" fn() = std::mem::transmute(flush);
-                set(if dark { 2 } else { 3 });
-                flush();
-            }
-        }
+thread_local! {
+    /// The last pop-up menu: where it opened and when it closed.
+    static LAST_MENU: std::cell::Cell<Option<(f32, f32, std::time::Instant)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Opens a system menu at (x, y); `open` returns when the menu has closed. A mouse
+/// click on the button that opened it closes the menu and then reaches the button,
+/// which would open it again (a tap does not): so a request from the same place just
+/// after it closed is that click, and the menu stays closed.
+pub fn run_menu(x: f32, y: f32, open: impl FnOnce()) {
+    let same_click = LAST_MENU.get().is_some_and(|(lx, ly, closed)| {
+        (lx - x).abs() < 1.0
+            && (ly - y).abs() < 1.0
+            && closed.elapsed() < std::time::Duration::from_millis(500)
+    });
+    LAST_MENU.set(None);
+    if same_click {
+        return;
     }
-    #[cfg(not(windows))]
-    let _ = dark;
+    open();
+    LAST_MENU.set(Some((x, y, std::time::Instant::now())));
 }
 
 /// A tool window just shown (Cart Setup, the settings windows): rounded corners, the
