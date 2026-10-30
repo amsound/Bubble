@@ -1,0 +1,166 @@
+# Releases: pushing a tag like v0.2.0 builds Bubble for Windows (x64 and ARM64) and macOS
+# (universal), runs the tests on Windows, and creates a draft release with the zips.
+# Nothing is public until the draft is read over and published on GitHub.
+#
+# The tag must match the version in Cargo.toml. The builds are made as in
+# test-build.yml; keep the two alike.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  version:
+    name: Tag matches the version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          version=$(cargo pkgid -p bubble-slint | sed 's/.*[#@]//')
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+            exit 1
+          fi
+
+  windows:
+    name: Windows ${{ matrix.arch }}
+    needs: version
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked -p bubble-slint --target ${{ matrix.target }}
+      # The C runtime is linked in (.cargo/config.toml): a PC without the Visual C++
+      # Redistributable must still run it.
+      - name: Check no VC++ runtime DLL is needed
+        shell: bash
+        run: |
+          if llvm-objdump -p "target/${{ matrix.target }}/release/bubble-slint.exe" | grep -iE 'DLL Name: (vcruntime|msvcp)'; then
+            echo "::error::bubble-slint.exe needs the VC++ runtime"
+            exit 1
+          fi
+      - name: Zip
+        shell: bash
+        run: |
+          name="Bubble-${GITHUB_REF_NAME#v}-Windows-${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/bubble-slint.exe" "dist/$name/Bubble.exe"
+          cp LICENSE "dist/$name/LICENSE.txt"
+          cd dist && 7z a -tzip -bso0 "$name.zip" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist/*.zip
+          retention-days: 14
+
+  # Unlike a test build, a release does not go out with failing tests.
+  windows-tests:
+    name: Tests on Windows
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --locked
+
+  macos:
+    name: macOS universal
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p bubble-slint --target "$t"
+          done
+          cargo run --release --locked -q -p bubble-icon -- assets/logo.svg target/icon >/dev/null
+          iconutil -c icns target/icon/Bubble.iconset -o target/Bubble.icns
+      - name: Bundle and zip
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          name="Bubble-$version-macOS-universal"
+          app="dist/$name/Bubble.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          lipo -create target/aarch64-apple-darwin/release/bubble-slint \
+            target/x86_64-apple-darwin/release/bubble-slint -output "$app/Contents/MacOS/bubble-slint"
+          cp target/Bubble.icns "$app/Contents/Resources/Bubble.icns"
+          cp LICENSE "dist/$name/LICENSE.txt"
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Bubble</string>
+            <key>CFBundleDisplayName</key><string>Bubble</string>
+            <key>CFBundleIdentifier</key><string>app.bubble.slint</string>
+            <key>CFBundleExecutable</key><string>bubble-slint</string>
+            <key>CFBundleIconFile</key><string>Bubble</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$version</string>
+            <key>CFBundleVersion</key><string>$version</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          xattr -cr "$app"
+          codesign --force --sign - "$app"
+          ditto -c -k --keepParent "dist/$name" "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+          retention-days: 14
+
+  draft:
+    name: Draft the release
+    needs: [windows, windows-tests, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          sha256sum *.zip > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" *.zip SHA256SUMS.txt \
+            --verify-tag \
+            --draft \
+            --title "Bubble ${GITHUB_REF_NAME#v}" \
+            --notes "Windows: unzip, then run Bubble.exe. x64 is for Intel and AMD; arm64 is for Windows on ARM. The app is not signed, so SmartScreen asks first: More info, then Run anyway.
+
+          Mac: unzip, then Control-click Bubble and choose Open the first time. The app is not signed.
+
+          On Windows, Bubble sets each output device it uses to its mixer rate (48 kHz by default, or 44.1 kHz) so that Windows does not convert the audio again. This changes the device's Default format for every app on the computer, and it stays after Bubble quits.
+
+          Bubble is free software under the GPL-3.0-or-later licence. The source is in this repository."

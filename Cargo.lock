@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bubble-control",
  "bubble-core",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bubble-engine",
@@ -958,7 +958,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-control"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bubble-engine",
  "bubble-project",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bubble-control",
  "bubble-engine",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_no_alloc",
  "cpal",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-icon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "resvg 0.45.1",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-project"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "proptest",
@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-slint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "allsorts",
  "arboard",
@@ -1052,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "bubble-slint-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bubble-control",
  "bubble-engine",
@@ -1856,7 +1856,7 @@ dependencies = [
 
 [[package]]
 name = "dta-import"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bubble-project",
