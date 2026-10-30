@@ -1608,7 +1608,7 @@ impl Controller {
         };
         let stem = abs
             .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
+            .map(|s| label_from_file_name(&s.to_string_lossy()))
             .unwrap_or_default();
         let cart = self.project.pages[page].ensure_cart(row, col);
         let old_asset = cart.asset.replace(asset_id);
@@ -2260,6 +2260,13 @@ fn needs_targets(a: Action) -> bool {
         a,
         Action::Play | Action::Stop | Action::Toggle | Action::Pause
     )
+}
+
+/// A new cart's label from its file name: underscores read as spaces.
+/// "Prepared_to_Misbehave_Inst" gives "Prepared to Misbehave Inst".
+pub fn label_from_file_name(stem: &str) -> String {
+    let spaced = stem.replace('_', " ");
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Label shown on a cart: explicit label, else asset title, else file name.

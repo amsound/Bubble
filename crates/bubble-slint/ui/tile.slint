@@ -47,6 +47,12 @@ export struct Tile {
     copying: bool,
 }
 
+// A cart label measured at one size, inside a clipped empty box so it is never drawn.
+component LabelProbe inherits Text {
+    wrap: word-wrap;
+    accessible-role: none;
+}
+
 // How cart labels look (Session Settings ▸ Display).
 export struct LabelStyle {
     font: string,
@@ -94,6 +100,34 @@ export component TileView inherits Rectangle {
     property <length> small: clamp(12px * style.small, 8px, 40px);
     property <length> time-size: clamp(clamp(self.height / 7, 14px, 22px) * style.small, 8px, 60px);
     property <length> label-size: clamp(clamp(self.height / 5, 13px, 26px) * style.size, 6px, 120px);
+    // A long label steps down to the largest of these sizes that fits, no smaller than
+    // 13 px (or the full size, if a small setting makes that smaller). Only the sizes
+    // tried are measured: a short label measures one, and only again when it or the
+    // tile changes.
+    property <length> label-floor: min(label-size, 13px);
+    property <length> label-w: root.width - 2 * pad;
+    property <length> label-h: max(0px, bottom.y - 2px - (top + top-h + 2px));
+    property <int> label-step: fit-0.preferred-height <= label-h ? 0
+        : fit-1.preferred-height <= label-h ? 1
+        : fit-2.preferred-height <= label-h ? 2
+        : fit-3.preferred-height <= label-h ? 3
+        : fit-4.preferred-height <= label-h ? 4
+        : fit-5.preferred-height <= label-h ? 5
+        : 6;
+    pure function step-size(k: float) -> length {
+        max(label-floor, label-size * k)
+    }
+    property <length> fitted-size: label-step == 0 ? step-size(1)
+        : label-step == 1 ? step-size(0.85)
+        : label-step == 2 ? step-size(0.7)
+        : label-step == 3 ? step-size(0.6)
+        : label-step == 4 ? step-size(0.55)
+        : step-size(0.5);
+    // Still too long at the smallest size: from the top, ending in an ellipsis.
+    property <bool> label-too-long: label-step == 6;
+    property <string> label-font: style.font != "" ? style.font : Theme.mac ? "System Font" : "";
+    property <int> label-weight: tile.control ? 700 : max(style.weight, 600);
+    property <length> label-spacing: tile.control ? 0.6px : 0px;
     // The bottom row ends here; the progress band sits below it.
     property <length> bottom-y: self.height - 17px;
     property <length> top-h: max(small + 4px, chips.preferred-height);
@@ -287,15 +321,69 @@ export component TileView inherits Rectangle {
             text: tile.label;
             // The large label in San Francisco's Display design, as macOS sets large
             // text (the window default is its Text design; fonts.rs).
-            font-family: style.font != "" ? style.font : Theme.mac ? "System Font" : "";
-            font-weight: tile.control ? 700 : max(style.weight, 600);
-            letter-spacing: tile.control ? 0.6px : 0px;
-            font-size: label-size;
+            font-family: label-font;
+            font-weight: label-weight;
+            letter-spacing: label-spacing;
+            font-size: fitted-size;
             color: tile.fg;
             wrap: word-wrap;
-            overflow: clip;
+            overflow: label-too-long ? TextOverflow.elide : TextOverflow.clip;
             horizontal-alignment: style.h-align == 0 ? TextHorizontalAlignment.left : style.h-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.center;
-            vertical-alignment: style.v-align == 0 ? TextVerticalAlignment.top : style.v-align == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.center;
+            vertical-alignment: label-too-long || style.v-align == 0 ? TextVerticalAlignment.top : style.v-align == 2 ? TextVerticalAlignment.bottom : TextVerticalAlignment.center;
+        }
+        // The label at each size, never drawn, to measure it.
+        Rectangle {
+            width: 0;
+            height: 0;
+            clip: true;
+            fit-0 := LabelProbe {
+                width: label-w;
+                text: tile.label;
+                font-family: label-font;
+                font-weight: label-weight;
+                letter-spacing: label-spacing;
+                font-size: step-size(1);
+            }
+            fit-1 := LabelProbe {
+                width: label-w;
+                text: tile.label;
+                font-family: label-font;
+                font-weight: label-weight;
+                letter-spacing: label-spacing;
+                font-size: step-size(0.85);
+            }
+            fit-2 := LabelProbe {
+                width: label-w;
+                text: tile.label;
+                font-family: label-font;
+                font-weight: label-weight;
+                letter-spacing: label-spacing;
+                font-size: step-size(0.7);
+            }
+            fit-3 := LabelProbe {
+                width: label-w;
+                text: tile.label;
+                font-family: label-font;
+                font-weight: label-weight;
+                letter-spacing: label-spacing;
+                font-size: step-size(0.6);
+            }
+            fit-4 := LabelProbe {
+                width: label-w;
+                text: tile.label;
+                font-family: label-font;
+                font-weight: label-weight;
+                letter-spacing: label-spacing;
+                font-size: step-size(0.55);
+            }
+            fit-5 := LabelProbe {
+                width: label-w;
+                text: tile.label;
+                font-family: label-font;
+                font-weight: label-weight;
+                letter-spacing: label-spacing;
+                font-size: step-size(0.5);
+            }
         }
     }
 

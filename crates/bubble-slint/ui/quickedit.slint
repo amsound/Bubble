@@ -59,6 +59,9 @@ export component LabelField inherits Rectangle {
     callback edited(string);
     callback accepted();
     property <int> seq: TextCommand.seq;
+    // One line: how far the text is scrolled left, following the cursor. A bare
+    // TextInput does not do this itself.
+    property <length> scroll;
     // One line, growing as the label wraps or gains lines.
     height: single-line ? (Theme.mac ? 22px : 32px)
         : max((Theme.mac ? 16px : 20px) * lines + (Theme.mac ? 6px : 12px), input.preferred-height + (Theme.mac ? 6px : 12px));
@@ -77,9 +80,10 @@ export component LabelField inherits Rectangle {
         overflow: elide;
     }
     input := TextInput {
-        x: 8px;
+        property <length> view: parent.width - 16px;
+        x: 8px + (root.single-line ? min(0px, max(self.view - self.width, root.scroll)) : 0px);
         y: Theme.mac ? 3px : 6px;
-        width: parent.width - 16px;
+        width: root.single-line ? max(self.view, self.preferred-width + 2px) : self.view;
         height: parent.height - (Theme.mac ? 6px : 12px);
         single-line: root.single-line;
         wrap: root.single-line ? no-wrap : word-wrap;
@@ -93,8 +97,21 @@ export component LabelField inherits Rectangle {
         accepted => {
             root.accepted();
         }
+        cursor-position-changed(p) => {
+            if root.single-line {
+                if p.x + root.scroll < 0px {
+                    root.scroll = -p.x;
+                } else if p.x + root.scroll > self.view - 2px {
+                    root.scroll = self.view - 2px - p.x;
+                }
+            }
+        }
         changed has-focus => {
             TextCommand.typing = self.has-focus;
+            // Back to the start of the text once done with it.
+            if !self.has-focus {
+                root.scroll = 0px;
+            }
         }
     }
     changed seq => {

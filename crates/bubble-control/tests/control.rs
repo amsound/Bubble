@@ -85,7 +85,7 @@ fn assign_play_and_stop_by_mouse() {
     let cart = c
         .assign_file(0, 0, 0, &test_file("1kHz_16_48_AB_M18.wav"))
         .unwrap();
-    assert_eq!(c.project().cart(cart).unwrap().label, "1kHz_16_48_AB_M18");
+    assert_eq!(c.project().cart(cart).unwrap().label, "1kHz 16 48 AB M18");
     wait_ready(&mut c);
     assert_eq!(state(&c, cart), CartState::Ready);
     // Asset metadata filled from the decoder.
@@ -1146,4 +1146,15 @@ fn several_files_carry_on_into_the_next_pages_free_cells() {
     assert_eq!(c.project().pages.len(), 3);
     assert_eq!(c.project().pages[2].name, "Page 3");
     assert_eq!(at(2, 0), "f4");
+}
+
+#[test]
+fn file_names_become_labels_with_spaces() {
+    use bubble_control::controller::label_from_file_name as label;
+    assert_eq!(
+        label("ABAC_ABAC_0010_00201_Prepared_to_Misbehave_Inst_APM"),
+        "ABAC ABAC 0010 00201 Prepared to Misbehave Inst APM"
+    );
+    assert_eq!(label("_a__b_ c"), "a b c");
+    assert_eq!(label("No underscores - here"), "No underscores - here");
 }

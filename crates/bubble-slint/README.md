@@ -252,6 +252,10 @@ Done (main window):
       Both the device format and the mix format are read, compared and logged. 96 kHz
       removed. A mouse click on an open drop-down's button now closes it. Not yet
       confirmed on Windows that Sound settings follows every change.
+- [x] Long cart labels: each tile steps its label down to the largest size that fits
+      (no smaller than 13 px), then from the top with an ellipsis. New carts' labels
+      read underscores in the file name as spaces. Quick edit stays clear of the page
+      bar. One-line text fields scroll with the cursor.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;
