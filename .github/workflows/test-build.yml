@@ -47,25 +47,22 @@ jobs:
           key: ${{ matrix.target }}
       - name: Build
         shell: bash
-        run: cargo build --release --locked -p bubble-app -p bubble-slint --target ${{ matrix.target }}
+        run: cargo build --release --locked -p bubble-slint --target ${{ matrix.target }}
       # The C runtime is linked in (.cargo/config.toml): a PC without the Visual C++
       # Redistributable must still run it.
       - name: Check no VC++ runtime DLL is needed
         shell: bash
         run: |
-          for exe in bubble bubble-slint; do
-            if llvm-objdump -p "target/${{ matrix.target }}/release/$exe.exe" | grep -iE 'DLL Name: (vcruntime|msvcp)'; then
-              echo "::error::$exe.exe needs the VC++ runtime"
-              exit 1
-            fi
-          done
+          if llvm-objdump -p "target/${{ matrix.target }}/release/bubble-slint.exe" | grep -iE 'DLL Name: (vcruntime|msvcp)'; then
+            echo "::error::bubble-slint.exe needs the VC++ runtime"
+            exit 1
+          fi
       - name: Zip
         shell: bash
         run: |
           name="Bubble-test-${GITHUB_SHA::7}-Windows-${{ matrix.arch }}"
           mkdir -p "dist/$name"
-          cp "target/${{ matrix.target }}/release/bubble.exe" "dist/$name/Bubble.exe"
-          cp "target/${{ matrix.target }}/release/bubble-slint.exe" "dist/$name/Bubble Slint.exe"
+          cp "target/${{ matrix.target }}/release/bubble-slint.exe" "dist/$name/Bubble.exe"
           cd dist && 7z a -tzip -bso0 "$name.zip" "$name"
       - uses: actions/upload-artifact@v4
         with:
@@ -98,13 +95,13 @@ jobs:
       - name: Build
         run: |
           for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --locked -p bubble-app -p bubble-slint --target "$t"
+            cargo build --release --locked -p bubble-slint --target "$t"
           done
           cargo run --release --locked -q -p bubble-icon -- assets/logo.svg target/icon >/dev/null
           iconutil -c icns target/icon/Bubble.iconset -o target/Bubble.icns
       - name: Bundle and zip
         run: |
-          version=$(cargo pkgid -p bubble-app | sed 's/.*[#@]//')
+          version=$(cargo pkgid -p bubble-slint | sed 's/.*[#@]//')
           short=${GITHUB_SHA::7}
           mkdir -p dist
           # app name, executable, bundle id
@@ -133,8 +130,7 @@ jobs:
             xattr -cr "$app"
             codesign --force --sign - "$app"
           }
-          bundle "Bubble" bubble app.bubble.dev
-          bundle "Bubble Slint" bubble-slint app.bubble.slint
+          bundle "Bubble" bubble-slint app.bubble.slint
           name="Bubble-test-$short-macOS-universal"
           mkdir "dist/$name"
           mv dist/*.app "dist/$name/"
@@ -175,6 +171,6 @@ jobs:
             --title "Test build ($short)" \
             --notes "Built automatically from main at $short ($(date -u '+%Y-%m-%d %H:%M UTC')). For testing only: unsigned, and replaced by the next build.
 
-          Windows: unzip, then run Bubble.exe (egui) or Bubble Slint.exe. SmartScreen asks first: More info, then Run anyway. x64 is for Intel and AMD (Surface Go 2, ThinkPad); arm64 for Windows on ARM.
+          Windows: unzip, then run Bubble.exe. SmartScreen asks first: More info, then Run anyway. x64 is for Intel and AMD (Surface Go 2, ThinkPad); arm64 for Windows on ARM.
 
           Mac: unzip, then Control-click the app and choose Open the first time."
