@@ -44,6 +44,8 @@ pub enum WriteDone {
         result: Result<(), String>,
     },
     Autosave(Result<(), String>),
+    /// A version was kept: the list of them has changed.
+    Backup,
     Prefs(Result<(), String>),
 }
 
@@ -80,7 +82,7 @@ fn run(job: WriteJob, done: &Sender<WriteDone>) {
             if let Err(e) = crate::backups::keep(&dir, &bytes, now) {
                 crate::log::info(&format!("no backup in {}: {e}", dir.display()));
             }
-            return;
+            WriteDone::Backup
         }
         WriteJob::Remove(paths) => {
             for p in paths {

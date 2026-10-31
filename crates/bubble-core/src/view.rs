@@ -266,6 +266,11 @@ impl Core {
                 Level::Error,
             ));
         }
+        if let Some((note, at)) = &self.import_note
+            && at.elapsed() < crate::app::audio_out::PROBLEM_SHOWN
+        {
+            out.push(item(note.clone(), Level::Warn));
+        }
         if let Some((path, _)) = &self.read_failure {
             let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
             out.push(item(

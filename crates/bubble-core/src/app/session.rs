@@ -45,7 +45,7 @@ pub enum JobResult {
     /// Audio copied for Save As; save the session to `file` with these moves.
     SavedAs(PathBuf, Vec<(Uuid, PathBuf)>, Vec<String>),
     /// A SpotOn session or package was imported to this session file.
-    Imported(PathBuf),
+    Imported(PathBuf, Option<String>),
     /// A SpotOn session or package converted for adding to the open session.
     Merged(Box<bubble_project::Project>),
     /// Files converted to WAV (session setting), with errors.
@@ -92,6 +92,22 @@ pub struct Job {
     pub cell: Option<(usize, u16, u16)>,
     pub rx: Receiver<JobResult>,
     pub control: JobControl,
+}
+
+/// What to say when an import gave carts a file found elsewhere in the session.
+fn linked_note(report: &dta_import::Report) -> Option<String> {
+    let n = report
+        .carts
+        .iter()
+        .filter(|c| {
+            c.asset
+                .as_ref()
+                .is_some_and(|a| a.via.as_deref() == Some("same_name_and_length"))
+        })
+        .count();
+    (n > 0).then(|| {
+        format!("{n} cart(s) use a file of the same name and length found elsewhere: check them")
+    })
 }
 
 /// `~/Bubble` when no location was chosen yet: the home folder itself is not synced
@@ -323,7 +339,11 @@ impl Core {
                 intents.push(Intent::SaveAsWith(file, moves));
                 report(errors, self);
             }
-            JobResult::Imported(file) => {
+            JobResult::Imported(file, note) => {
+                if let Some(n) = note {
+                    crate::log::info(&n);
+                    self.import_note = Some((n, std::time::Instant::now()));
+                }
                 self.start_open(file, false);
             }
             JobResult::Merged(project) => {
@@ -417,7 +437,8 @@ impl Core {
                             }
                             JobResult::Cancelled
                         }
-                        Ok(_) if wav => {
+                        Ok(o) if wav => {
+                            let note = linked_note(&o.report);
                             // The Audio files choice made with the new session.
                             let set = bubble_project::io::load(&out)
                                 .map_err(|e| e.to_string())
@@ -427,14 +448,17 @@ impl Core {
                                         .map_err(|e| e.to_string())
                                 });
                             match set {
-                                Ok(()) => JobResult::Imported(out),
+                                Ok(()) => JobResult::Imported(out, note),
                                 Err(e) => JobResult::Failed(format!(
                                     "Imported {}, but could not set it to convert to WAV:\n{e}",
                                     src.display()
                                 )),
                             }
                         }
-                        Ok(_) => JobResult::Imported(out),
+                        Ok(o) => {
+                            let note = linked_note(&o.report);
+                            JobResult::Imported(out, note)
+                        }
                         Err(e) => {
                             JobResult::Failed(format!("Could not import {}:\n{e}", src.display()))
                         }

@@ -296,6 +296,10 @@ struct Converter<'a> {
     asset_found: HashMap<Uuid, bool>,
     wav_formats: HashMap<Uuid, Option<WavFormat>>,
     bindings: Vec<Binding>,
+    /// Files the session's carts were found to use: (name in lower case, where).
+    found_elsewhere: Vec<(String, PathBuf)>,
+    /// Carts given another path's file, of the same name and length.
+    linked_same_file: usize,
 }
 
 /// Converts a parsed session. `project_dir` is where the project will be saved; asset
@@ -329,10 +333,21 @@ pub fn convert(
         asset_found: HashMap::new(),
         wav_formats: HashMap::new(),
         bindings: Vec::new(),
+        found_elsewhere: Vec::new(),
+        linked_same_file: 0,
     };
 
     let mut used: Vec<&dta::Cart> = session.carts.iter().filter(|c| c.is_used()).collect();
     used.sort_by_key(|c| c.index);
+    // Before the carts, as one may name a file that only a later one's path can find.
+    for rc in &used {
+        if let Some(path) = rc.source_path()
+            && let Some(found) = c.translator.locate(path).found
+        {
+            c.found_elsewhere
+                .push((windows_file_name(path).to_lowercase(), found));
+        }
+    }
     let last_page = used.last().map_or(0, |c| layout.position(c.index).0);
     // Up to the last page with something on it; empty ones before that stay.
     let n_pages = (last_page + 1).max(1);
@@ -441,6 +456,13 @@ pub fn convert(
     let assets_resolved = c.asset_found.len() - assets_missing;
 
     let mut manual = Vec::new();
+    if c.linked_same_file > 0 {
+        manual.push(format!(
+            "{} cart(s) pointed at a file that was not there; each now uses a file of the same \
+             name and length from elsewhere in the session. Check they sound right.",
+            c.linked_same_file
+        ));
+    }
     if assets_missing > 0 {
         manual.push(format!(
             "Relink {assets_missing} missing file(s) (File ▸ Relink Missing Files…)"
@@ -508,7 +530,7 @@ impl Converter<'_> {
         let mut asset_report = None;
         let mut wav = None;
         if let Some(ref_path) = rc.source_path() {
-            let (id, rep) = self.asset(ref_path, project, &mut warnings);
+            let (id, rep) = self.asset(ref_path, rc.trim_end_bytes, project, &mut warnings);
             cart.asset = Some(id);
             wav = self.wav_formats.get(&id).copied().flatten();
             asset_report = Some(rep);
@@ -804,10 +826,22 @@ impl Converter<'_> {
     fn asset(
         &mut self,
         ref_path: &str,
+        audio_bytes: i64,
         project: &mut Project,
         warnings: &mut Vec<String>,
     ) -> (Uuid, AssetReport) {
-        let located = self.translator.locate(ref_path);
+        let mut located = self.translator.locate(ref_path);
+        if located.found.is_none()
+            && let Some(file) = self.same_file_elsewhere(ref_path, audio_bytes)
+        {
+            warnings.push(format!(
+                "{ref_path} was not there; used {}, which has the same name and length",
+                file.display()
+            ));
+            self.linked_same_file += 1;
+            located.found = Some(file);
+            located.via = Some("same_name_and_length");
+        }
         let mut rep = AssetReport {
             ref_path: ref_path.to_string(),
             resolved: located.found.as_ref().map(|p| p.display().to_string()),
@@ -854,6 +888,21 @@ impl Converter<'_> {
         self.asset_found.insert(id, found);
         project.assets.push(asset);
         (id, rep)
+    }
+
+    /// Another file the session uses, found on disk, that is surely the one at `ref_path`:
+    /// the same name, and its audio exactly the length this cart stored (a trimmed cart
+    /// stores less, so it cannot be told and is left to be relinked).
+    fn same_file_elsewhere(&self, ref_path: &str, audio_bytes: i64) -> Option<PathBuf> {
+        let name = windows_file_name(ref_path).to_lowercase();
+        let (_, file) = self.found_elsewhere.iter().find(|(other, file)| {
+            *other == name
+                && read_wav_format(file).is_some_and(|f| {
+                    f.frames
+                        .is_some_and(|n| n as i64 * f.block_align as i64 == audio_bytes)
+                })
+        })?;
+        Some(file.clone())
     }
 
     /// Asset for a file that was not found: the drive-mapped location (or the bare file

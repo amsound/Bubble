@@ -199,6 +199,11 @@ pub struct Core {
     pub(crate) revert: Option<Revert>,
     /// Cancelled: on the way back to the session before. The dialog stays until there.
     pub reverting: bool,
+    /// The open session's versions for Restore from Backup, newest first.
+    pub backup_versions: Vec<(PathBuf, jiff::civil::DateTime)>,
+    backups_of: Option<Uuid>,
+    /// Said on the page bar for a moment after an import.
+    pub import_note: Option<(String, Instant)>,
     /// When a version was last kept for Restore from Backup, and at which edit.
     backup_at: Instant,
     backup_edits: u64,
@@ -305,6 +310,9 @@ impl Core {
             midi_opening: None,
             revert: None,
             reverting: false,
+            backup_versions: Vec::new(),
+            backups_of: None,
+            import_note: None,
             backup_at: Instant::now(),
             backup_edits: 0,
             dropouts: 0,
@@ -588,6 +596,7 @@ impl Core {
                         }
                     }
                 }
+                WriteDone::Backup => self.backups_of = None,
                 WriteDone::Autosave(result) => {
                     self.autosave_writing = false;
                     match result {
@@ -1320,10 +1329,17 @@ impl Core {
 
     pub fn autosave(&mut self) {
         self.poll_writes();
-        let (edits, dirty) = {
+        let (edits, dirty, id) = {
             let c = self.lock();
-            (c.edit_count(), c.is_dirty())
+            (c.edit_count(), c.is_dirty(), c.project().id)
         };
+        // The list in the menu: its own folder, on this computer, when it changes.
+        if self.backups_of != Some(id) {
+            self.backups_of = Some(id);
+            self.backup_versions = crate::backups::folder(id)
+                .map(|d| crate::backups::versions(&d))
+                .unwrap_or_default();
+        }
         // A version for Restore from Backup, every so often while there are new edits.
         if edits != self.backup_edits && self.backup_at.elapsed() >= BACKUP_EVERY {
             self.backup_edits = edits;

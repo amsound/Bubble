@@ -57,8 +57,6 @@ thread_local! {
 #[derive(Clone)]
 enum Popup {
     Separator,
-    /// A version from Session ▸ Restore from Backup.
-    Backup(PathBuf),
     Assign(usize, u16, u16),
     PasteCart(usize, u16, u16),
     Control(usize, u16, u16, bubble_project::Control, Option<Uuid>),
@@ -1691,45 +1689,6 @@ impl App {
         }
     }
 
-    /// Session ▸ Restore from Backup: the session's versions, by when, as a menu.
-    fn restore_menu(&mut self) {
-        let Some(ui) = self.ui.upgrade() else { return };
-        let id = self.lock().project().id;
-        let versions = bubble_core::backups::folder(id)
-            .map(|d| bubble_core::backups::versions(&d))
-            .unwrap_or_default();
-        let today = jiff::Zoned::now().date();
-        self.popup = versions
-            .iter()
-            .map(|(p, _)| Popup::Backup(p.clone()))
-            .collect();
-        let mut rows: Vec<PopupRow> = versions
-            .iter()
-            .enumerate()
-            .map(|(i, (_, t))| PopupRow {
-                id: i as i32,
-                text: bubble_core::backups::label(*t, today).into(),
-                enabled: true,
-                checked: false,
-            })
-            .collect();
-        if rows.is_empty() {
-            self.popup.push(Popup::Separator);
-            rows.push(PopupRow {
-                id: 0,
-                text: "No backups of this session yet".into(),
-                enabled: false,
-                checked: false,
-            });
-        }
-        ui.set_popup_rows(ModelRc::new(VecModel::from(rows)));
-        ui.set_popup_sub_title("".into());
-        ui.set_popup_sub(ModelRc::default());
-        ui.set_popup_tail(ModelRc::default());
-        let size = ui.window().size().to_logical(ui.window().scale_factor());
-        self.open_popup(&ui, size.width / 2.0 - 90.0, size.height / 4.0);
-    }
-
     /// The loading dialog's contents.
     fn load_info(&mut self, snap: &Snapshot) -> LoadInfo {
         // The test aid's picture of it.
@@ -2239,9 +2198,6 @@ impl App {
         };
         match p {
             Popup::Separator => {}
-            Popup::Backup(file) => {
-                self.request_from_ui(PendingAction::Restore(file), intents);
-            }
             Popup::Grid(page, r, c, _) => intents.push(Intent::ResizePage(page, r, c)),
             Popup::PageSettings => {
                 self.open_session_settings(Some(3));
@@ -2636,7 +2592,11 @@ impl App {
                     bubble_core::dialogs::reveal(&d.join("bubble.log"));
                 }
             }
-            Cmd::RestoreBackup => self.restore_menu(),
+            Cmd::RestoreBackup(i) => {
+                if let Some((file, _)) = self.core.backup_versions.get(i).cloned() {
+                    self.request_from_ui(PendingAction::Restore(file), intents);
+                }
+            }
             Cmd::OpenBubbleFiles => {
                 self.core.prefs.no_file_link = !self.core.prefs.no_file_link;
                 self.core.save_prefs();

@@ -119,7 +119,8 @@ pub enum Cmd {
     OutputLevel(i32),
     ProjectSettings,
     RevealSession,
-    RestoreBackup,
+    /// Session ▸ Restore from Backup ▸ that version (see [`Core::backup_versions`]).
+    RestoreBackup(usize),
     /// Settings: whether double-clicking a .bubble file opens Bubble.
     OpenBubbleFiles,
     CopyPage,
@@ -259,7 +260,6 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             Cmd::RevealSession,
         )
         .enabled(snap.path.is_some()),
-        Item::action("Restore from Backup…", Cmd::RestoreBackup),
         Item::action("Relink Missing Files…", Cmd::Relink),
         Item::action("Reload All Audio", Cmd::ReloadAudio),
     ]);
@@ -388,8 +388,21 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         Item::action("Outputs…", Cmd::Outputs),
         Item::action("Reassign Cart Outputs…", Cmd::ReassignOutputs),
     ];
+    let today = jiff::Zoned::now().date();
+    let mut backups: Vec<Item> = core
+        .backup_versions
+        .iter()
+        .enumerate()
+        .map(|(i, (_, time))| {
+            Item::action(crate::backups::label(*time, today), Cmd::RestoreBackup(i))
+        })
+        .collect();
+    if backups.is_empty() {
+        backups.push(Item::action("No backups yet", Cmd::RestoreBackup(0)).enabled(false));
+    }
     let mut session = vec![
         Item::action("Session Settings…", Cmd::ProjectSettings).accel("CmdOrCtrl+Comma"),
+        Item::sub("Restore from Backup", backups),
         Item::Separator,
         Item::action("Add Page", Cmd::AddPage),
         Item::action("Copy Page", Cmd::CopyPage),
