@@ -42,7 +42,13 @@ pub fn install(ctrl: Arc<Mutex<Controller>>, session_id: u64) {
             saved,
             std::backtrace::Backtrace::force_capture(),
         );
-        write_report(&report_file(), &report);
+        // On another thread Bubble carries on, that thread's work contained or reopened,
+        // so the next launch has no crash to mention: the report is only kept on file.
+        if std::thread::current().name() == Some("main") {
+            write_report(&report_file(), &report);
+        } else if let Some(file) = report_file() {
+            let _ = std::fs::write(file, &report);
+        }
         previous(info);
         // A panic on the interface thread leaves nothing to run the window: on Windows it
         // could stay on screen, frozen. End it, for the next launch to offer recovery.

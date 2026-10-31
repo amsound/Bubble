@@ -259,7 +259,7 @@ impl ReaderStream {
     }
 
     /// One step of work. Returns whether anything was done.
-    fn step(&mut self) -> bool {
+    fn step(&mut self, stats: &ReaderStats) -> bool {
         let (epoch, pos) = unpack(self.shared.request.load(Ordering::Acquire));
         if epoch == 0 {
             return false;
@@ -283,6 +283,7 @@ impl ReaderStream {
                 .ack
                 .store(pack(epoch, self.written), Ordering::Release);
             if ok.is_err() {
+                stats.report(&self.path);
                 self.decoder = None;
                 self.finish();
             }
@@ -303,7 +304,11 @@ impl ReaderStream {
             .map(|d| d.read(&mut self.scratch, want))
         {
             Some(Ok(n)) => n,
-            _ => 0,
+            Some(Err(_)) => {
+                stats.report(&self.path);
+                0
+            }
+            None => 0,
         };
         if got > 0 {
             // Fits: `want` frames were free and only this thread writes.
@@ -328,6 +333,14 @@ struct ReaderStats {
     /// The reader has no streams and waits for one.
     empty: AtomicBool,
     paused: AtomicBool,
+    /// A file that could not be read, for the interface to say so.
+    failed: std::sync::Mutex<Option<String>>,
+}
+
+impl ReaderStats {
+    fn report(&self, path: &std::path::Path) {
+        *self.failed.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.display().to_string());
+    }
 }
 
 /// The disk-reader thread. One serves every voice of every engine; it ends when the
@@ -396,6 +409,16 @@ impl Streamer {
             prev: [0.0; MAX_CHANNELS],
             prev_pos: usize::MAX,
         }))
+    }
+
+    /// The last long file that could not be read since the last call. A voice playing it
+    /// ends where the reading stopped.
+    pub fn take_read_failure(&self) -> Option<String> {
+        self.stats
+            .failed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
     }
 
     /// Stops (or resumes) reading, to test underruns.
@@ -470,7 +493,14 @@ fn reader_loop(rx: Receiver<ReaderStream>, stats: Arc<ReaderStats>) {
         streams.sort_by(|a, b| a.fill_level().total_cmp(&b.fill_level()));
         let mut worked = false;
         for s in &mut streams {
-            worked |= s.step();
+            // A decoder that panics on a damaged file ends that voice, not every stream.
+            let step = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.step(&stats)));
+            worked |= step.unwrap_or_else(|_| {
+                stats.report(&s.path);
+                s.decoder = None;
+                s.finish();
+                true
+            });
         }
         idle = !worked;
         if idle {

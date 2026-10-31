@@ -272,6 +272,7 @@ impl Settings {
         );
         w.set_rate(rate_text(self.rate).into());
         w.set_buffer(menu::buffer_label(self.buffer).into());
+        w.set_dropouts(core.dropouts.to_string().into());
         w.set_audio_changed(self.audio_changed(core));
         w.set_audio_problem(core.audio_error.clone().unwrap_or_default().into());
         w.set_scanning(core.devices_scan.is_some());

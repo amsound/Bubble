@@ -329,6 +329,11 @@ impl Controller {
         self.resolved = Some(resolved);
     }
 
+    /// The last long file that could not be read since the last call.
+    pub fn take_read_failure(&self) -> Option<String> {
+        self.streamer.take_read_failure()
+    }
+
     /// The rate audio is prepared at.
     pub fn prepared_rate(&self) -> u32 {
         self.assets.rate()

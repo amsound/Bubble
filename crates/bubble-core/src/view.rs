@@ -257,6 +257,34 @@ impl Core {
                 Level::Warn,
             ));
         }
+        if self
+            .audio_recovered
+            .is_some_and(|t| t.elapsed() < crate::app::audio_out::PROBLEM_SHOWN)
+        {
+            out.push(item(
+                "Audio stopped and restarted: anything playing has stopped".into(),
+                Level::Error,
+            ));
+        }
+        if let Some((path, _)) = &self.read_failure {
+            let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            out.push(item(
+                format!("Could not read {name}: its cart stopped"),
+                Level::Error,
+            ));
+        }
+        if self
+            .dropout_at
+            .is_some_and(|t| t.elapsed() < crate::app::audio_out::PROBLEM_SHOWN)
+        {
+            out.push(item(
+                format!("Audio dropouts this run: {}", self.dropouts),
+                Level::Warn,
+            ));
+        }
+        if let Some(e) = self.midi.errors.first() {
+            out.push(item(format!("MIDI: {e}"), Level::Warn));
+        }
         if !snap.missing.is_empty() {
             out.push(item(
                 format!("{} missing file(s)", snap.missing.len()),
@@ -342,7 +370,8 @@ impl Core {
     /// For testing crash handling, a few seconds in, with unsaved work:
     /// `BUBBLE_CRASH_TEST=1` panics, `native` writes through a bad pointer and `overflow`
     /// runs out of stack (both as a driver's fault would, past Rust's panic handling);
-    /// `edit` makes one edit and carries on.
+    /// `edit` makes one edit and carries on; `audio-panic` and `audio-hang` fail the
+    /// first output's audio thread.
     pub fn crash_test(&self) {
         let Some(kind) = std::env::var_os("BUBBLE_CRASH_TEST") else {
             return;
@@ -356,6 +385,22 @@ impl Core {
             static DONE: AtomicBool = AtomicBool::new(false);
             if !DONE.swap(true, Ordering::Relaxed) {
                 self.lock().set_dirty();
+            }
+            return;
+        }
+        // Faults on the audio thread, once: Bubble is meant to carry on through these.
+        let fault = match kind.to_str() {
+            Some("audio-panic") => 1,
+            Some("audio-hang") => 2,
+            _ => 0,
+        };
+        if fault != 0 {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static DONE: AtomicBool = AtomicBool::new(false);
+            if !DONE.swap(true, Ordering::Relaxed)
+                && let Some(e) = self.lock().engines().first()
+            {
+                e.status().inject_fault(fault);
             }
             return;
         }

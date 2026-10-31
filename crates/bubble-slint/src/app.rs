@@ -1086,11 +1086,13 @@ fn progress_text(c: &bubble_core::app::JobControl) -> Option<String> {
     Some(if c.in_bytes {
         const GB: f64 = 1e9;
         const MB: f64 = 1e6;
-        // A package reads and then writes its bytes: shown as a whole.
-        if (total as f64) < GB {
-            format!("{:.0} of {:.0} MB", done as f64 / MB, total as f64 / MB)
+        // A package is gone through twice (checked, then copied out), so the count runs to
+        // twice its size: shown as the package's own size.
+        let (done, total) = (done as f64 / 2.0, total as f64 / 2.0);
+        if total < GB {
+            format!("{:.0} of {:.0} MB", done / MB, total / MB)
         } else {
-            format!("{:.1} of {:.1} GB", done as f64 / GB, total as f64 / GB)
+            format!("{:.1} of {:.1} GB", done / GB, total / GB)
         }
     } else {
         format!("{done} of {total} files")

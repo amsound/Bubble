@@ -181,6 +181,13 @@ pub struct Core {
     /// until a meter takes them: a snapshot taken for another reason must not lose
     /// them.
     peaks: Mutex<HashMap<Uuid, (f32, f32)>>,
+    /// Times audio was late or missing this run, and when it last happened.
+    pub dropouts: u64,
+    pub dropout_at: Option<Instant>,
+    /// A long file that could not be read while playing, and when.
+    pub read_failure: Option<(String, Instant)>,
+    /// When an output that stopped was last reopened by itself.
+    pub audio_recovered: Option<Instant>,
     /// Writes sessions, autosaves and preferences on its own thread.
     pub writer: Writer,
     /// Windows wants to end the session and has been held back.
@@ -275,6 +282,10 @@ impl Core {
             // Listed in `start`, after the window is up (it can take a while).
             midi_ports: Vec::new(),
             midi_opening: None,
+            dropouts: 0,
+            dropout_at: None,
+            read_failure: None,
+            audio_recovered: None,
             writer: Writer::new(repaint.clone()),
             session_end_asked: Arc::default(),
             autosave_writing: false,
@@ -726,6 +737,9 @@ impl Core {
                     ports.len(),
                     midi.open_ports().len()
                 ));
+                for e in &midi.errors {
+                    crate::log::info(&format!("MIDI problem: {e}"));
+                }
                 self.midi_ports = ports;
                 self.midi = midi;
                 self.midi_opening = None;

@@ -237,6 +237,7 @@ export component SettingsWindow inherits Window {
     in property <bool> can-add-output;
     in property <string> rate;
     in property <string> buffer;
+    in property <string> dropouts;
     // Outputs, sample rate or buffer size changed but not applied.
     in property <bool> audio-changed;
     in property <string> audio-problem;
@@ -534,6 +535,15 @@ export component SettingsWindow inherits Window {
                                 open(x, y) => {
                                     root.choice-menu("buffer", 0, x, y);
                                 }
+                            }
+                        }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: "Dropouts";
+                            Text {
+                                text: root.dropouts + " this run";
+                                color: Theme.text;
+                                vertical-alignment: center;
                             }
                         }
                     }

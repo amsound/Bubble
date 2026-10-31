@@ -78,13 +78,14 @@ impl MidiInputs {
                 };
                 activity.store(epoch.elapsed().as_millis().max(1) as u64, Relaxed);
                 let t = Instant::now();
-                if let Ok(mut c) = ctrl.lock() {
-                    lock_wait.fetch_max(t.elapsed().as_micros() as u64, Relaxed);
-                    c.handle_input(&InputEvent::Midi {
-                        port: port_name.clone(),
-                        event,
-                    });
-                }
+                // As everywhere: a panic elsewhere must not silence MIDI for good.
+                let mut c = ctrl.lock().unwrap_or_else(|p| p.into_inner());
+                lock_wait.fetch_max(t.elapsed().as_micros() as u64, Relaxed);
+                c.handle_input(&InputEvent::Midi {
+                    port: port_name.clone(),
+                    event,
+                });
+                drop(c);
                 repaint();
             };
             match input.connect(&port, "bubble-in", cb, ()) {

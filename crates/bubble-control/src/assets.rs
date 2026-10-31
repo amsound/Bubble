@@ -148,14 +148,19 @@ impl AssetCache {
                 .spawn(move || {
                     for job in jrx {
                         let free = limit.saturating_sub(used.load(Ordering::Relaxed));
-                        let result = prepare(
-                            &job.path,
-                            job.rate,
-                            &job.starts,
-                            PrepareOptions::default(),
-                            free,
-                        )
-                        .map_err(|e| e.to_string());
+                        // A decoder that panics on a damaged file fails that file, and this
+                        // thread lives on for the rest.
+                        let result = std::panic::catch_unwind(|| {
+                            prepare(
+                                &job.path,
+                                job.rate,
+                                &job.starts,
+                                PrepareOptions::default(),
+                                free,
+                            )
+                            .map_err(|e| e.to_string())
+                        })
+                        .unwrap_or_else(|_| Err("the file could not be decoded".to_string()));
                         if dtx
                             .send(Done {
                                 asset: job.asset,
@@ -180,7 +185,10 @@ impl AssetCache {
             .name("bubble-overview".into())
             .spawn(move || {
                 for (asset, path, generation) in orx {
-                    let result = scan_overview(&path).map_err(|e| e.to_string());
+                    let result = std::panic::catch_unwind(|| {
+                        scan_overview(&path).map_err(|e| e.to_string())
+                    })
+                    .unwrap_or_else(|_| Err("the file could not be decoded".to_string()));
                     if odtx
                         .send(OverviewDone {
                             asset,

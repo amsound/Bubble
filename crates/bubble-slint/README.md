@@ -279,6 +279,11 @@ Done (main window):
       used one. Start-up uses the busy popover like any other load, the wall appearing
       as soon as the session is there. Cancel also gives up on a session being opened
       or loaded.
+- [x] Noticing and telling (audit group 3): a stream whose callback stops for 2 s, or
+      whose audio thread panics, goes silent and reopens by itself; decoder panics fail
+      that file and not the thread; a long file that cannot be read says so; dropouts
+      are counted (page bar, Settings ▸ Audio, log); MIDI port errors show on the page
+      bar. `BUBBLE_CRASH_TEST=audio-panic` and `audio-hang` test the first of these.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

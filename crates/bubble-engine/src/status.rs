@@ -71,6 +71,7 @@ pub struct EngineStatus {
     channels: u16,
     pub(crate) voices: Box<[VoiceSlotStatus]>,
     pub(crate) callbacks: AtomicU64,
+    test_fault: AtomicU32,
     pub(crate) frames_rendered: AtomicU64,
     pub(crate) last_callback_frames: AtomicU32,
     pub(crate) max_callback_frames: AtomicU32,
@@ -112,6 +113,7 @@ impl EngineStatus {
             channels,
             voices: slots,
             callbacks: AtomicU64::new(0),
+            test_fault: AtomicU32::new(0),
             frames_rendered: AtomicU64::new(0),
             last_callback_frames: AtomicU32::new(0),
             max_callback_frames: AtomicU32::new(0),
@@ -129,6 +131,31 @@ impl EngineStatus {
             stream_underruns: AtomicU64::new(0),
             stream_underrun_frames: AtomicU64::new(0),
             stream_wait_frames: AtomicU64::new(0),
+        }
+    }
+
+    /// Audio callbacks so far: still rising means the device is still asking for audio.
+    pub fn callback_count(&self) -> u64 {
+        self.callbacks.load(Relaxed)
+    }
+
+    /// Times audio was late or missing so far: the device ran out (an xrun), or a long
+    /// file could not be read from disk in time.
+    pub fn dropouts(&self) -> u64 {
+        self.xruns.load(Relaxed) + self.stream_underruns.load(Relaxed)
+    }
+
+    /// For testing failures: the next callback panics (1) or hangs (2).
+    #[doc(hidden)]
+    pub fn inject_fault(&self, fault: u32) {
+        self.test_fault.store(fault, Relaxed);
+    }
+
+    pub(crate) fn take_fault(&self) -> u32 {
+        if self.test_fault.load(Relaxed) == 0 {
+            0
+        } else {
+            self.test_fault.swap(0, Relaxed)
         }
     }
 

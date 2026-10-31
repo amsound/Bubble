@@ -17,6 +17,9 @@ use bubble_engine::device::{AudioOutput, OutputRequest, StreamProblem, list_outp
 
 use super::Core;
 
+/// How long a passing problem stays on the page bar.
+pub const PROBLEM_SHOWN: Duration = Duration::from_secs(20);
+
 /// How often the device list is checked while a device is missing.
 pub const WATCH_EVERY: Duration = Duration::from_secs(2);
 
@@ -40,6 +43,37 @@ pub struct DeviceWatch {
     /// Why streams stopped, shown once the rebuild is done.
     lost: Vec<String>,
     tasks: Option<mpsc::Sender<AudioTask>>,
+    /// Each stream's audio callback count and when it last rose.
+    beats: Vec<(u64, Instant)>,
+    /// When the streams were last checked.
+    checked: Option<Instant>,
+    /// Dropouts counted so far on the current engines.
+    dropouts_seen: u64,
+    /// When problems were last logged, so a struggling machine does not flood the log.
+    problem_logged: Option<Instant>,
+}
+
+/// A stream whose callback has not run for this long is taken as stuck, and reopened.
+const STUCK_AFTER: Duration = Duration::from_secs(2);
+/// A gap between checks longer than this (the computer slept, the interface was held up)
+/// says nothing about the streams, so the count starts again.
+const CHECKS_GAP: Duration = Duration::from_millis(1500);
+
+/// Closes streams without waiting for long: one that is stuck may never finish closing.
+fn retire_streams(streams: Retired) {
+    if streams.is_empty() {
+        return;
+    }
+    let (tx, rx) = mpsc::channel();
+    let _ = std::thread::Builder::new()
+        .name("bubble-audio-close".into())
+        .spawn(move || {
+            drop(streams);
+            let _ = tx.send(());
+        });
+    if rx.recv_timeout(Duration::from_secs(2)).is_err() {
+        crate::log::info("an output stream is taking long to close; carrying on");
+    }
 }
 
 /// A stream and its engine on their way out.
@@ -153,7 +187,7 @@ impl Core {
             since: Instant::now(),
         });
         self.audio_task(Box::new(move || {
-            drop(retire);
+            retire_streams(retire);
             let req = |name: &str, need: u16| OutputRequest {
                 device_name: (!name.is_empty()).then(|| name.to_string()),
                 sample_rate: Some(rate),
@@ -364,14 +398,25 @@ impl Core {
         }
         drop(c);
         let lost = std::mem::take(&mut self.watch.lost);
-        self.output_errors.splice(0..0, lost);
+        for l in &lost {
+            crate::log::info(l);
+        }
+        // Reopened as it was: said for a moment. Otherwise it stays until it is sorted out.
+        if self.output_errors.is_empty() && self.audio_error.is_none() {
+            if !lost.is_empty() {
+                self.audio_recovered = Some(Instant::now());
+            }
+        } else {
+            self.output_errors.splice(0..0, lost);
+        }
         for e in self.output_errors.iter().chain(self.audio_error.iter()) {
             crate::log::info(&format!("audio problem: {e}"));
         }
         // A stream that is gone may wait on its device while closing: not on this thread.
         if !retire.is_empty() {
-            self.audio_task(Box::new(move || drop(retire)));
+            self.audio_task(Box::new(move || retire_streams(retire)));
         }
+        self.watch.beats.clear();
         if let Some(keep) = self.watch.again.take() {
             self.rebuild_audio(&[], keep);
         }
@@ -421,14 +466,27 @@ impl Core {
         let mut lost = Vec::new();
         for (i, a) in self.audio.iter().enumerate() {
             for p in a.take_problems() {
-                if let StreamProblem::Fatal(msg) = p
-                    && !dead.contains(&i)
-                {
-                    dead.push(i);
-                    lost.push(format!("Audio stopped on {}: {msg}", a.device_name));
+                match p {
+                    StreamProblem::Fatal(msg) => {
+                        if !dead.contains(&i) {
+                            dead.push(i);
+                            lost.push(format!("Audio stopped on {}: {msg}", a.device_name));
+                        }
+                    }
+                    StreamProblem::Warning(msg) => {
+                        if self
+                            .watch
+                            .problem_logged
+                            .is_none_or(|t| t.elapsed() > Duration::from_secs(1))
+                        {
+                            self.watch.problem_logged = Some(Instant::now());
+                            crate::log::info(&format!("audio on {}: {msg}", a.device_name));
+                        }
+                    }
                 }
             }
         }
+        self.watch_streams(&mut dead, &mut lost);
         if !dead.is_empty() {
             self.watch.lost.extend(lost);
             self.rebuild_audio(&dead, true);
@@ -468,6 +526,62 @@ impl Core {
             self.rebuild_audio(&[], true);
         }
         Some(WATCH_EVERY)
+    }
+
+    /// Reopens a stream whose audio callback has stopped with nothing said (a hung driver,
+    /// a failed audio thread), and counts dropouts. A live stream's callback runs all the
+    /// time, even with nothing playing.
+    fn watch_streams(&mut self, dead: &mut Vec<usize>, lost: &mut Vec<String>) {
+        let (counts, dropouts): (Vec<u64>, u64) = {
+            let c = self.lock();
+            (
+                c.engines()
+                    .iter()
+                    .map(|e| e.status().callback_count())
+                    .collect(),
+                c.engines().iter().map(|e| e.status().dropouts()).sum(),
+            )
+        };
+        if dropouts > self.watch.dropouts_seen {
+            self.dropouts += dropouts - self.watch.dropouts_seen;
+            self.dropout_at = Some(Instant::now());
+            crate::log::info(&format!("audio dropout ({} so far)", self.dropouts));
+        }
+        self.watch.dropouts_seen = dropouts;
+
+        let failed = self.lock().take_read_failure();
+        if let Some(path) = failed {
+            crate::log::info(&format!("could not read while playing: {path}"));
+            self.read_failure = Some((path, Instant::now()));
+        }
+        if self
+            .read_failure
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() > PROBLEM_SHOWN)
+        {
+            self.read_failure = None;
+        }
+
+        let now = Instant::now();
+        let gap = self.watch.checked.is_none_or(|t| now - t > CHECKS_GAP);
+        self.watch.checked = Some(now);
+        if gap || self.watch.job.is_some() || self.watch.beats.len() != counts.len() {
+            self.watch.beats = counts.iter().map(|n| (*n, now)).collect();
+            return;
+        }
+        for (i, (beat, n)) in self.watch.beats.iter_mut().zip(&counts).enumerate() {
+            if beat.0 != *n {
+                *beat = (*n, now);
+            } else if now - beat.1 > STUCK_AFTER && !dead.contains(&i) {
+                dead.push(i);
+                if let Some(a) = self.audio.get(i) {
+                    lost.push(format!(
+                        "Audio stopped on {}: the device stopped responding",
+                        a.device_name
+                    ));
+                }
+            }
+        }
     }
 
     /// Whether carts on `output` ("A", "B", …) are playing on the fallback.

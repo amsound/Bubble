@@ -438,8 +438,8 @@ export component MainWindow inherits Window {
         width: min(460px, root.width - 24px);
         height: busy-layout.preferred-height;
         x: clamp((root.width - self.width) / 2 + root.busy-dx, 0px, max(0px, root.width - self.width));
-        // In the middle of the window, where it is noticed.
-        y: clamp((root.height - self.height) / 2 + root.busy-dy, 0px, max(0px, root.height - self.height));
+        // In the middle of the cart wall, where it is noticed.
+        y: clamp(wall-top + (wall-h - self.height) / 2 + root.busy-dy, 0px, max(0px, root.height - self.height));
         border-radius: 8px;
         background: Theme.popover;
         border-width: 1px;

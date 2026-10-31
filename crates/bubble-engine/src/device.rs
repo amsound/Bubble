@@ -269,7 +269,15 @@ where
     let channels = config.channels as usize;
     let mut scratch = vec![0.0f32; SCRATCH_FRAMES * channels];
     let err_status = status.clone();
+    let panic_problems = problems.clone();
+    // After a panic the mixer's state cannot be trusted: silence, until this output is
+    // reopened (the problem reported makes that happen).
+    let mut failed = false;
     let data_cb = move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+        if failed {
+            data.fill(T::EQUILIBRIUM);
+            return;
+        }
         let t0 = Instant::now();
         let ts = info.timestamp();
         if let Some(d) = ts.playback.checked_duration_since(ts.callback) {
@@ -277,16 +285,30 @@ where
                 .output_latency_us
                 .store(d.as_micros() as u64, Relaxed);
         }
-        if let Some(out) = cast_f32(data) {
-            mixer.process(out);
-        } else {
-            for chunk in data.chunks_mut(SCRATCH_FRAMES * channels) {
-                let s = &mut scratch[..chunk.len()];
-                mixer.process(s);
-                for (d, v) in chunk.iter_mut().zip(s.iter()) {
-                    *d = T::from_sample(*v);
+        let fault = status.take_fault();
+        if fault == 2 {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+        // A panic must not cross into the audio system's code, or end the thread silently.
+        let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert!(fault != 1, "audio fault requested for testing");
+            if let Some(out) = cast_f32(data) {
+                mixer.process(out);
+            } else {
+                for chunk in data.chunks_mut(SCRATCH_FRAMES * channels) {
+                    let s = &mut scratch[..chunk.len()];
+                    mixer.process(s);
+                    for (d, v) in chunk.iter_mut().zip(s.iter()) {
+                        *d = T::from_sample(*v);
+                    }
                 }
             }
+        }));
+        if rendered.is_err() {
+            failed = true;
+            data.fill(T::EQUILIBRIUM);
+            let _ = panic_problems.send(StreamProblem::Fatal("audio thread failed".into()));
+            return;
         }
         status
             .max_process_ns
