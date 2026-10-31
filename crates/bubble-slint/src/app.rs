@@ -1289,6 +1289,7 @@ impl App {
         let t = Instant::now();
         if let Some(ui) = self.ui.upgrade() {
             window::finish_restore(&ui);
+            window::on_session_end(&ui, self.core.saver_for_session_end());
             window::round_corners(ui.window());
             window::set_icon(ui.window());
         }

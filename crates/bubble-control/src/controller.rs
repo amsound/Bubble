@@ -126,6 +126,7 @@ pub struct Controller {
     project: Project,
     path: Option<PathBuf>,
     dirty: bool,
+    edits: u64,
     /// One engine per output device; empty without audio.
     engines: Vec<EngineHandle>,
     /// Output letter (index) → where it plays.
@@ -235,6 +236,7 @@ impl Controller {
             project,
             path,
             dirty: false,
+            edits: 0,
             engines: Vec::new(),
             routes: Vec::new(),
             assets: AssetCache::new(),
@@ -300,7 +302,12 @@ impl Controller {
 
     /// Marks the project as having unsaved changes (e.g. after restoring an autosave).
     pub fn set_dirty(&mut self) {
-        self.dirty = true;
+        self.mark_dirty();
+    }
+
+    /// Counts edits, so an autosave can tell when there is something new to keep.
+    pub fn edit_count(&self) -> u64 {
+        self.edits
     }
 
     /// Replaces the project (New/Open): stops audio and re-arms all assets.
@@ -363,7 +370,7 @@ impl Controller {
         if ok {
             self.info(format!("Saved {}", path.display()));
         } else if self.path.as_deref() == Some(path) {
-            self.dirty = true;
+            self.mark_dirty();
         }
     }
 
@@ -1409,6 +1416,7 @@ impl Controller {
 
     fn mark_dirty(&mut self) {
         self.dirty = true;
+        self.edits += 1;
     }
 
     /// Records the project state before a change. Edits with the same `key`
@@ -1463,7 +1471,7 @@ impl Controller {
 
     fn after_history_change(&mut self) {
         self.last_checkpoint = None;
-        self.dirty = true;
+        self.mark_dirty();
         self.current_page = self
             .current_page
             .min(self.project.pages.len().saturating_sub(1));
@@ -2000,7 +2008,7 @@ impl Controller {
             && p.name != name
         {
             p.name = name.to_string();
-            self.dirty = true;
+            self.mark_dirty();
         }
     }
 
@@ -2025,7 +2033,7 @@ impl Controller {
             let p = &mut self.project.pages[page];
             p.rows = rows;
             p.cols = cols;
-            self.dirty = true;
+            self.mark_dirty();
         }
         Ok(())
     }

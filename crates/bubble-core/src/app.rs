@@ -36,6 +36,8 @@ pub type PendingOpen = (
 );
 
 pub const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
+/// An edit is autosaved once this long has passed without another.
+pub const AUTOSAVE_QUIET: Duration = Duration::from_secs(2);
 
 /// Changes requested by the UI during a frame, applied after rendering.
 #[allow(clippy::large_enum_variant)] // short-lived, a few per frame
@@ -157,6 +159,14 @@ pub struct Prompts {
 const EVENT_PUMP_EVERY: Duration = Duration::from_millis(10);
 const LOCK_WAIT_LOGGED: Duration = Duration::from_millis(20);
 
+/// When edits were last seen, for the autosave.
+struct AutosaveState {
+    seen: u64,
+    changed: Instant,
+    /// Since when there have been edits not yet autosaved.
+    waiting: Option<Instant>,
+}
+
 /// What follows a save, once it has succeeded.
 pub enum AfterSave {
     Perform(PendingAction),
@@ -198,7 +208,7 @@ pub struct Core {
     pub prompts: Prompts,
     /// A cart the interface should select (`Some(None)`: clear the selection).
     pub select: Option<Option<Uuid>>,
-    pub last_autosave: Instant,
+    autosave: AutosaveState,
     /// Wakes the interface (e.g. when a background job finishes).
     pub repaint: Arc<dyn Fn() + Send + Sync>,
     pub files: FileDialogs,
@@ -270,7 +280,11 @@ impl Core {
             prefs: Prefs::load(),
             prompts: Prompts::default(),
             select: None,
-            last_autosave: Instant::now(),
+            autosave: AutosaveState {
+                seen: 0,
+                changed: Instant::now(),
+                waiting: None,
+            },
             files: FileDialogs::new(repaint.clone()),
             clipboard: None,
             page_clip: None,
@@ -331,6 +345,8 @@ impl Core {
             ));
         };
         crash::install(self.ctrl.clone(), self.session_id);
+        #[cfg(windows)]
+        crash::install_native(self.ctrl.clone(), self.session_id);
         self.scan_devices();
         // Opened in the background; `watch_audio` takes them when ready.
         self.open_audio();
@@ -552,6 +568,26 @@ impl Core {
                         self.prefs_problem = Some(msg);
                     }
                 },
+            }
+        }
+    }
+
+    /// Keeps unsaved work when Windows ends the session (restart, log off): it does not
+    /// wait for Bubble, so this writes on the spot.
+    pub fn saver_for_session_end(&self) -> impl Fn() + Send + Sync + 'static {
+        let (ctrl, id) = (self.ctrl.clone(), self.session_id);
+        move || {
+            crate::log::info("Windows is ending the session");
+            for _ in 0..20 {
+                match crash::autosave_now(&ctrl, id) {
+                    busy if busy.starts_with(crash::BUSY) => {
+                        std::thread::sleep(Duration::from_millis(50))
+                    }
+                    done => {
+                        crate::log::info(&format!("unsaved work: {done}"));
+                        return;
+                    }
+                }
             }
         }
     }
@@ -1108,11 +1144,29 @@ impl Core {
 
     pub fn autosave(&mut self) {
         self.poll_writes();
-        if self.autosave_writing || self.last_autosave.elapsed() < AUTOSAVE_EVERY {
-            return;
+        let (edits, dirty) = {
+            let c = self.lock();
+            (c.edit_count(), c.is_dirty())
+        };
+        if edits != self.autosave.seen {
+            self.autosave.seen = edits;
+            self.autosave.changed = Instant::now();
+            self.autosave.waiting.get_or_insert_with(Instant::now);
         }
-        self.last_autosave = Instant::now();
-        self.write_autosave();
+        if !dirty {
+            self.autosave.waiting = None;
+        }
+        let Some(waiting) = self.autosave.waiting else {
+            return;
+        };
+        // Soon after an edit settles; in a long run of edits, still every so often.
+        if !self.autosave_writing
+            && (self.autosave.changed.elapsed() >= AUTOSAVE_QUIET
+                || waiting.elapsed() >= AUTOSAVE_EVERY)
+        {
+            self.autosave.waiting = None;
+            self.write_autosave();
+        }
     }
 
     /// Writes unsaved changes next to the project (`<file>.autosave`) or, for an

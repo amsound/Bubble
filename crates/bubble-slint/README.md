@@ -263,6 +263,12 @@ Done (main window):
       rate and the cloud check look at the disk off the session's lock. The log says
       when the lock or the interface was held up. Still on the interface thread and
       lock: Save As, relinking and adding files.
+- [x] Not losing sessions (audit group 2): Windows native crashes (access violation,
+      stack overflow) write a report and a dump to `Crashes` and autosave; a panic on
+      the interface thread ends Bubble rather than leave it frozen; Windows ending the
+      session autosaves; edits autosave 2 s after they settle (30 s at most in a long
+      run); each save keeps the old file in `Backups` (10 kept); a failed `.bak` no
+      longer stops a save. `BUBBLE_CRASH_TEST=native`, `overflow`, `edit` test these.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

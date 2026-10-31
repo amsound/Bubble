@@ -162,8 +162,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8], keep_backup: bool) -> std::io::Re
     tmp.write_all(bytes)?;
     tmp.flush()?;
     tmp.as_file().sync_all()?;
+    // A backup that cannot be made (antivirus holding it, say) must not stop the save.
     if keep_backup && path.exists() {
-        fs::copy(path, backup_path(path))?;
+        let _ = fs::copy(path, backup_path(path));
     }
     // On Windows, antivirus, OneDrive or the search indexer often hold the target for a
     // moment, so replacing it fails with "Access is denied". Retry for about a second

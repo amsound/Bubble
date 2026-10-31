@@ -339,12 +339,41 @@ impl Core {
         }
     }
 
-    /// For testing crash handling: `BUBBLE_CRASH_TEST=1` panics a few seconds in.
+    /// For testing crash handling, a few seconds in, with unsaved work:
+    /// `BUBBLE_CRASH_TEST=1` panics, `native` writes through a bad pointer and `overflow`
+    /// runs out of stack (both as a driver's fault would, past Rust's panic handling);
+    /// `edit` makes one edit and carries on.
     pub fn crash_test(&self) {
-        if std::env::var_os("BUBBLE_CRASH_TEST").is_some()
-            && self.started.elapsed() > std::time::Duration::from_secs(3)
-        {
-            panic!("crash test requested by BUBBLE_CRASH_TEST");
+        let Some(kind) = std::env::var_os("BUBBLE_CRASH_TEST") else {
+            return;
+        };
+        if self.started.elapsed() < std::time::Duration::from_secs(3) {
+            return;
+        }
+        // Only an edit, once: for testing the autosave and the end of a Windows session.
+        if kind.to_str() == Some("edit") {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static DONE: AtomicBool = AtomicBool::new(false);
+            if !DONE.swap(true, Ordering::Relaxed) {
+                self.lock().set_dirty();
+            }
+            return;
+        }
+        self.lock().set_dirty();
+        match kind.to_str() {
+            Some("native") => {
+                // SAFETY: not safe at all, which is the point of this test.
+                unsafe { std::ptr::write_volatile(std::ptr::dangling_mut::<u8>(), 1) };
+            }
+            Some("overflow") => {
+                #[allow(unconditional_recursion)]
+                fn deep(n: u64) -> u64 {
+                    let pad = [n; 256];
+                    deep(std::hint::black_box(pad[(n % 256) as usize])) + 1
+                }
+                std::hint::black_box(deep(1));
+            }
+            _ => panic!("crash test requested by BUBBLE_CRASH_TEST"),
         }
     }
 }

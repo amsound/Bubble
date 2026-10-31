@@ -306,6 +306,53 @@ pub fn run_menu(x: f32, y: f32, open: impl FnOnce()) {
     LAST_MENU.set(Some((x, y, std::time::Instant::now())));
 }
 
+/// Windows: runs `save` when Windows ends the session (restart, shut down, log off).
+/// Windows then ends Bubble without the usual closing of its windows, and winit does
+/// not report it, so this listens to the window's messages itself.
+pub fn on_session_end(ui: &MainWindow, save: impl Fn() + Send + Sync + 'static) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use std::sync::OnceLock;
+        use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+        use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+        use windows_sys::Win32::UI::WindowsAndMessaging::WM_ENDSESSION;
+
+        static SAVE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+        unsafe extern "system" fn proc(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+            _id: usize,
+            _data: usize,
+        ) -> LRESULT {
+            if msg == WM_ENDSESSION
+                && wparam != 0
+                && let Some(save) = SAVE.get()
+            {
+                save();
+            }
+            // SAFETY: passes the message on, as a subclass must.
+            unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+        }
+
+        let _ = SAVE.set(Box::new(save));
+        if let Ok(RawWindowHandle::Win32(h)) = ui
+            .window()
+            .window_handle()
+            .window_handle()
+            .map(|h| h.as_raw())
+        {
+            // SAFETY: the main window, and a function valid for the whole run.
+            unsafe { SetWindowSubclass(h.hwnd.get() as HWND, Some(proc), 1, 0) };
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (ui, save);
+}
+
 /// A tool window just shown (Cart Setup, the settings windows): rounded corners, the
 /// icon in its title bar, kept in front of the main window. Done again a moment later:
 /// on Windows the window may not exist yet straight after `show`, and the icon set
