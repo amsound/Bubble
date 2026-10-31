@@ -27,6 +27,11 @@ slint::include_modules!();
 
 /// Set on a relaunch with the other renderer, so a second failure is reported
 /// instead of relaunching again.
+// Debug builds stop if the audio thread allocates (bubble-engine's device.rs).
+#[cfg(debug_assertions)]
+#[global_allocator]
+static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
+
 const FALLBACK_ENV: &str = "BUBBLE_RENDERER_FALLBACK";
 
 fn main() {

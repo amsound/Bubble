@@ -238,6 +238,16 @@ impl AssetCache {
         self.rate
     }
 
+    /// Where an asset's file was found when it was armed, without looking at the disk.
+    pub fn found_at(&self, asset: Uuid) -> Option<&Path> {
+        match self.states.get(&asset)? {
+            AssetState::Ready { path, .. }
+            | AssetState::Loading { path }
+            | AssetState::Error { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
     /// Drops all prepared data and re-arms every asset at `rate`.
     /// `known` holds files already looked up off the session's lock; any others are
     /// looked up here.

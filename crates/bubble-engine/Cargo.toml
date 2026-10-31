@@ -13,6 +13,7 @@ rubato.workspace = true
 rtrb.workspace = true
 hound.workspace = true
 thiserror.workspace = true
+assert_no_alloc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Com"] }
@@ -20,4 +21,3 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_
 [dev-dependencies]
 hound.workspace = true
 tempfile.workspace = true
-assert_no_alloc.workspace = true

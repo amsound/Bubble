@@ -284,6 +284,11 @@ Done (main window):
       that file and not the thread; a long file that cannot be read says so; dropouts
       are counted (page bar, Settings ▸ Audio, log); MIDI port errors show on the page
       bar. `BUBBLE_CRASH_TEST=audio-panic` and `audio-hang` test the first of these.
+- [x] Save As writes on the file writer; adding a file no longer checks every asset on
+      disk under the lock; Ctrl+. (⌘.) cancels what the busy popover offers to. Guards:
+      audio-thread code denies unwrap, expect and panic; a debug build stops if the live
+      audio callback allocates (`BUBBLE_CRASH_TEST=play` plays a cart to check); the
+      Windows test job runs clippy. Relinking still looks at the disk under the lock.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

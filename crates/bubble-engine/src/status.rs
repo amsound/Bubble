@@ -3,6 +3,12 @@
 //! The audio thread writes plain atomics (relaxed ordering; values are advisory
 //! display data). Readers never block the audio thread.
 
+// Runs on the audio thread: nothing here may panic by design.
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 
 use crate::command::CartKey;

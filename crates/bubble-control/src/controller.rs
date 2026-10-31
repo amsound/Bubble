@@ -1649,14 +1649,14 @@ impl Controller {
         let dir = self.project_dir();
         let abs = std::path::absolute(file)?;
         // Reuse an existing asset for the same file.
-        let existing = {
-            let mut resolver = bubble_project::Resolver::new(dir.as_deref(), &self.project);
-            self.project
-                .assets
-                .iter()
-                .find(|a| resolver.resolve(a).path() == Some(abs.as_path()))
-                .map(|a| a.id)
-        };
+        // From where the assets were found when armed: this holds the session's lock, so
+        // it does not go back to the disk for every asset.
+        let existing = self
+            .project
+            .assets
+            .iter()
+            .find(|a| self.assets.found_at(a.id) == Some(abs.as_path()))
+            .map(|a| a.id);
         let asset_id = match existing {
             Some(id) => id,
             None => {
@@ -2235,11 +2235,14 @@ impl Controller {
 
     /// Saves as a new session file whose assets point at `moves` (copies made in the
     /// new session's Audio folder); unmoved assets are rebased relative to it.
-    pub fn save_as_with(
+    ///
+    /// Touches the disk only to look at the moved files: the session moves over now, and
+    /// the caller writes these bytes elsewhere ([`Self::save_finished`] says how it went).
+    pub fn begin_save_as_with(
         &mut self,
         path: &Path,
         moves: &[(Uuid, PathBuf)],
-    ) -> Result<(), ControlError> {
+    ) -> Result<Vec<u8>, ControlError> {
         let new_dir = std::path::absolute(path.parent().unwrap_or(Path::new(".")))?;
         let old_dir = self.project_dir();
         let mut copy = self.project.clone();
@@ -2251,13 +2254,12 @@ impl Controller {
                 a.absolute_hint = r.absolute_hint;
             }
         }
-        pio::save(&mut copy, path)?;
+        let bytes = pio::encode_for_save(&mut copy)?;
         self.project = copy;
         self.path = Some(path.to_path_buf());
         self.dirty = false;
         self.rearm();
-        self.info(format!("Saved {}", path.display()));
-        Ok(())
+        Ok(bytes)
     }
 
     /// Re-resolves and reloads every asset (e.g. after files were edited).

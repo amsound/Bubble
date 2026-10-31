@@ -1679,13 +1679,23 @@ impl App {
         }
     }
 
-    /// Cancel in the busy popover: stops a job, or gives up on the session being opened.
+    /// Whether the audio loading is for a session being opened, with nothing playing.
+    fn can_cancel_loading(&self, snap: &Snapshot) -> bool {
+        self.core.loading_since.is_some()
+            && !snap
+                .runtime
+                .values()
+                .any(|r| matches!(r.state, Cs::Playing | Cs::Stopping))
+    }
+
+    /// Cancel in the busy popover (Ctrl+. or ⌘.): stops a job, or gives up on the session being opened.
     fn cancel_busy(&mut self, intents: &mut Vec<Intent>) {
+        let snap = self.core.snapshot();
         if self.core.job.is_some() {
             self.core.cancel_job();
         } else if self.core.opening.take().is_some() {
             log_info("cancelled opening the session");
-        } else {
+        } else if snap.pending > 0 && self.can_cancel_loading(&snap) {
             log_info("cancelled loading the session");
             self.request_from_ui(PendingAction::Close, intents);
         }
@@ -1752,11 +1762,7 @@ impl App {
                 copy: false,
                 // Only for a session being opened, which then closes; not for a file added
                 // to a session in use, and not with anything playing.
-                can_cancel: self.core.loading_since.is_some()
-                    && !snap
-                        .runtime
-                        .values()
-                        .any(|r| matches!(r.state, Cs::Playing | Cs::Stopping)),
+                can_cancel: self.can_cancel_loading(snap),
             });
         }
         rows
@@ -2228,6 +2234,10 @@ impl App {
             if !repeat {
                 self.command(cmd, intents);
             }
+            return;
+        }
+        if code == KeyCode::Period && pressed && !repeat && command && !typing {
+            self.cancel_busy(intents);
             return;
         }
         if code == KeyCode::Escape && pressed {

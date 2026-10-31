@@ -1033,6 +1033,7 @@ version = "0.2.1"
 dependencies = [
  "allsorts",
  "arboard",
+ "assert_no_alloc",
  "block2 0.6.2",
  "bubble-control",
  "bubble-core",

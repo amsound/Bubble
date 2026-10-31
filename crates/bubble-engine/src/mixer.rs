@@ -11,6 +11,12 @@
 //! * Large callbacks are split into blocks of at most [`MAX_BLOCK`] frames so commands
 //!   and ramps stay fine-grained. Any callback size works, including non powers of two.
 
+// Runs on the audio thread: nothing here may panic by design.
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 use std::f32::consts::FRAC_PI_2;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
@@ -773,7 +779,8 @@ impl Mixer {
     /// Frees a slot by ending the least valuable voice: one already stopping (quietest
     /// first), otherwise the oldest.
     fn steal(&mut self) -> usize {
-        self.steal_except(None).expect("a voice to steal")
+        // There is always a voice to steal; were there not, the caller's slot is the first.
+        self.steal_except(None).unwrap_or(0)
     }
 
     /// Like [`Self::steal`], sparing voice `keep`; `None` if it is the only one.

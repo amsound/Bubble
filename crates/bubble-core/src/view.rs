@@ -388,6 +388,19 @@ impl Core {
             }
             return;
         }
+        // A cart played, once: with a debug build, proves the live audio path allocates nothing.
+        if kind.to_str() == Some("play") {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static DONE: AtomicBool = AtomicBool::new(false);
+            if !DONE.swap(true, Ordering::Relaxed) {
+                let mut c = self.lock();
+                let first = c.project().carts().next().map(|(_, cell)| cell.cart.id);
+                if let Some(id) = first {
+                    c.trigger(id, bubble_control::TriggerSource::Ui, None);
+                }
+            }
+            return;
+        }
         // Faults on the audio thread, once: Bubble is meant to carry on through these.
         let fault = match kind.to_str() {
             Some("audio-panic") => 1,

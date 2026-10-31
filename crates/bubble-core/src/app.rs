@@ -1006,17 +1006,21 @@ impl Core {
                         Err(e) => Err(e.to_string()),
                     }
                 }
-                Intent::SaveAsWith(p, moves) => match c.save_as_with(&p, &moves) {
-                    Ok(()) => {
-                        self.saved_at = Some(std::time::SystemTime::now());
-                        if let Some(d) = recovery_dir() {
-                            let _ = std::fs::remove_file(
-                                d.join(format!("Untitled-{}.bubble", self.session_id)),
-                            );
-                        }
+                Intent::SaveAsWith(p, moves) => match c.begin_save_as_with(&p, &moves) {
+                    Ok(bytes) => {
+                        let then_remove = recovery_dir()
+                            .map(|d| d.join(format!("Untitled-{}.bubble", self.session_id)))
+                            .into_iter()
+                            .collect();
+                        drop(c);
+                        self.writer.submit(WriteJob::Session {
+                            path: p.clone(),
+                            bytes,
+                            then_remove,
+                        });
                         self.prefs.add_recent(p);
                         reopen_prefs = true;
-                        Ok(())
+                        continue;
                     }
                     Err(e) => Err(e.to_string()),
                 },

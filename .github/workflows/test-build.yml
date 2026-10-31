@@ -82,6 +82,7 @@ jobs:
         with:
           key: tests
       - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   macos:
     name: macOS universal

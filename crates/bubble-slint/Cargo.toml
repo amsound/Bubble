@@ -27,6 +27,8 @@ raw-window-handle = "0.6"
 rfd.workspace = true
 uuid.workspace = true
 
+assert_no_alloc.workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # Skia, to compare with femtovg (`BUBBLE_RENDERER=skia`).
 slint = { version = "=1.18.1", features = ["renderer-skia"] }

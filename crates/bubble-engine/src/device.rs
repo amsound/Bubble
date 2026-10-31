@@ -1,6 +1,12 @@
 //! Audio output through cpal. The stream keeps running (outputting silence when
 //! idle) so the first trigger never waits for device start-up.
 
+// Runs on the audio thread: nothing here may panic by design.
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc;
@@ -292,17 +298,20 @@ where
         // A panic must not cross into the audio system's code, or end the thread silently.
         let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             assert!(fault != 1, "audio fault requested for testing");
-            if let Some(out) = cast_f32(data) {
-                mixer.process(out);
-            } else {
-                for chunk in data.chunks_mut(SCRATCH_FRAMES * channels) {
-                    let s = &mut scratch[..chunk.len()];
-                    mixer.process(s);
-                    for (d, v) in chunk.iter_mut().zip(s.iter()) {
-                        *d = T::from_sample(*v);
+            // A debug build with `AllocDisabler` as its allocator stops if this allocates.
+            assert_no_alloc::assert_no_alloc(|| {
+                if let Some(out) = cast_f32(data) {
+                    mixer.process(out);
+                } else {
+                    for chunk in data.chunks_mut(SCRATCH_FRAMES * channels) {
+                        let s = &mut scratch[..chunk.len()];
+                        mixer.process(s);
+                        for (d, v) in chunk.iter_mut().zip(s.iter()) {
+                            *d = T::from_sample(*v);
+                        }
                     }
                 }
-            }
+            });
         }));
         if rendered.is_err() {
             failed = true;
