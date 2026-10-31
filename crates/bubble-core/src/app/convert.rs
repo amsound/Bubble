@@ -63,7 +63,7 @@ impl Core {
                 "Converting {n} file{} to WAV…",
                 if n == 1 { "" } else { "s" }
             ),
-            move || {
+            move |ctl| {
                 let audio = dir.join(AUDIO_DIR);
                 let mut done = Vec::new();
                 let mut errors = Vec::new();
@@ -73,7 +73,13 @@ impl Core {
                         audio.display()
                     ));
                 }
+                ctl.set_total(files.len() as u64);
                 for (asset, src) in files {
+                    // Those converted so far are kept.
+                    if ctl.cancelled() {
+                        break;
+                    }
+                    ctl.step();
                     let dst = wav_name(&audio, &src, rate);
                     match convert_to_wav(&src, &dst, rate) {
                         Ok(info) => done.push(Conversion {

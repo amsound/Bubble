@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use bubble_project::resolve::{relative_path, to_portable};
 use bubble_project::validate::{GAIN_MAX_DB, GAIN_MIN_DB, MAX_FADE_MS};
@@ -32,6 +34,16 @@ pub struct ImportOptions {
     pub drives: DriveMap,
     /// Files extracted from a package: (original path, local file).
     pub packed: Vec<(String, PathBuf)>,
+    /// Progress and cancelling, for an interface.
+    pub control: Option<ImportControl>,
+}
+
+/// How an import reports its progress (in bytes) and hears that it should stop.
+#[derive(Clone, Debug, Default)]
+pub struct ImportControl {
+    pub cancel: Arc<AtomicBool>,
+    pub done: Arc<AtomicU64>,
+    pub total: Arc<AtomicU64>,
 }
 
 /// Identity of the source file, for the report.

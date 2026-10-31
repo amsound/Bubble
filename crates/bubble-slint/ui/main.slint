@@ -3,7 +3,7 @@
 // callbacks, and Rust decides what it does.
 
 import { Palette, Spinner, ProgressIndicator, Button } from "std-widgets.slint";
-import { Theme, TextCommand, FlatButton, Panel, PopupRow } from "theme.slint";
+import { Theme, TextCommand, FlatButton, Panel, PopupRow, SysButton } from "theme.slint";
 import { TileView, Tile, LabelStyle, CartState } from "tile.slint";
 import { BottomBar, PageTab, StatusItem } from "bar.slint";
 import { QuickEditPanel, QuickEdit } from "quickedit.slint";
@@ -43,6 +43,8 @@ export struct BusyRow {
     copy: bool,
     // 0…1, or -1 when unknown (a moving bar).
     progress: float,
+    // It can be stopped.
+    can-cancel: bool,
 }
 
 // A context-menu entry; a separator has the separator title (see `src/menu.rs`).
@@ -128,6 +130,7 @@ export component MainWindow inherits Window {
     // Shift-drag (move) or Option/Alt-drag (copy) from one cell to another.
     callback cell-drop(int, int, bool);
     callback toggle-mode();
+    callback cancel-job();
     callback select-page(int);
     callback start-rename(int);
     callback renamed(int, string);
@@ -452,11 +455,12 @@ export component MainWindow inherits Window {
         width: min(460px, root.width - 24px);
         height: busy-layout.preferred-height;
         x: clamp((root.width - self.width) / 2 + root.busy-dx, 0px, max(0px, root.width - self.width));
-        y: clamp((root.bar-top ? root.bar-height : 0px) + 10px + root.busy-dy, 0px, max(0px, root.height - self.height));
-        border-radius: Theme.mac ? 12px : 8px;
+        // In the middle of the window, where it is noticed.
+        y: clamp((root.height - self.height) / 2 + root.busy-dy, 0px, max(0px, root.height - self.height));
+        border-radius: 8px;
         background: Theme.popover;
         border-width: 1px;
-        border-color: Theme.panel-border;
+        border-color: Theme.card-border;
         drop-shadow-blur: 24px;
         drop-shadow-offset-y: 8px;
         drop-shadow-color: #00000080;
@@ -471,23 +475,20 @@ export component MainWindow inherits Window {
             }
         }
         busy-layout := VerticalLayout {
-            padding-left: 14px;
-            padding-right: 14px;
-            padding-top: 8px;
-            padding-bottom: 12px;
-            spacing: 8px;
+            padding: 16px;
+            spacing: 14px;
             for row[i] in busy: VerticalLayout {
-                spacing: 7px;
+                spacing: 8px;
                 HorizontalLayout {
                     spacing: 10px;
                     height: Theme.mac ? 22px : 32px;
-                    if !row.copy: Spinner {
+                    if !row.copy && Theme.mac: Spinner {
                         width: 14px;
                         height: 14px;
                         y: (parent.height - self.height) / 2;
                         indeterminate: true;
                     }
-                    if row.copy: Path {
+                    if row.copy && Theme.mac: Path {
                         width: 14px;
                         height: 14px;
                         y: (parent.height - self.height) / 2;
@@ -500,7 +501,7 @@ export component MainWindow inherits Window {
                     }
                     Text {
                         text: row.text;
-                        font-weight: i == 0 ? 700 : 400;
+                        font-weight: i == 0 ? 600 : 400;
                         color: Theme.text;
                         vertical-alignment: center;
                         overflow: elide;
@@ -512,19 +513,27 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                         horizontal-stretch: 0;
                     }
+                    if row.can-cancel: SysButton {
+                        y: (parent.height - self.height) / 2;
+                        text: "Cancel";
+                        clicked => {
+                            root.cancel-job();
+                        }
+                    }
                 }
-                // Progress: a filled bar when it is known, a moving one otherwise.
+                // Progress, as Windows draws it: a thin bar in the accent, filled to how far
+                // it has got when that is known, a moving piece otherwise.
                 Rectangle {
-                    height: 5px;
-                    border-radius: 3px;
-                    background: Theme.text.transparentize(85%);
+                    height: 4px;
+                    border-radius: 2px;
+                    background: Theme.control-border.transparentize(40%);
                     clip: true;
                     property <float> phase: mod(animation-tick() / 1400ms, 1);
                     Rectangle {
                         x: row.progress >= 0 ? 0 : (parent.width * 1.35) * phase - parent.width * 0.35;
                         width: row.progress >= 0 ? parent.width * clamp(row.progress, 0, 1) : parent.width * 0.35;
-                        border-radius: 3px;
-                        background: row.copy ? #8fb0ff : Theme.accent;
+                        border-radius: 2px;
+                        background: Theme.accent;
                     }
                 }
             }

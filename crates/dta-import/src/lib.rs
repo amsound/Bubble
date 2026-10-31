@@ -17,12 +17,14 @@ use std::path::{Path, PathBuf};
 use bubble_project::Project;
 use sha2::{Digest, Sha256};
 
-pub use convert::{ConvertError, ImportOptions, SourceInfo, convert};
+pub use convert::{ConvertError, ImportControl, ImportOptions, SourceInfo, convert};
 pub use paths::DriveMap;
 pub use report::Report;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
+    #[error("cancelled")]
+    Cancelled,
     #[error("cannot read {path}: {source}")]
     Read {
         path: String,
@@ -117,10 +119,7 @@ pub fn import_file(
     if out.exists() && !force {
         return Err(ImportError::OutputExists(out.display().to_string()));
     }
-    let bytes = std::fs::read(source).map_err(|e| ImportError::Read {
-        path: source.display().to_string(),
-        source: e,
-    })?;
+    let bytes = read_source(source, opts.control.as_ref())?;
     let file_name = source
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -157,6 +156,37 @@ pub fn import_file(
     })
 }
 
+/// Reads a session or package to import, reporting progress as it goes. Reading is the
+/// first half of the work and writing out its audio the second, for a package whose
+/// size is mostly audio.
+pub fn read_source(source: &Path, control: Option<&ImportControl>) -> Result<Vec<u8>, ImportError> {
+    use std::io::Read;
+    use std::sync::atomic::Ordering::Relaxed;
+    let err = |e| ImportError::Read {
+        path: source.display().to_string(),
+        source: e,
+    };
+    let Some(control) = control else {
+        return std::fs::read(source).map_err(err);
+    };
+    let mut file = std::fs::File::open(source).map_err(err)?;
+    let size = file.metadata().map_err(err)?.len();
+    control.total.store(size * 2, Relaxed);
+    let mut bytes = Vec::with_capacity(size as usize);
+    let mut chunk = vec![0u8; 8 << 20];
+    loop {
+        if control.cancel.load(Relaxed) {
+            return Err(ImportError::Cancelled);
+        }
+        let n = file.read(&mut chunk).map_err(err)?;
+        if n == 0 {
+            return Ok(bytes);
+        }
+        bytes.extend_from_slice(&chunk[..n]);
+        control.done.fetch_add(n as u64, Relaxed);
+    }
+}
+
 /// Extracts a package's audio into `<project_dir>/Audio` and converts its session.
 /// Existing identical files are reused; a different file with the same name gets a
 /// numbered name, so nothing is overwritten.
@@ -178,7 +208,18 @@ pub fn import_package_bytes(
     })?;
     let mut packed = Vec::new();
     for f in &package.files {
+        use std::sync::atomic::Ordering::Relaxed;
+        if opts
+            .control
+            .as_ref()
+            .is_some_and(|c| c.cancel.load(Relaxed))
+        {
+            return Err(ImportError::Cancelled);
+        }
         let data = package.bytes(bytes, f);
+        if let Some(c) = &opts.control {
+            c.done.fetch_add(data.len() as u64, Relaxed);
+        }
         let target = free_name(&audio_dir, &pkg::file_name_of(&f.original_path), data);
         if !target.exists() {
             bubble_project::io::write_atomic(&target, data, false).map_err(|e| {

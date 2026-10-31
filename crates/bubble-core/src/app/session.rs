@@ -5,6 +5,7 @@
 //! the interface; the result is applied on a later frame.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::SystemTime;
 
@@ -50,6 +51,39 @@ pub enum JobResult {
     /// Files converted to WAV (session setting), with errors.
     Converted(Vec<bubble_control::Conversion>, Vec<String>),
     Failed(String),
+    /// Stopped when asked.
+    Cancelled,
+}
+
+/// How a job reports its progress and hears that it should stop. Between files, so a
+/// large one finishes first.
+#[derive(Clone, Default)]
+pub struct JobControl {
+    /// Counted in bytes (of a package), not in files.
+    pub in_bytes: bool,
+    pub import: dta_import::ImportControl,
+}
+
+impl JobControl {
+    pub fn cancelled(&self) -> bool {
+        self.import.cancel.load(Relaxed)
+    }
+
+    pub fn set_total(&self, n: u64) {
+        self.import.total.store(n, Relaxed);
+    }
+
+    pub fn step(&self) {
+        self.import.done.fetch_add(1, Relaxed);
+    }
+
+    /// (done, total); the total is 0 until it is known.
+    pub fn progress(&self) -> (u64, u64) {
+        (
+            self.import.done.load(Relaxed),
+            self.import.total.load(Relaxed),
+        )
+    }
 }
 
 pub struct Job {
@@ -57,6 +91,7 @@ pub struct Job {
     /// The cell (page, row, col) the job fills, if any: copying files to assign there.
     pub cell: Option<(usize, u16, u16)>,
     pub rx: Receiver<JobResult>,
+    pub control: JobControl,
 }
 
 /// `~/Bubble` when no location was chosen yet: the home folder itself is not synced
@@ -145,14 +180,19 @@ impl Core {
                 if n == 1 { "" } else { "s" }
             ),
             Some((page, row, col)),
-            move || {
+            move |ctl| {
                 let mut out = Vec::new();
                 let mut errors = Vec::new();
+                ctl.set_total(files.len() as u64);
                 for f in files {
+                    if ctl.cancelled() {
+                        return JobResult::Cancelled;
+                    }
                     match collect_file(&dir, &f) {
                         Ok(p) => out.push(p),
                         Err(e) => errors.push(e.to_string()),
                     }
+                    ctl.step();
                 }
                 JobResult::Assign(page, row, col, out, errors)
             },
@@ -178,22 +218,40 @@ impl Core {
                 "Collecting {n} file{} into the session…",
                 if n == 1 { "" } else { "s" }
             ),
-            move || {
+            move |ctl| {
                 let mut moves = Vec::new();
                 let mut errors = Vec::new();
+                ctl.set_total(external.len() as u64);
                 for (id, p) in external {
+                    // Those copied so far are kept; the session still works without the rest.
+                    if ctl.cancelled() {
+                        break;
+                    }
                     match collect_file(&dir, &p) {
                         Ok(c) => moves.push((id, c)),
                         Err(e) => errors.push(e.to_string()),
                     }
+                    ctl.step();
                 }
                 JobResult::Collected(moves, errors)
             },
         );
     }
 
-    pub fn start_job(&mut self, label: String, f: impl FnOnce() -> JobResult + Send + 'static) {
+    pub fn start_job(
+        &mut self,
+        label: String,
+        f: impl FnOnce(&JobControl) -> JobResult + Send + 'static,
+    ) {
         self.start_job_at(label, None, f);
+    }
+
+    /// Asks the running job to stop.
+    pub fn cancel_job(&mut self) {
+        if let Some(j) = &self.job {
+            crate::log::info(&format!("cancelling: {}", j.label));
+            j.control.import.cancel.store(true, Relaxed);
+        }
     }
 
     /// As [`Core::start_job`], for a job that fills `cell` (shown on that tile).
@@ -201,18 +259,35 @@ impl Core {
         &mut self,
         label: String,
         cell: Option<(usize, u16, u16)>,
-        f: impl FnOnce() -> JobResult + Send + 'static,
+        f: impl FnOnce(&JobControl) -> JobResult + Send + 'static,
+    ) {
+        let control = JobControl::default();
+        self.start_job_with(label, cell, control, f);
+    }
+
+    fn start_job_with(
+        &mut self,
+        label: String,
+        cell: Option<(usize, u16, u16)>,
+        control: JobControl,
+        f: impl FnOnce(&JobControl) -> JobResult + Send + 'static,
     ) {
         let (tx, rx) = channel();
+        let theirs = control.clone();
         let repaint = self.repaint.clone();
         std::thread::Builder::new()
             .name("bubble-job".into())
             .spawn(move || {
-                let _ = tx.send(f());
+                let _ = tx.send(f(&theirs));
                 repaint();
             })
             .expect("spawn job thread");
-        self.job = Some(Job { label, cell, rx });
+        self.job = Some(Job {
+            label,
+            cell,
+            rx,
+            control,
+        });
     }
 
     /// Applies a finished job.
@@ -231,6 +306,7 @@ impl Core {
             }
         };
         match result {
+            JobResult::Cancelled => crate::log::info("cancelled"),
             JobResult::Assign(p, r, c, files, errors) => {
                 if !files.is_empty() {
                     intents.push(Intent::AssignFiles(p, r, c, files));
@@ -302,26 +378,45 @@ impl Core {
                 // Copy into the new session once it exists (next frame).
                 let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
                 let label = "Copying files into the session…".to_string();
-                self.start_job_at(label, Some((p, r, c)), move || {
+                self.start_job_at(label, Some((p, r, c)), move |ctl| {
                     let mut out = Vec::new();
                     let mut errors = Vec::new();
+                    ctl.set_total(files.len() as u64);
                     for f in files {
+                        if ctl.cancelled() {
+                            return JobResult::Cancelled;
+                        }
                         match collect_file(&dir, &f) {
                             Ok(p) => out.push(p),
                             Err(e) => errors.push(e.to_string()),
                         }
+                        ctl.step();
                     }
                     JobResult::Assign(p, r, c, out, errors)
                 });
             }
             AfterCreate::Import(src) => {
                 let out = file.clone();
-                self.start_job(format!("Importing {}…", file_name(&src)), move || {
+                let control = JobControl {
+                    in_bytes: true,
+                    ..Default::default()
+                };
+                let label = format!("Importing {}…", file_name(&src));
+                self.start_job_with(label, None, control, move |ctl| {
                     let opts = dta_import::ImportOptions {
                         name: Some(name),
+                        control: Some(ctl.import.clone()),
                         ..Default::default()
                     };
                     match dta_import::import_file(&src, &out, &opts, false) {
+                        // The session's folder was made for this import (it is refused
+                        // unless new or empty), so nothing else goes with it.
+                        Err(dta_import::ImportError::Cancelled) => {
+                            if let Some(dir) = out.parent() {
+                                let _ = std::fs::remove_dir_all(dir);
+                            }
+                            JobResult::Cancelled
+                        }
                         Ok(_) if wav => {
                             // The Audio files choice made with the new session.
                             let set = bubble_project::io::load(&out)
@@ -352,14 +447,19 @@ impl Core {
                 let n = assets.len();
                 self.start_job(
                     format!("Copying {n} audio file(s) to the new session…"),
-                    move || {
+                    move |ctl| {
                         let mut moves = Vec::new();
                         let mut errors = Vec::new();
+                        ctl.set_total(assets.len() as u64);
                         for (id, p) in assets {
+                            if ctl.cancelled() {
+                                return JobResult::Cancelled;
+                            }
                             match collect_file(&dir, &p) {
                                 Ok(c) => moves.push((id, c)),
                                 Err(e) => errors.push(e.to_string()),
                             }
+                            ctl.step();
                         }
                         JobResult::SavedAs(file, moves, errors)
                     },
@@ -374,15 +474,24 @@ impl Core {
         let Some(dir) = self.lock().project_dir() else {
             return;
         };
-        self.start_job(format!("Importing {}…", file_name(&path)), move || {
-            let bytes = match std::fs::read(&path) {
+        let control = JobControl {
+            in_bytes: true,
+            ..Default::default()
+        };
+        let label = format!("Importing {}…", file_name(&path));
+        self.start_job_with(label, None, control, move |ctl| {
+            let bytes = match dta_import::read_source(&path, Some(&ctl.import)) {
                 Ok(b) => b,
+                Err(dta_import::ImportError::Cancelled) => return JobResult::Cancelled,
                 Err(e) => {
                     return JobResult::Failed(format!("Could not read {}:\n{e}", path.display()));
                 }
             };
             let name = file_name(&path);
-            let opts = dta_import::ImportOptions::default();
+            let opts = dta_import::ImportOptions {
+                control: Some(ctl.import.clone()),
+                ..Default::default()
+            };
             let r = if dta_import::pkg::is_package(&bytes) {
                 dta_import::import_package_bytes(&bytes, &name, &dir, &opts, false)
             } else {
@@ -390,6 +499,7 @@ impl Core {
             };
             match r {
                 Ok((project, _report)) => JobResult::Merged(Box::new(project)),
+                Err(dta_import::ImportError::Cancelled) => JobResult::Cancelled,
                 Err(e) => JobResult::Failed(format!("Could not import {}:\n{e}", path.display())),
             }
         });

@@ -148,6 +148,8 @@ pub struct App {
     save_rx: std::sync::mpsc::Receiver<Option<savepanel::Choice>>,
     ask_audio: bool,
     confirm_close: bool,
+    /// Windows' shutdown is held back until the question about unsaved work is answered.
+    shutdown_held: bool,
     allow_close: bool,
     relink: bool,
     /// Delete Page… asked for this page; the dialog confirms.
@@ -954,6 +956,9 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_cell_drop, |a, i, from, to, copy| {
         a.cell_drop(from, to, copy, i);
     });
+    on!(ui, app, on_cancel_job, |a, _i| {
+        a.core.cancel_job();
+    });
     on!(ui, app, on_toggle_mode, |a, _i| {
         a.edit_mode = !a.edit_mode;
         // EDIT seemed slower to a mouse than to a finger on the Surface: measure it.
@@ -1070,6 +1075,26 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
             slint::CloseRequestResponse::HideWindow
         }
     });
+}
+
+/// "1.2 of 3.4 GB" or "3 of 12 files".
+fn progress_text(c: &bubble_core::app::JobControl) -> Option<String> {
+    let (done, total) = c.progress();
+    if total == 0 {
+        return None;
+    }
+    Some(if c.in_bytes {
+        const GB: f64 = 1e9;
+        const MB: f64 = 1e6;
+        // A package reads and then writes its bytes: shown as a whole.
+        if (total as f64) < GB {
+            format!("{:.0} of {:.0} MB", done as f64 / MB, total as f64 / MB)
+        } else {
+            format!("{:.1} of {:.1} GB", done as f64 / GB, total as f64 / GB)
+        }
+    } else {
+        format!("{done} of {total} files")
+    })
 }
 
 thread_local! {
@@ -1219,6 +1244,7 @@ impl App {
             save_rx,
             ask_audio: false,
             confirm_close: false,
+            shutdown_held: false,
             allow_close: false,
             relink: false,
             delete_page: None,
@@ -1289,7 +1315,11 @@ impl App {
         let t = Instant::now();
         if let Some(ui) = self.ui.upgrade() {
             window::finish_restore(&ui);
-            window::on_session_end(&ui, self.core.saver_for_session_end());
+            window::on_session_end(
+                &ui,
+                self.core.saver_for_session_end(),
+                self.core.holder_for_session_end(),
+            );
             window::round_corners(ui.window());
             window::set_icon(ui.window());
         }
@@ -1311,6 +1341,16 @@ impl App {
             return;
         }
         self.core.crash_test();
+        // Windows wants to shut down with unsaved work: it has been held back, so ask.
+        if self.core.session_end_held() {
+            window::bring_to_front(&ui);
+            self.confirm_close = true;
+            self.shutdown_held = true;
+        }
+        if self.shutdown_held && !self.confirm_close {
+            self.shutdown_held = false;
+            window::release_shutdown(&ui);
+        }
         // A trigger from the keyboard or the screen waits for the same thread.
         let gap = self.last_tick.elapsed();
         if self.started && gap > self.interval + STALL_LOGGED {
@@ -1677,10 +1717,22 @@ impl App {
                 .cell
                 .map(|(p, r, c)| format!("to cell {}", snap.project.cell_number(p, r, c)));
             rows.push(BusyRow {
-                text: j.label.trim_end_matches('…').to_string().into(),
-                detail: detail.unwrap_or_default().into(),
+                text: if j.control.cancelled() {
+                    "Cancelling…".to_string()
+                } else {
+                    j.label.trim_end_matches('…').to_string()
+                }
+                .into(),
+                detail: progress_text(&j.control)
+                    .or(detail)
+                    .unwrap_or_default()
+                    .into(),
                 copy: j.cell.is_some(),
-                progress: -1.0,
+                progress: match j.control.progress() {
+                    (_, 0) => -1.0,
+                    (done, total) => done as f32 / total as f32,
+                },
+                can_cancel: !j.control.cancelled(),
             });
         }
         if snap.pending > 0 {
@@ -1691,6 +1743,7 @@ impl App {
                 detail: format!("{done} of {total} files").into(),
                 progress: done as f32 / total as f32,
                 copy: false,
+                can_cancel: false,
             });
         }
         rows
@@ -3047,6 +3100,7 @@ impl App {
                     name("Quit", "Exit"),
                 ],
                 links: true,
+                logo: true,
                 ..Default::default()
             },
             Dialog::SetupClose => {

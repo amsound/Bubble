@@ -269,6 +269,11 @@ Done (main window):
       session autosaves; edits autosave 2 s after they settle (30 s at most in a long
       run); each save keeps the old file in `Backups` (10 kept); a failed `.bak` no
       longer stops a save. `BUBBLE_CRASH_TEST=native`, `overflow`, `edit` test these.
+- [x] Windows' shutdown is held back while there is unsaved work, until it is saved or
+      discarded (autosaved first, in case the user makes Windows go on). The busy
+      popover is in the middle of the window, with a thin accent bar showing real
+      progress and Cancel for jobs (between files; a cancelled import removes its new
+      session folder). "Start with a session" shows Bubble's logo.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

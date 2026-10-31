@@ -306,19 +306,30 @@ pub fn run_menu(x: f32, y: f32, open: impl FnOnce()) {
     LAST_MENU.set(Some((x, y, std::time::Instant::now())));
 }
 
-/// Windows: runs `save` when Windows ends the session (restart, shut down, log off).
-/// Windows then ends Bubble without the usual closing of its windows, and winit does
-/// not report it, so this listens to the window's messages itself.
-pub fn on_session_end(ui: &MainWindow, save: impl Fn() + Send + Sync + 'static) {
+/// Windows: `hold` is asked when Windows wants to end the session (restart, shut down,
+/// log off); if true Windows is held back, showing the reason, until
+/// [`release_shutdown`] or until the user makes it go on. `save` runs when it really
+/// ends: Windows then ends Bubble without the usual closing of its windows. winit
+/// reports neither, so this listens to the window's messages itself.
+pub fn on_session_end(
+    ui: &MainWindow,
+    save: impl Fn() + Send + Sync + 'static,
+    hold: impl Fn() -> bool + Send + Sync + 'static,
+) {
     #[cfg(windows)]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
         use std::sync::OnceLock;
         use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+        use windows_sys::Win32::System::Shutdown::ShutdownBlockReasonCreate;
         use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-        use windows_sys::Win32::UI::WindowsAndMessaging::WM_ENDSESSION;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ENDSESSION, WM_QUERYENDSESSION};
+
+        /// ENDSESSION_CRITICAL: Windows will not wait, whatever is answered.
+        const CRITICAL: isize = 0x4000_0000;
 
         static SAVE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+        static HOLD: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
 
         unsafe extern "system" fn proc(
             hwnd: HWND,
@@ -328,6 +339,18 @@ pub fn on_session_end(ui: &MainWindow, save: impl Fn() + Send + Sync + 'static) 
             _id: usize,
             _data: usize,
         ) -> LRESULT {
+            if msg == WM_QUERYENDSESSION
+                && lparam & CRITICAL == 0
+                && HOLD.get().is_some_and(|hold| hold())
+            {
+                let reason: Vec<u16> = "Bubble has unsaved changes"
+                    .encode_utf16()
+                    .chain(Some(0))
+                    .collect();
+                // SAFETY: this window, and text valid for the call.
+                unsafe { ShutdownBlockReasonCreate(hwnd, reason.as_ptr()) };
+                return 0;
+            }
             if msg == WM_ENDSESSION
                 && wparam != 0
                 && let Some(save) = SAVE.get()
@@ -339,6 +362,7 @@ pub fn on_session_end(ui: &MainWindow, save: impl Fn() + Send + Sync + 'static) 
         }
 
         let _ = SAVE.set(Box::new(save));
+        let _ = HOLD.set(Box::new(hold));
         if let Ok(RawWindowHandle::Win32(h)) = ui
             .window()
             .window_handle()
@@ -350,7 +374,29 @@ pub fn on_session_end(ui: &MainWindow, save: impl Fn() + Send + Sync + 'static) 
         }
     }
     #[cfg(not(windows))]
-    let _ = (ui, save);
+    let _ = (ui, save, hold);
+}
+
+/// Windows: the question about unsaved work has been answered, so Bubble no longer
+/// stands in the way of a shutdown.
+pub fn release_shutdown(ui: &MainWindow) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Ok(RawWindowHandle::Win32(h)) = ui
+            .window()
+            .window_handle()
+            .window_handle()
+            .map(|h| h.as_raw())
+        {
+            // SAFETY: the main window.
+            unsafe {
+                windows_sys::Win32::System::Shutdown::ShutdownBlockReasonDestroy(h.hwnd.get() as _)
+            };
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = ui;
 }
 
 /// A tool window just shown (Cart Setup, the settings windows): rounded corners, the

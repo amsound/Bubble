@@ -26,7 +26,7 @@ pub mod audio_out;
 pub mod convert;
 pub mod session;
 
-pub use session::{AfterCreate, Job, JobResult, NewSession, saved_text};
+pub use session::{AfterCreate, Job, JobControl, JobResult, NewSession, saved_text};
 
 /// A project being read in the background: (path, opened at start-up?, result).
 pub type PendingOpen = (
@@ -183,6 +183,8 @@ pub struct Core {
     peaks: Mutex<HashMap<Uuid, (f32, f32)>>,
     /// Writes sessions, autosaves and preferences on its own thread.
     pub writer: Writer,
+    /// Windows wants to end the session and has been held back.
+    session_end_asked: Arc<std::sync::atomic::AtomicBool>,
     /// An autosave is on its way to the disk: the next waits for it.
     autosave_writing: bool,
     /// What to do once the save being written has succeeded (a failed one does neither,
@@ -274,6 +276,7 @@ impl Core {
             midi_ports: Vec::new(),
             midi_opening: None,
             writer: Writer::new(repaint.clone()),
+            session_end_asked: Arc::default(),
             autosave_writing: false,
             after_save: None,
             quit_after_save: false,
@@ -590,6 +593,38 @@ impl Core {
                 }
             }
         }
+    }
+
+    /// Asked when Windows wants to end the session: whether to hold it back. With unsaved
+    /// work it does (the interface then asks), having autosaved first in case the user
+    /// makes Windows go on anyway. A shutdown Windows will not wait for is not held.
+    pub fn holder_for_session_end(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let (ctrl, id) = (self.ctrl.clone(), self.session_id);
+        let (held, repaint) = (self.session_end_asked.clone(), self.repaint.clone());
+        move || {
+            let dirty = match ctrl.try_lock() {
+                Ok(c) => c.is_dirty(),
+                Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner().is_dirty(),
+                // Busy for a moment: better to ask than to lose work.
+                Err(std::sync::TryLockError::WouldBlock) => true,
+            };
+            if !dirty {
+                return false;
+            }
+            let saved = crash::autosave_now(&ctrl, id);
+            crate::log::info(&format!(
+                "holding back Windows' shutdown; autosave: {saved}"
+            ));
+            held.store(true, std::sync::atomic::Ordering::SeqCst);
+            repaint();
+            true
+        }
+    }
+
+    /// Whether a shutdown has just been held back, for the interface to ask.
+    pub fn session_end_held(&self) -> bool {
+        self.session_end_asked
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Waits for files still being written (Bubble is quitting).

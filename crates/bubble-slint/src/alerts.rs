@@ -28,6 +28,9 @@ pub struct Alert {
     /// Windows: the buttons other than Cancel are command links (a choice of actions).
     #[cfg_attr(not(windows), allow(dead_code))]
     pub links: bool,
+    /// Windows: Bubble's logo instead of a warning sign (it is not a warning).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub logo: bool,
 }
 
 /// The alert being shown, if any, and its answer when it comes.
@@ -123,14 +126,17 @@ mod platform {
     use super::{Alert, Done};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows_sys::Win32::System::LibraryLoader::{
+        GetModuleHandleW, GetProcAddress, LoadLibraryW,
+    };
     use windows_sys::Win32::UI::Controls::{
         TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TD_ERROR_ICON, TD_WARNING_ICON, TDCBF_CANCEL_BUTTON,
         TDF_ALLOW_DIALOG_CANCELLATION, TDF_POSITION_RELATIVE_TO_WINDOW, TDF_USE_COMMAND_LINKS,
+        TDF_USE_HICON_MAIN,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IDCANCEL, IDNO, IDOK, IDYES, MB_ICONERROR, MB_ICONWARNING, MB_OK, MB_OKCANCEL,
-        MB_YESNOCANCEL, MessageBoxW,
+        GetSystemMetrics, IDCANCEL, IDNO, IDOK, IDYES, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW,
+        MB_ICONERROR, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MB_YESNOCANCEL, MessageBoxW, SM_CXICON,
     };
 
     type TaskDialogIndirect =
@@ -205,6 +211,24 @@ mod platform {
         } else {
             TD_WARNING_ICON
         };
+        if alert.logo {
+            // Resource 1 of the .exe (build.rs), at the size the screen's scale asks for.
+            let size = unsafe { GetSystemMetrics(SM_CXICON) };
+            let icon = unsafe {
+                LoadImageW(
+                    GetModuleHandleW(std::ptr::null()),
+                    1 as _,
+                    IMAGE_ICON,
+                    size,
+                    size,
+                    LR_DEFAULTCOLOR,
+                )
+            };
+            if !icon.is_null() {
+                c.Anonymous1.hMainIcon = icon as _;
+                c.dwFlags |= TDF_USE_HICON_MAIN;
+            }
+        }
         c.pszMainInstruction = main.as_ptr();
         if !alert.info.is_empty() {
             c.pszContent = content.as_ptr();
