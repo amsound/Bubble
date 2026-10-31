@@ -480,24 +480,12 @@ impl Core {
         };
         let label = format!("Importing {}…", file_name(&path));
         self.start_job_with(label, None, control, move |ctl| {
-            let bytes = match dta_import::read_source(&path, Some(&ctl.import)) {
-                Ok(b) => b,
-                Err(dta_import::ImportError::Cancelled) => return JobResult::Cancelled,
-                Err(e) => {
-                    return JobResult::Failed(format!("Could not read {}:\n{e}", path.display()));
-                }
-            };
             let name = file_name(&path);
             let opts = dta_import::ImportOptions {
                 control: Some(ctl.import.clone()),
                 ..Default::default()
             };
-            let r = if dta_import::pkg::is_package(&bytes) {
-                dta_import::import_package_bytes(&bytes, &name, &dir, &opts, false)
-            } else {
-                dta_import::import_bytes(&bytes, &name, Some(&dir), &opts, false)
-            };
-            match r {
+            match dta_import::import_source(&path, &name, &dir, &opts, false) {
                 Ok((project, _report)) => JobResult::Merged(Box::new(project)),
                 Err(dta_import::ImportError::Cancelled) => JobResult::Cancelled,
                 Err(e) => JobResult::Failed(format!("Could not import {}:\n{e}", path.display())),

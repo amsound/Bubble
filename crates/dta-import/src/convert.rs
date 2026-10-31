@@ -332,7 +332,8 @@ pub fn convert(
     let mut used: Vec<&dta::Cart> = session.carts.iter().filter(|c| c.is_used()).collect();
     used.sort_by_key(|c| c.index);
     let last_page = used.last().map_or(0, |c| layout.position(c.index).0);
-    let n_pages = session.page_names.len().max(last_page + 1).max(1);
+    // Up to the last page with something on it; empty ones before that stay.
+    let n_pages = (last_page + 1).max(1);
     for i in 0..n_pages {
         let name = session
             .page_names

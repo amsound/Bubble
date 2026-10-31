@@ -173,9 +173,10 @@ fn missing_asset_is_reported_with_its_original_path() {
         assert_eq!(json["summary"]["assets_missing"], 1);
 
         // Project: layout, page names, cart settings, asset kept as a Windows hint.
-        assert_eq!(project.pages.len(), 8);
+        // Carts only on the first page: the session's seven empty pages after it are left
+        // out (empty pages between used ones stay; see the test with a cart on page 14).
+        assert_eq!(project.pages.len(), 1);
         assert!(project.pages.iter().all(|p| (p.rows, p.cols) == (3, 5)));
-        assert_eq!(project.pages[7].name, "8");
         assert_eq!(project.settings.default_fade_out_ms, 100);
         let cell = &project.pages[0].cells[0];
         assert_eq!((cell.row, cell.col), (0, 1));
@@ -294,7 +295,7 @@ fn import_file_writes_project_and_reports_and_leaves_source_alone() {
 
         let loaded = bubble_project::load(&out).unwrap();
         assert_eq!(loaded.name, f.file_stem().unwrap().to_str().unwrap());
-        assert_eq!(loaded.pages.len(), 8);
+        assert_eq!(loaded.pages.len(), 1);
         assert_eq!(o.report_json, dir.path().join("Show.import-report.json"));
         let json: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&o.report_json).unwrap()).unwrap();

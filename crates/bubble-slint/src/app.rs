@@ -956,8 +956,8 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_cell_drop, |a, i, from, to, copy| {
         a.cell_drop(from, to, copy, i);
     });
-    on!(ui, app, on_cancel_job, |a, _i| {
-        a.core.cancel_job();
+    on!(ui, app, on_cancel_job, |a, i| {
+        a.cancel_busy(i);
     });
     on!(ui, app, on_toggle_mode, |a, _i| {
         a.edit_mode = !a.edit_mode;
@@ -1656,59 +1656,64 @@ impl App {
         });
     }
 
-    /// Start-up: whether it is still going, and what to say under the progress ring.
-    fn startup(&mut self, snap: &Snapshot) -> Option<String> {
+    /// Notes when start-up is over.
+    fn startup(&mut self, snap: &Snapshot) {
         if self.startup_over {
-            return None;
+            return;
         }
-        let text = if !self.started || self.core.audio_opening() {
-            "Starting audio…".to_string()
-        } else if let Some((p, _, _)) = &self.core.opening {
-            format!("Opening {}…", bubble_core::app::session::file_name(p))
-        } else if snap.pending > 0
+        let loading = snap.pending > 0
             && self
                 .started_at
-                .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(5));
+        if self.started
+            && !self.core.audio_opening()
+            && self.core.opening.is_none()
+            && self.core.open_at_start.is_none()
+            && !loading
         {
-            let total = self.core.loading_total.max(snap.pending).max(1);
-            format!(
-                "Loading audio {} of {total}",
-                total - snap.pending.min(total)
-            )
-        } else if self.core.open_at_start.is_some() {
-            "Opening…".to_string()
-        } else {
             self.startup_over = true;
             log_info("start-up over: the session is shown");
             self.snapshot_and_quit();
-            return None;
-        };
-        Some(text)
+        }
+    }
+
+    /// Cancel in the busy popover: stops a job, or gives up on the session being opened.
+    fn cancel_busy(&mut self, intents: &mut Vec<Intent>) {
+        if self.core.job.is_some() {
+            self.core.cancel_job();
+        } else if self.core.opening.take().is_some() {
+            log_info("cancelled opening the session");
+        } else {
+            log_info("cancelled loading the session");
+            self.request_from_ui(PendingAction::Close, intents);
+        }
     }
 
     fn busy_rows(&mut self, snap: &Snapshot) -> Vec<BusyRow> {
         // Keeps the core's "n of total" count going.
         let _ = self.core.busy(snap);
         let mut rows = Vec::new();
-        // Start-up has its own ring in the wall.
-        let starting = self.startup(snap);
-        let ui_starting = starting.is_some();
-        if let Some(ui) = self.ui.upgrade() {
-            if ui.get_starting() != ui_starting {
-                ui.set_starting(ui_starting);
-            }
-            let t = starting.unwrap_or_default();
-            if ui.get_starting_text() != t.as_str() {
-                ui.set_starting_text(t.into());
-            }
+        // Until a session is there to show, the wall stays blank under this popover.
+        self.startup(snap);
+        let blank =
+            !self.started || self.core.opening.is_some() || self.core.open_at_start.is_some();
+        if let Some(ui) = self.ui.upgrade()
+            && ui.get_starting() != blank
+        {
+            ui.set_starting(blank);
         }
-        if ui_starting {
-            return rows;
+        if !self.started {
+            rows.push(BusyRow {
+                text: "Starting Bubble…".into(),
+                progress: -1.0,
+                ..Default::default()
+            });
         }
         if let Some((p, _, _)) = &self.core.opening {
             rows.push(BusyRow {
                 text: format!("Opening {}…", bubble_core::app::session::file_name(p)).into(),
                 progress: -1.0,
+                can_cancel: true,
                 ..Default::default()
             });
         }
@@ -1743,7 +1748,13 @@ impl App {
                 detail: format!("{done} of {total} files").into(),
                 progress: done as f32 / total as f32,
                 copy: false,
-                can_cancel: false,
+                // Only for a session being opened, which then closes; not for a file added
+                // to a session in use, and not with anything playing.
+                can_cancel: self.core.loading_since.is_some()
+                    && !snap
+                        .runtime
+                        .values()
+                        .any(|r| matches!(r.state, Cs::Playing | Cs::Stopping)),
             });
         }
         rows

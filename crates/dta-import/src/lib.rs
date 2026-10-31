@@ -12,7 +12,9 @@ pub mod paths;
 pub mod pkg;
 pub mod report;
 
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering::Relaxed;
 
 use bubble_project::Project;
 use sha2::{Digest, Sha256};
@@ -119,7 +121,6 @@ pub fn import_file(
     if out.exists() && !force {
         return Err(ImportError::OutputExists(out.display().to_string()));
     }
-    let bytes = read_source(source, opts.control.as_ref())?;
     let file_name = source
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -128,11 +129,7 @@ pub fn import_file(
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let (mut project, report) = if pkg::is_package(&bytes) {
-        import_package_bytes(&bytes, &file_name, &project_dir, opts, force)?
-    } else {
-        import_bytes(&bytes, &file_name, Some(&project_dir), opts, force)?
-    };
+    let (mut project, report) = import_source(source, &file_name, &project_dir, opts, force)?;
     bubble_project::save(&mut project, out)?;
 
     let (report_json, report_md) = report_paths(out);
@@ -156,35 +153,41 @@ pub fn import_file(
     })
 }
 
-/// Reads a session or package to import, reporting progress as it goes. Reading is the
-/// first half of the work and writing out its audio the second, for a package whose
-/// size is mostly audio.
-pub fn read_source(source: &Path, control: Option<&ImportControl>) -> Result<Vec<u8>, ImportError> {
-    use std::io::Read;
-    use std::sync::atomic::Ordering::Relaxed;
+/// Converts a session or package from its file. A package may be many gigabytes, so
+/// it is not read into memory: its audio is copied across in pieces.
+pub fn import_source(
+    source: &Path,
+    file_name: &str,
+    project_dir: &Path,
+    opts: &ImportOptions,
+    force: bool,
+) -> Result<(Project, Report), ImportError> {
     let err = |e| ImportError::Read {
         path: source.display().to_string(),
         source: e,
     };
-    let Some(control) = control else {
-        return std::fs::read(source).map_err(err);
-    };
     let mut file = std::fs::File::open(source).map_err(err)?;
-    let size = file.metadata().map_err(err)?.len();
-    control.total.store(size * 2, Relaxed);
-    let mut bytes = Vec::with_capacity(size as usize);
-    let mut chunk = vec![0u8; 8 << 20];
-    loop {
-        if control.cancel.load(Relaxed) {
-            return Err(ImportError::Cancelled);
-        }
-        let n = file.read(&mut chunk).map_err(err)?;
-        if n == 0 {
-            return Ok(bytes);
-        }
-        bytes.extend_from_slice(&chunk[..n]);
-        control.done.fetch_add(n as u64, Relaxed);
+    let mut start = [0u8; 32];
+    let package = file.read_exact(&mut start).is_ok() && pkg::is_package(&start);
+    if package {
+        import_package_from(&mut file, file_name, project_dir, opts, force)
+    } else {
+        let bytes = read_source(source, opts.control.as_ref())?;
+        import_bytes(&bytes, file_name, Some(project_dir), opts, force)
     }
+}
+
+/// Reads a session file (never large) to import.
+fn read_source(source: &Path, control: Option<&ImportControl>) -> Result<Vec<u8>, ImportError> {
+    let bytes = std::fs::read(source).map_err(|e| ImportError::Read {
+        path: source.display().to_string(),
+        source: e,
+    })?;
+    if let Some(c) = control {
+        c.total.store(bytes.len() as u64, Relaxed);
+        c.done.store(bytes.len() as u64, Relaxed);
+    }
+    Ok(bytes)
 }
 
 /// Extracts a package's audio into `<project_dir>/Audio` and converts its session.
@@ -197,7 +200,31 @@ pub fn import_package_bytes(
     opts: &ImportOptions,
     force: bool,
 ) -> Result<(Project, Report), ImportError> {
-    let package = pkg::parse(bytes).map_err(ImportError::Package)?;
+    let mut input = std::io::Cursor::new(bytes);
+    import_package_from(&mut input, file_name, project_dir, opts, force)
+}
+
+/// How much of a package is held in memory at a time.
+const PIECE: usize = 1 << 20;
+
+/// [`import_package_bytes`] from anything that can be read and sought, a file above all.
+/// Its fingerprint for the report is the first half of the work, and copying out its
+/// audio the second, a package's size being mostly audio.
+fn import_package_from<R: Read + Seek>(
+    input: &mut R,
+    file_name: &str,
+    project_dir: &Path,
+    opts: &ImportOptions,
+    force: bool,
+) -> Result<(Project, Report), ImportError> {
+    let read_err = |e| ImportError::Read {
+        path: file_name.to_string(),
+        source: e,
+    };
+    let package = pkg::parse_from(input).map_err(|e| match e {
+        pkg::ReadError::Parse(e) => ImportError::Package(e),
+        pkg::ReadError::Io(e) => read_err(e),
+    })?;
     if !package.session.trailer_ok && !force {
         return Err(ImportError::Trailer);
     }
@@ -206,36 +233,40 @@ pub fn import_package_bytes(
         path: audio_dir.display().to_string(),
         source: e,
     })?;
+    let control = opts.control.as_ref();
+    let size = input.seek(SeekFrom::End(0)).map_err(read_err)?;
+    if let Some(c) = control {
+        c.total.store(size * 2, Relaxed);
+    }
+
+    let mut piece = vec![0u8; PIECE];
+    let mut hash = Sha256::new();
+    input.seek(SeekFrom::Start(0)).map_err(read_err)?;
+    loop {
+        stop_if_cancelled(control)?;
+        let n = input.read(&mut piece).map_err(read_err)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&piece[..n]);
+        advance(control, n);
+    }
+    let sha256 = hash
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+
     let mut packed = Vec::new();
     for f in &package.files {
-        use std::sync::atomic::Ordering::Relaxed;
-        if opts
-            .control
-            .as_ref()
-            .is_some_and(|c| c.cancel.load(Relaxed))
-        {
-            return Err(ImportError::Cancelled);
-        }
-        let data = package.bytes(bytes, f);
-        if let Some(c) = &opts.control {
-            c.done.fetch_add(data.len() as u64, Relaxed);
-        }
-        let target = free_name(&audio_dir, &pkg::file_name_of(&f.original_path), data);
-        if !target.exists() {
-            bubble_project::io::write_atomic(&target, data, false).map_err(|e| {
-                ImportError::Write {
-                    path: target.display().to_string(),
-                    source: e,
-                }
-            })?;
-        }
+        let target = extract(input, f, &audio_dir, control, &mut piece, &read_err)?;
         packed.push((f.original_path.clone(), target));
     }
     let mut opts = opts.clone();
     opts.packed = packed;
     let source = SourceInfo {
         file: file_name.to_string(),
-        sha256: sha256_hex(bytes),
+        sha256,
     };
     let (project, mut report) = convert(&package.session, &source, Some(project_dir), &opts)?;
     if !package.options_found {
@@ -249,10 +280,32 @@ pub fn import_package_bytes(
     Ok((project, report))
 }
 
-/// `dir/name`, or `dir/name (2).ext`… when a different file already has that name.
-/// Returns an existing path when its content is identical (so it is reused).
-fn free_name(dir: &Path, name: &str, data: &[u8]) -> PathBuf {
-    let p = Path::new(name);
+fn stop_if_cancelled(control: Option<&ImportControl>) -> Result<(), ImportError> {
+    if control.is_some_and(|c| c.cancel.load(Relaxed)) {
+        return Err(ImportError::Cancelled);
+    }
+    Ok(())
+}
+
+fn advance(control: Option<&ImportControl>, n: usize) {
+    if let Some(c) = control {
+        c.done.fetch_add(n as u64, Relaxed);
+    }
+}
+
+/// Writes a packed file to `dir/name`, or `dir/name (2).ext`… when a different file
+/// already has that name. An identical file already there is reused. Written beside its
+/// final name first, so a cancelled or failed copy leaves nothing behind.
+fn extract<R: Read + Seek>(
+    input: &mut R,
+    file: &pkg::PackedFile,
+    dir: &Path,
+    control: Option<&ImportControl>,
+    piece: &mut [u8],
+    read_err: &dyn Fn(std::io::Error) -> ImportError,
+) -> Result<PathBuf, ImportError> {
+    let name = pkg::file_name_of(&file.original_path);
+    let p = Path::new(&name);
     let stem = p
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -261,19 +314,88 @@ fn free_name(dir: &Path, name: &str, data: &[u8]) -> PathBuf {
         .extension()
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
+    let len = file.data.len() as u64;
+    let start = file.data.start as u64;
     for n in 1.. {
         let candidate = if n == 1 {
-            dir.join(name)
+            dir.join(&name)
         } else {
             dir.join(format!("{stem} ({n}){ext}"))
         };
-        match std::fs::read(&candidate) {
-            Err(_) => return candidate,
-            Ok(existing) if existing == data => return candidate,
-            Ok(_) => {}
+        let Ok(meta) = std::fs::metadata(&candidate) else {
+            write_piecewise(input, start, len, &candidate, control, piece, read_err)?;
+            return Ok(candidate);
+        };
+        if meta.len() == len && same_content(input, start, len, &candidate, piece, read_err)? {
+            advance(control, len as usize);
+            return Ok(candidate);
         }
     }
     unreachable!()
+}
+
+fn write_piecewise<R: Read + Seek>(
+    input: &mut R,
+    start: u64,
+    len: u64,
+    target: &Path,
+    control: Option<&ImportControl>,
+    piece: &mut [u8],
+    read_err: &dyn Fn(std::io::Error) -> ImportError,
+) -> Result<(), ImportError> {
+    let mut part = target.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    let write_err = |e| ImportError::Write {
+        path: target.display().to_string(),
+        source: e,
+    };
+    let mut copy = || -> Result<(), ImportError> {
+        let mut out = std::fs::File::create(&part).map_err(write_err)?;
+        input.seek(SeekFrom::Start(start)).map_err(read_err)?;
+        let mut left = len;
+        while left > 0 {
+            stop_if_cancelled(control)?;
+            let want = left.min(piece.len() as u64) as usize;
+            input.read_exact(&mut piece[..want]).map_err(read_err)?;
+            out.write_all(&piece[..want]).map_err(write_err)?;
+            left -= want as u64;
+            advance(control, want);
+        }
+        out.sync_all().map_err(write_err)?;
+        drop(out);
+        std::fs::rename(&part, target).map_err(write_err)
+    };
+    let result = copy();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    result
+}
+
+fn same_content<R: Read + Seek>(
+    input: &mut R,
+    start: u64,
+    len: u64,
+    other: &Path,
+    piece: &mut [u8],
+    read_err: &dyn Fn(std::io::Error) -> ImportError,
+) -> Result<bool, ImportError> {
+    let Ok(mut file) = std::fs::File::open(other) else {
+        return Ok(false);
+    };
+    input.seek(SeekFrom::Start(start)).map_err(read_err)?;
+    let mut theirs = vec![0u8; piece.len()];
+    let mut left = len;
+    while left > 0 {
+        let want = left.min(piece.len() as u64) as usize;
+        input.read_exact(&mut piece[..want]).map_err(read_err)?;
+        if file.read_exact(&mut theirs[..want]).is_err() || piece[..want] != theirs[..want] {
+            return Ok(false);
+        }
+        left -= want as u64;
+    }
+    Ok(true)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

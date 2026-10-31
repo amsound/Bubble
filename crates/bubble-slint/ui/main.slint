@@ -91,7 +91,6 @@ export component MainWindow inherits Window {
     // ("Starting audio…", "Opening …", "Loading audio 3 of 32") until the session is
     // ready, then shows all at once.
     in property <bool> starting: true;
-    in property <string> starting-text;
     // The window's scale factor (1, 1.25, 1.5, 2), set from Rust.
     in property <float> scale: 1;
     in property <[BusyRow]> busy;
@@ -411,7 +410,8 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ---- start-up: a progress ring in the empty cart wall ----
+    // ---- start-up: the wall stays blank until there is a session to show (the busy
+    // popover says what is happening, as it does at any other time) ----
     if root.starting: Rectangle {
         x: pad;
         y: wall-top;
@@ -420,27 +420,10 @@ export component MainWindow inherits Window {
         background: Theme.cart-panel;
         // Nothing underneath can be pressed meanwhile.
         TouchArea { }
-        VerticalLayout {
-            alignment: center;
-            spacing: 12px;
-            HorizontalLayout {
-                alignment: center;
-                Spinner {
-                    width: 32px;
-                    height: 32px;
-                    indeterminate: true;
-                }
-            }
-            Text {
-                text: root.starting-text;
-                color: Theme.weak-text;
-                horizontal-alignment: center;
-            }
-        }
     }
 
     // ---- busy popover: the one place for "Bubble is busy" ----
-    // Non-modal, top centre, over the wall: ready carts stay playable underneath and
+    // Non-modal, in the middle, over the wall: ready carts stay playable underneath and
     // nothing moves. It goes when the work is done; drag it anywhere out of the way.
     if busy.length > 0: Rectangle {
         property <bool> shown;
@@ -550,7 +533,8 @@ export component MainWindow inherits Window {
         y: root.bar-top ? 0 : round((root.height - root.bar-height) * root.scale / 1px) * 1px / root.scale;
         width: root.width;
         height: root.bar-top ? root.bar-height : root.height - self.y;
-        pages: root.pages;
+        // No tabs before there is a session: they would only be the empty one's.
+        pages: root.starting ? [] : root.pages;
         current: root.current-page;
         edit-mode: root.edit-mode;
         status: root.status;

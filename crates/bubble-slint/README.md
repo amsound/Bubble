@@ -274,6 +274,11 @@ Done (main window):
       popover is in the middle of the window, with a thin accent bar showing real
       progress and Cancel for jobs (between files; a cancelled import removes its new
       session folder). "Start with a session" shows Bubble's logo.
+- [x] Packages are imported in pieces, not read into memory (a 3.5 GB one: 3.3 GB down to
+      8 MB, with identical results). Importing leaves out empty pages after the last
+      used one. Start-up uses the busy popover like any other load, the wall appearing
+      as soon as the session is there. Cancel also gives up on a session being opened
+      or loaded.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

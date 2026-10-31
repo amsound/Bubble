@@ -17,11 +17,12 @@
 //! | converter info | `SavePkgConvToPackage` (not decoded) |
 //! | trailer | Int64 file length, Int64 package id |
 
+use std::io::{Read, Seek, SeekFrom};
 use std::ops::Range;
 
 use crate::dta::{
-    Cart, FORMAT_VERSION, ParseError, Reader, Session, SessionOptions, parse_cart, parse_post,
-    parse_pre,
+    Cart, FORMAT_VERSION, ParseError, Reader, Session, SessionOptions, decode_cp1252, parse_cart,
+    parse_post, parse_pre,
 };
 
 /// The only package version this parser understands.
@@ -61,39 +62,120 @@ pub fn is_package(d: &[u8]) -> bool {
         && i32::from_le_bytes(d[12..16].try_into().expect("4 bytes")) == FORMAT_VERSION
 }
 
-/// Parses a whole package. The input is only read.
+/// Parses a whole package in memory (tests and small inputs; see [`parse_from`]).
 pub fn parse(d: &[u8]) -> Result<Package, ParseError> {
-    let mut r = Reader::new(d, 0, d.len());
+    parse_from(&mut std::io::Cursor::new(d)).map_err(|e| match e {
+        ReadError::Parse(e) => e,
+        // Reading memory does not fail.
+        ReadError::Io(_) => ParseError::Truncated {
+            at: 0,
+            want: 0,
+            end: d.len(),
+        },
+    })
+}
+
+/// Why reading a package failed.
+#[derive(Debug)]
+pub enum ReadError {
+    Parse(ParseError),
+    Io(std::io::Error),
+}
+
+impl From<ParseError> for ReadError {
+    fn from(e: ParseError) -> Self {
+        ReadError::Parse(e)
+    }
+}
+
+impl From<std::io::Error> for ReadError {
+    fn from(e: std::io::Error) -> Self {
+        ReadError::Io(e)
+    }
+}
+
+/// The package being read, for its small parts: audio is skipped, not read.
+struct Source<'a, R> {
+    r: &'a mut R,
+    p: usize,
+    len: usize,
+}
+
+impl<R: Read + Seek> Source<'_, R> {
+    fn take(&mut self, n: usize) -> Result<Vec<u8>, ReadError> {
+        self.check(n)?;
+        let mut b = vec![0; n];
+        self.r.read_exact(&mut b)?;
+        self.p += n;
+        Ok(b)
+    }
+
+    fn skip(&mut self, n: usize) -> Result<(), ReadError> {
+        self.check(n)?;
+        self.p += n;
+        self.r.seek(SeekFrom::Start(self.p as u64))?;
+        Ok(())
+    }
+
+    fn check(&self, n: usize) -> Result<(), ParseError> {
+        if n > self.len.saturating_sub(self.p) {
+            return Err(ParseError::Truncated {
+                at: self.p,
+                want: n,
+                end: self.len,
+            });
+        }
+        Ok(())
+    }
+
+    fn i32(&mut self) -> Result<i32, ReadError> {
+        Ok(i32::from_le_bytes(
+            self.take(4)?.try_into().expect("4 bytes"),
+        ))
+    }
+
+    fn i64(&mut self) -> Result<i64, ReadError> {
+        Ok(i64::from_le_bytes(
+            self.take(8)?.try_into().expect("8 bytes"),
+        ))
+    }
+}
+
+/// Parses a package from a file, reading only its small parts into memory (the session
+/// and the end of the file); the audio, nearly all of it, is stepped over. The input is
+/// only read.
+pub fn parse_from<R: Read + Seek>(input: &mut R) -> Result<Package, ReadError> {
+    let len = input.seek(SeekFrom::End(0))? as usize;
+    input.seek(SeekFrom::Start(0))?;
+    let mut r = Source {
+        r: input,
+        p: 0,
+        len,
+    };
     let id = r.i64()?;
     let version = r.i32()?;
     if version != PACKAGE_VERSION {
-        return Err(ParseError::UnsupportedVersion(version));
+        return Err(ParseError::UnsupportedVersion(version).into());
     }
     let session_version = r.i32()?;
     if session_version != FORMAT_VERSION {
-        return Err(ParseError::UnsupportedVersion(session_version));
+        return Err(ParseError::UnsupportedVersion(session_version).into());
     }
     let count = r.i32()?;
     if !(0..=10_000).contains(&count) {
         return Err(ParseError::Implausible {
             what: "button count",
             value: count.into(),
-        });
+        }
+        .into());
     }
     r.i64()?; // total audio length
 
     let header_len = r.i32()?;
-    let header_end = r.p + usize::try_from(header_len).unwrap_or(usize::MAX);
-    let mut h = Reader::new(d, r.p, header_end.min(d.len()));
+    let header_len = usize::try_from(header_len).unwrap_or(usize::MAX);
+    let header = r.take(header_len)?;
+    let mut h = Reader::new(&header, 0, header.len());
     let pre = parse_pre(&mut h)?;
-    r.p = header_end;
-    if r.p > d.len() {
-        return Err(ParseError::Truncated {
-            at: r.p,
-            want: 0,
-            end: d.len(),
-        });
-    }
 
     let mut files: Vec<PackedFile> = Vec::new();
     let mut carts: Vec<Cart> = Vec::new();
@@ -103,7 +185,12 @@ pub fn parse(d: &[u8]) -> Result<Package, ParseError> {
             what: "button index",
             value: index.into(),
         })?;
-        let original_path = r.s()?;
+        let path_len = r.i32()?;
+        let path_len = usize::try_from(path_len).map_err(|_| ParseError::Implausible {
+            what: "string length",
+            value: path_len.into(),
+        })?;
+        let original_path = decode_cp1252(&r.take(path_len)?);
         let size = r.i64()?;
         let size = usize::try_from(size).map_err(|_| ParseError::Implausible {
             what: "file size",
@@ -120,40 +207,49 @@ pub fn parse(d: &[u8]) -> Result<Package, ParseError> {
             return Err(ParseError::Implausible {
                 what: "reference to a file not stored earlier in the package",
                 value: index.into(),
-            });
+            }
+            .into());
         }
-        let len = r.i32()?;
-        let len = usize::try_from(len).map_err(|_| ParseError::Implausible {
+        let cart_len = r.i32()?;
+        let cart_len = usize::try_from(cart_len).map_err(|_| ParseError::Implausible {
             what: "cart record length",
-            value: len.into(),
+            value: cart_len.into(),
         })?;
-        let at = r.p;
-        r.skip(len)?;
-        carts.push(parse_cart(d, at, len, index)?);
+        let record = r.take(cart_len)?;
+        carts.push(parse_cart(&record, 0, cart_len, index)?);
     }
+
+    // What follows the last cart (images, options, the trailer) holds no audio.
+    let tail = r.take(len - r.p)?;
 
     // Images precede the options block and are not decoded: find the options by
     // trying each position, accepting the first that decodes cleanly.
-    let tail_end = d.len().saturating_sub(16);
-    let (options, options_found) = (r.p..(r.p + (1 << 16)).min(tail_end))
+    let tail_end = tail.len().saturating_sub(16);
+    let (options, options_found) = (0..(1usize << 16).min(tail_end))
         .find_map(|p| {
-            let mut t = Reader::new(d, p, tail_end);
+            let mut t = Reader::new(&tail, p, tail_end);
             parse_post(&mut t)
                 .ok()
                 .filter(|o| o.link_names.len() == 256)
         })
         .map_or((SessionOptions::default(), false), |o| (o, true));
 
-    let size_ok = d.len() >= 24
-        && i64::from_le_bytes(d[d.len() - 16..d.len() - 8].try_into().expect("8 bytes"))
-            == d.len() as i64;
-    let id_ok = d.len() >= 8 && i64::from_le_bytes(d[d.len() - 8..].try_into().expect("8")) == id;
+    // The trailer is the file's last bytes, whether or not the tail reaches that far.
+    let mut trailer = [0u8; 16];
+    let mut trailer_ok = false;
+    if len >= 24 {
+        input.seek(SeekFrom::Start(len as u64 - 16))?;
+        input.read_exact(&mut trailer)?;
+        let size = i64::from_le_bytes(trailer[..8].try_into().expect("8 bytes"));
+        let last = i64::from_le_bytes(trailer[8..].try_into().expect("8 bytes"));
+        trailer_ok = size == len as i64 && last == id;
+    }
 
     Ok(Package {
         id,
         session: Session {
             format_version: session_version,
-            trailer_ok: size_ok && id_ok,
+            trailer_ok,
             wav_load_folder: pre.wav_load_folder,
             session_folder: pre.session_folder,
             page_names: pre.page_names,
