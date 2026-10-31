@@ -35,6 +35,24 @@ export struct MenuTop {
     slots: [MenuSlot],
 }
 
+// The loading dialog: a session on its way in, all input waiting.
+export struct LoadInfo {
+    // A session is loading: input is blocked, seen or not.
+    modal: bool,
+    // Past the first moment: a quick load shows nothing.
+    shown: bool,
+    title: string,
+    detail: string,
+    file: string,
+    // 0…1, or -1 when unknown (a moving bar).
+    progress: float,
+    done: int,
+    total: int,
+    cancelling: bool,
+    // The last input was by touch: a larger button.
+    touch: bool,
+}
+
 // A line in the busy popover.
 export struct BusyRow {
     text: string,
@@ -94,6 +112,7 @@ export component MainWindow inherits Window {
     // The window's scale factor (1, 1.25, 1.5, 2), set from Rust.
     in property <float> scale: 1;
     in property <[BusyRow]> busy;
+    in property <LoadInfo> load;
     // Where the busy popover was dragged to, from top centre.
     property <length> busy-dx;
     property <length> busy-dy;
@@ -423,7 +442,7 @@ export component MainWindow inherits Window {
     }
 
     // ---- busy popover: the one place for "Bubble is busy" ----
-    // Non-modal, in the middle, over the wall: ready carts stay playable underneath and
+    // Non-modal, in the middle, over the wall (a session loading has its own dialog): ready carts stay playable underneath and
     // nothing moves. It goes when the work is done; drag it anywhere out of the way.
     if busy.length > 0: Rectangle {
         property <bool> shown;
@@ -570,6 +589,121 @@ export component MainWindow inherits Window {
         }
         status-clicked => {
             root.status-clicked();
+        }
+    }
+
+    // ---- loading dialog: blocks everything until a session is in, or is cancelled.
+    // The menu bar is the system's, so it is disabled, not covered. ----
+    if root.load.modal: Rectangle {
+        property <bool> shown: root.load.shown;
+        background: Theme.dark ? #00000073 : #00000059;
+        opacity: self.shown ? 1 : 0;
+        animate opacity {
+            duration: 120ms;
+        }
+        TouchArea {
+            // Nothing beneath it can be pressed, or scrolled.
+            scroll-event(e) => {
+                accept
+            }
+        }
+        Rectangle {
+            width: 360px;
+            height: load-layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            // Centred on the cart wall, not on the window with the page bar.
+            y: (root.bar-top ? root.bar-height : 0px) + (root.height - root.bar-height - self.height) / 2;
+            background: Theme.card;
+            border-width: 1px;
+            border-color: Theme.card-border;
+            border-radius: 8px;
+            drop-shadow-blur: 28px;
+            drop-shadow-offset-y: 8px;
+            drop-shadow-color: Theme.dark ? #0000008c : #141e324d;
+            accessible-role: groupbox;
+            accessible-label: root.load.title;
+            load-layout := VerticalLayout {
+                VerticalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 16px;
+                    padding-bottom: 16px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: root.load.title;
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: Theme.text;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.load.detail;
+                            font-size: 13px;
+                            color: Theme.weak-text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 0;
+                        }
+                    }
+                    Rectangle {
+                        height: 8px;
+                        border-radius: 4px;
+                        background: Theme.dark ? #4a505b : #cdd3dc;
+                        clip: true;
+                        accessible-role: progress-indicator;
+                        accessible-value-minimum: 0;
+                        accessible-value-maximum: root.load.total;
+                        accessible-value: root.load.done;
+                        property <float> phase: mod(animation-tick() / 1400ms, 1);
+                        Rectangle {
+                            x: root.load.progress >= 0 ? 0 : (parent.width * 1.35) * parent.phase - parent.width * 0.35;
+                            width: root.load.progress >= 0 ? parent.width * clamp(root.load.progress, 0, 1) : parent.width * 0.35;
+                            border-radius: 4px;
+                            background: Theme.accent;
+                        }
+                    }
+                    Text {
+                        text: root.load.file;
+                        font-size: 13px;
+                        min-height: 18px;
+                        color: Theme.weak-text;
+                        overflow: elide;
+                    }
+                }
+                Rectangle {
+                    height: 1px;
+                    background: Theme.card-border;
+                }
+                HorizontalLayout {
+                    padding-left: 20px;
+                    padding-right: 20px;
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    alignment: end;
+                    SysButton {
+                        text: root.load.cancelling ? "Cancelling…" : "Cancel";
+                        enabled: !root.load.cancelling;
+                        pad: 16px;
+                        height: root.load.touch ? 40px : 32px;
+                        clicked => {
+                            root.cancel-job();
+                        }
+                        // It has the keyboard: Enter or Esc presses it.
+                        if !root.load.cancelling: Rectangle {
+                            x: -4px;
+                            y: -4px;
+                            width: parent.width + 8px;
+                            height: parent.height + 8px;
+                            border-radius: 6px;
+                            border-width: 2px;
+                            border-color: Theme.accent;
+                        }
+                    }
+                }
+            }
         }
     }
 

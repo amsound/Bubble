@@ -26,6 +26,7 @@ arboard = "3"
 raw-window-handle = "0.6"
 rfd.workspace = true
 uuid.workspace = true
+jiff = "0.2"
 
 assert_no_alloc.workspace = true
 

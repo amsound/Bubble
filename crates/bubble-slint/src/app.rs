@@ -30,8 +30,8 @@ use uuid::Uuid;
 use crate::alerts::{Alert, Alerts};
 use crate::model::{self, Selection};
 use crate::{
-    BusyRow, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys, menu,
-    window,
+    BusyRow, LoadInfo, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys,
+    menu, window,
 };
 use crate::{cartsetup, colour, savepanel, settings};
 
@@ -43,6 +43,8 @@ const BUSY: Duration = Duration::from_millis(100);
 const DRAGGING: Duration = Duration::from_millis(30);
 /// Otherwise: autosave, cloud checks and the status line keep going.
 const IDLE: Duration = Duration::from_secs(1);
+/// A session that loads quicker than this shows no dialog.
+const LOAD_SHOWN_AFTER: Duration = Duration::from_millis(250);
 /// A late update worth a line in the log.
 const STALL_LOGGED: Duration = Duration::from_millis(250);
 
@@ -55,6 +57,8 @@ thread_local! {
 #[derive(Clone)]
 enum Popup {
     Separator,
+    /// A version from Session ▸ Restore from Backup.
+    Backup(PathBuf),
     Assign(usize, u16, u16),
     PasteCart(usize, u16, u16),
     Control(usize, u16, u16, bubble_project::Control, Option<Uuid>),
@@ -175,6 +179,8 @@ pub struct App {
     /// started gets the playing rate at once, not after the idle interval).
     interval: Duration,
     last_tick: Instant,
+    /// When the session now loading began to.
+    load_since: Option<Instant>,
     timer: std::rc::Weak<slint::Timer>,
     /// The last input: the engine reports a cart as playing a moment after the press,
     /// so the window refreshes at the playing rate for a while after any input.
@@ -956,8 +962,12 @@ fn wire(ui: &MainWindow, app: &Rc<RefCell<App>>) {
     on!(ui, app, on_cell_drop, |a, i, from, to, copy| {
         a.cell_drop(from, to, copy, i);
     });
-    on!(ui, app, on_cancel_job, |a, i| {
-        a.cancel_busy(i);
+    on!(ui, app, on_cancel_job, |a, _i| {
+        if a.core.session_loading() {
+            a.core.cancel_load();
+        } else {
+            a.core.cancel_job();
+        }
     });
     on!(ui, app, on_toggle_mode, |a, _i| {
         a.edit_mode = !a.edit_mode;
@@ -1264,6 +1274,7 @@ impl App {
             accent_read: None,
             interval: IDLE,
             last_tick: Instant::now(),
+            load_since: None,
             timer: std::rc::Weak::new(),
             last_input: Instant::now(),
             last_playing: Instant::now(),
@@ -1317,6 +1328,7 @@ impl App {
         let t = Instant::now();
         if let Some(ui) = self.ui.upgrade() {
             window::finish_restore(&ui);
+            window::link_session_files(!self.core.prefs.no_file_link);
             window::on_session_end(
                 &ui,
                 self.core.saver_for_session_end(),
@@ -1679,57 +1691,139 @@ impl App {
         }
     }
 
-    /// Whether the audio loading is for a session being opened, with nothing playing.
-    fn can_cancel_loading(&self, snap: &Snapshot) -> bool {
-        self.core.loading_since.is_some()
-            && !snap
-                .runtime
-                .values()
-                .any(|r| matches!(r.state, Cs::Playing | Cs::Stopping))
+    /// Session ▸ Restore from Backup: the session's versions, by when, as a menu.
+    fn restore_menu(&mut self) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        let id = self.lock().project().id;
+        let versions = bubble_core::backups::folder(id)
+            .map(|d| bubble_core::backups::versions(&d))
+            .unwrap_or_default();
+        let today = jiff::Zoned::now().date();
+        self.popup = versions
+            .iter()
+            .map(|(p, _)| Popup::Backup(p.clone()))
+            .collect();
+        let mut rows: Vec<PopupRow> = versions
+            .iter()
+            .enumerate()
+            .map(|(i, (_, t))| PopupRow {
+                id: i as i32,
+                text: bubble_core::backups::label(*t, today).into(),
+                enabled: true,
+                checked: false,
+            })
+            .collect();
+        if rows.is_empty() {
+            self.popup.push(Popup::Separator);
+            rows.push(PopupRow {
+                id: 0,
+                text: "No backups of this session yet".into(),
+                enabled: false,
+                checked: false,
+            });
+        }
+        ui.set_popup_rows(ModelRc::new(VecModel::from(rows)));
+        ui.set_popup_sub_title("".into());
+        ui.set_popup_sub(ModelRc::default());
+        ui.set_popup_tail(ModelRc::default());
+        let size = ui.window().size().to_logical(ui.window().scale_factor());
+        self.open_popup(&ui, size.width / 2.0 - 90.0, size.height / 4.0);
     }
 
-    /// Cancel in the busy popover (Ctrl+. or ⌘.): stops a job, or gives up on the session being opened.
-    fn cancel_busy(&mut self, intents: &mut Vec<Intent>) {
-        let snap = self.core.snapshot();
-        if self.core.job.is_some() {
-            self.core.cancel_job();
-        } else if self.core.opening.take().is_some() {
-            log_info("cancelled opening the session");
-        } else if snap.pending > 0 && self.can_cancel_loading(&snap) {
-            log_info("cancelled loading the session");
-            self.request_from_ui(PendingAction::Close, intents);
+    /// The loading dialog's contents.
+    fn load_info(&mut self, snap: &Snapshot) -> LoadInfo {
+        // The test aid's picture of it.
+        if std::env::var("BUBBLE_SNAPSHOT_SCENE").is_ok_and(|s| s == "loading") {
+            return LoadInfo {
+                modal: true,
+                shown: true,
+                title: "Loading audio…".into(),
+                detail: "35 of 136 files".into(),
+                file: "Rizzle Kicks - Always Late - RizzleKicksVEVO.wav".into(),
+                progress: 35.0 / 136.0,
+                done: 35,
+                total: 136,
+                ..Default::default()
+            };
         }
+        let modal = !self.started || self.core.session_loading();
+        if !modal {
+            self.load_since = None;
+            return LoadInfo::default();
+        }
+        let since = *self.load_since.get_or_insert_with(Instant::now);
+        let file_name = |p: &std::path::Path| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        };
+        let mut info = LoadInfo {
+            modal: true,
+            shown: since.elapsed() >= LOAD_SHOWN_AFTER,
+            progress: -1.0,
+            touch: LAST_PRESS.get().is_some_and(|(_, by)| by == "touch"),
+            cancelling: self.core.reverting,
+            ..Default::default()
+        };
+        if let Some(j) = self.core.job.as_ref().filter(|j| j.control.in_bytes) {
+            info.title = "Importing…".into();
+            info.detail = progress_text(&j.control).unwrap_or_default().into();
+            let (done, total) = j.control.progress();
+            if total > 0 {
+                info.progress = done as f32 / total as f32;
+            }
+            info.file = j
+                .control
+                .import
+                .current
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+                .into();
+            if j.control.cancelled() {
+                info.cancelling = true;
+            }
+        } else if let Some((p, _, _)) = &self.core.opening {
+            info.title = "Opening session…".into();
+            info.file = file_name(p).into();
+        } else if !self.started {
+            info.title = "Starting Bubble…".into();
+        } else {
+            let total = self.core.loading_total.max(snap.pending).max(1);
+            let done = total - snap.pending.min(total);
+            info.title = "Loading audio…".into();
+            info.detail = format!("{done} of {total} files").into();
+            info.progress = done as f32 / total as f32;
+            info.done = done as i32;
+            info.total = total as i32;
+            info.file = self
+                .lock()
+                .last_loaded_file()
+                .map(|p| file_name(&p))
+                .unwrap_or_default()
+                .into();
+        }
+        info
     }
 
     fn busy_rows(&mut self, snap: &Snapshot) -> Vec<BusyRow> {
         // Keeps the core's "n of total" count going.
         let _ = self.core.busy(snap);
         let mut rows = Vec::new();
-        // Until a session is there to show, the wall stays blank under this popover.
+        // Until a session is there to show, the wall stays blank under the dialog.
         self.startup(snap);
         let blank =
             !self.started || self.core.opening.is_some() || self.core.open_at_start.is_some();
-        if let Some(ui) = self.ui.upgrade()
-            && ui.get_starting() != blank
-        {
-            ui.set_starting(blank);
+        let load = self.load_info(snap);
+        if let Some(ui) = self.ui.upgrade() {
+            if ui.get_starting() != blank {
+                ui.set_starting(blank);
+            }
+            if ui.get_load() != load {
+                ui.set_load(load.clone());
+            }
         }
-        if !self.started {
-            rows.push(BusyRow {
-                text: "Starting Bubble…".into(),
-                progress: -1.0,
-                ..Default::default()
-            });
-        }
-        if let Some((p, _, _)) = &self.core.opening {
-            rows.push(BusyRow {
-                text: format!("Opening {}…", bubble_core::app::session::file_name(p)).into(),
-                progress: -1.0,
-                can_cancel: true,
-                ..Default::default()
-            });
-        }
-        if let Some(j) = &self.core.job {
+        if let Some(j) = self.core.job.as_ref().filter(|j| !j.control.in_bytes) {
             let detail = j
                 .cell
                 .map(|(p, r, c)| format!("to cell {}", snap.project.cell_number(p, r, c)));
@@ -1752,7 +1846,7 @@ impl App {
                 can_cancel: !j.control.cancelled(),
             });
         }
-        if snap.pending > 0 {
+        if snap.pending > 0 && !load.modal {
             let total = self.core.loading_total.max(snap.pending).max(1);
             let done = total - snap.pending.min(total);
             rows.push(BusyRow {
@@ -1760,9 +1854,7 @@ impl App {
                 detail: format!("{done} of {total} files").into(),
                 progress: done as f32 / total as f32,
                 copy: false,
-                // Only for a session being opened, which then closes; not for a file added
-                // to a session in use, and not with anything playing.
-                can_cancel: self.can_cancel_loading(snap),
+                can_cancel: false,
             });
         }
         rows
@@ -1773,7 +1865,7 @@ impl App {
     }
 
     fn show_menus(&mut self, ui: &MainWindow, snap: &Snapshot) {
-        let model = bubble_core::menu::build(
+        let mut model = bubble_core::menu::build(
             &self.core,
             snap,
             &MenuState {
@@ -1783,6 +1875,21 @@ impl App {
                 settings_window: true,
             },
         );
+        // The loading dialog blocks the menu bar too: it cannot cover it, being the system's.
+        if !self.started || self.core.session_loading() {
+            fn off(items: &mut [bubble_core::menu::Item]) {
+                for it in items {
+                    match it {
+                        bubble_core::menu::Item::Action { enabled, .. } => *enabled = false,
+                        bubble_core::menu::Item::Sub { items, .. } => off(items),
+                        _ => {}
+                    }
+                }
+            }
+            for top in &mut model.tops {
+                off(&mut top.items);
+            }
+        }
         let sig = model.signature();
         if sig == self.menu_sig {
             return;
@@ -2132,6 +2239,9 @@ impl App {
         };
         match p {
             Popup::Separator => {}
+            Popup::Backup(file) => {
+                self.request_from_ui(PendingAction::Restore(file), intents);
+            }
             Popup::Grid(page, r, c, _) => intents.push(Intent::ResizePage(page, r, c)),
             Popup::PageSettings => {
                 self.open_session_settings(Some(3));
@@ -2222,6 +2332,19 @@ impl App {
 
     fn key(&mut self, code: KeyCode, pressed: bool, repeat: bool, intents: &mut Vec<Intent>) {
         let Some(ui) = self.ui.upgrade() else { return };
+        // The loading dialog has the keyboard: Esc or Enter presses Cancel, and nothing
+        // else gets through (a release does, or a held cart would never let go).
+        if self.core.session_loading() && pressed {
+            if !repeat
+                && matches!(
+                    code,
+                    KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter
+                )
+            {
+                self.core.cancel_load();
+            }
+            return;
+        }
         let learning = self.lock().learning().is_some();
         let typing = ui.global::<TextCommand>().get_typing() && !learning;
         let command = keys::command(self.mods);
@@ -2234,10 +2357,6 @@ impl App {
             if !repeat {
                 self.command(cmd, intents);
             }
-            return;
-        }
-        if code == KeyCode::Period && pressed && !repeat && command && !typing {
-            self.cancel_busy(intents);
             return;
         }
         if code == KeyCode::Escape && pressed {
@@ -2310,6 +2429,9 @@ impl App {
     // ---- menu commands ----
 
     fn command(&mut self, cmd: Cmd, intents: &mut Vec<Intent>) {
+        if self.core.session_loading() {
+            return;
+        }
         // ⌘W / Ctrl+W closes the tool window in front (Cart Setup, Settings, Session
         // Settings) rather than the session.
         if cmd == Cmd::CloseSession {
@@ -2513,6 +2635,12 @@ impl App {
                 if let Some(d) = bubble_core::log::dir() {
                     bubble_core::dialogs::reveal(&d.join("bubble.log"));
                 }
+            }
+            Cmd::RestoreBackup => self.restore_menu(),
+            Cmd::OpenBubbleFiles => {
+                self.core.prefs.no_file_link = !self.core.prefs.no_file_link;
+                self.core.save_prefs();
+                window::link_session_files(!self.core.prefs.no_file_link);
             }
             Cmd::RevealSession => {
                 if let Some(p) = &snap.path {
@@ -3454,6 +3582,9 @@ impl App {
     fn finish_drop(&mut self, intents: &mut Vec<Intent>) {
         self.drag_hover = false;
         let dropped = std::mem::take(&mut self.drops);
+        if self.core.session_loading() {
+            return;
+        }
         if dropped.is_empty() {
             return;
         }

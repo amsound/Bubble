@@ -305,6 +305,9 @@ fn extract<R: Read + Seek>(
     read_err: &dyn Fn(std::io::Error) -> ImportError,
 ) -> Result<PathBuf, ImportError> {
     let name = pkg::file_name_of(&file.original_path);
+    if let Some(c) = control {
+        *c.current.lock().unwrap_or_else(|e| e.into_inner()) = name.clone();
+    }
     let p = Path::new(&name);
     let stem = p
         .file_stem()

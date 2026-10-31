@@ -238,6 +238,7 @@ export component SettingsWindow inherits Window {
     in property <string> rate;
     in property <string> buffer;
     in property <string> dropouts;
+    in property <bool> file-link;
     // Outputs, sample rate or buffer size changed but not applied.
     in property <bool> audio-changed;
     in property <string> audio-problem;
@@ -338,6 +339,22 @@ export component SettingsWindow inherits Window {
                                 value: root.mouse;
                                 open(x, y) => {
                                     root.choice-menu("mouse", 0, x, y);
+                                }
+                            }
+                        }
+                    }
+                    if !Theme.mac: Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: "Open .bubble files";
+                            HorizontalLayout {
+                                alignment: start;
+                                Switch {
+                                    y: (parent.height - self.height) / 2;
+                                    on: root.file-link;
+                                    toggled => {
+                                        root.toggle("file-link", 0);
+                                    }
                                 }
                             }
                         }

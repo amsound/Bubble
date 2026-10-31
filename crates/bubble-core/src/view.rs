@@ -349,6 +349,12 @@ impl Core {
             && !self.audio_opening()
             && let Some(t) = self.loading_since.take()
         {
+            self.revert = None;
+            self.reverting = false;
+            // What just opened is the first version kept of it.
+            if snap.path.is_some() {
+                self.keep_backup();
+            }
             let (used, _) = self.lock().audio_memory();
             crate::log::info(&format!(
                 "audio ready in {:.1} s ({:.0} MB in memory, {} missing)",

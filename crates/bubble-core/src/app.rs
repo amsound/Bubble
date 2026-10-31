@@ -36,12 +36,15 @@ pub type PendingOpen = (
 );
 
 pub const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
+/// How often a version is kept for Restore from Backup while there are new edits.
+const BACKUP_EVERY: Duration = Duration::from_secs(5 * 60);
 /// An edit is autosaved once this long has passed without another.
 pub const AUTOSAVE_QUIET: Duration = Duration::from_secs(2);
 
 /// Changes requested by the UI during a frame, applied after rendering.
 #[allow(clippy::large_enum_variant)] // short-lived, a few per frame
 pub enum Intent {
+    RestoreBackup(PathBuf),
     PointerDown(Uuid, MouseButton),
     PointerUp(Uuid),
     StopAll(bool),
@@ -133,6 +136,8 @@ pub enum PendingAction {
     Import(PathBuf),
     /// File ▸ Close Session: an empty cart wall, as at a first launch.
     Close,
+    /// Session ▸ Restore from Backup: that version, into the session.
+    Restore(PathBuf),
 }
 
 /// Questions and messages for the person using Bubble. The interface shows whichever
@@ -167,6 +172,15 @@ struct AutosaveState {
     waiting: Option<Instant>,
 }
 
+/// How the session was before one being loaded, to go back to on Cancel.
+pub(crate) struct Revert {
+    project: Project,
+    path: Option<PathBuf>,
+    dirty: bool,
+    saved_at: Option<std::time::SystemTime>,
+    last_project: Option<PathBuf>,
+}
+
 /// What follows a save, once it has succeeded.
 pub enum AfterSave {
     Perform(PendingAction),
@@ -181,6 +195,13 @@ pub struct Core {
     /// until a meter takes them: a snapshot taken for another reason must not lose
     /// them.
     peaks: Mutex<HashMap<Uuid, (f32, f32)>>,
+    /// To go back to if the session being loaded is cancelled.
+    pub(crate) revert: Option<Revert>,
+    /// Cancelled: on the way back to the session before. The dialog stays until there.
+    pub reverting: bool,
+    /// When a version was last kept for Restore from Backup, and at which edit.
+    backup_at: Instant,
+    backup_edits: u64,
     /// Times audio was late or missing this run, and when it last happened.
     pub dropouts: u64,
     pub dropout_at: Option<Instant>,
@@ -282,6 +303,10 @@ impl Core {
             // Listed in `start`, after the window is up (it can take a while).
             midi_ports: Vec::new(),
             midi_opening: None,
+            revert: None,
+            reverting: false,
+            backup_at: Instant::now(),
+            backup_edits: 0,
             dropouts: 0,
             dropout_at: None,
             read_failure: None,
@@ -1024,6 +1049,27 @@ impl Core {
                     }
                     Err(e) => Err(e.to_string()),
                 },
+                Intent::RestoreBackup(file) => {
+                    drop(c);
+                    match bubble_project::io::load(&file) {
+                        Ok(project) => {
+                            self.remember_for_revert();
+                            self.loading_since = Some(Instant::now());
+                            let mut c = self.lock();
+                            let path = c.path().map(Path::to_path_buf);
+                            c.replace_project(project, path);
+                            c.set_dirty();
+                            drop(c);
+                            self.select = Some(None);
+                            crate::log::info(&format!("restored {}", file.display()));
+                        }
+                        Err(e) => {
+                            self.prompts.error =
+                                Some(format!("Could not restore that backup:\n{e}"));
+                        }
+                    }
+                    continue;
+                }
                 Intent::Refresh => {
                     c.refresh_assets();
                     Ok(())
@@ -1106,7 +1152,15 @@ impl Core {
                 Intent::Save => match c.begin_save() {
                     Ok((path, bytes)) => {
                         let then_remove = self.autosave_files(&c);
+                        let backups = crate::backups::folder(c.project().id);
                         drop(c);
+                        if let Some(dir) = backups {
+                            self.writer.submit(WriteJob::Backup {
+                                dir,
+                                bytes: bytes.clone(),
+                            });
+                        }
+                        self.backup_at = Instant::now();
                         self.writer.submit(WriteJob::Session {
                             path,
                             bytes,
@@ -1126,6 +1180,74 @@ impl Core {
             }
         }
         if reopen_prefs {
+            self.save_prefs();
+        }
+    }
+
+    /// Keeps the session's current state as a version for Restore from Backup.
+    pub fn keep_backup(&mut self) {
+        self.backup_at = Instant::now();
+        let (id, bytes) = {
+            let c = self.lock();
+            (
+                c.project().id,
+                bubble_project::io::to_json_string(c.project()).into_bytes(),
+            )
+        };
+        if let Some(dir) = crate::backups::folder(id) {
+            self.writer.submit(WriteJob::Backup { dir, bytes });
+        }
+    }
+
+    /// Keeps the session as it is, for Cancel to go back to.
+    fn remember_for_revert(&mut self) {
+        let (project, path, dirty) = {
+            let c = self.lock();
+            (
+                c.project().clone(),
+                c.path().map(Path::to_path_buf),
+                c.is_dirty(),
+            )
+        };
+        self.revert = Some(Revert {
+            project,
+            path,
+            dirty,
+            saved_at: self.saved_at,
+            last_project: self.prefs.last_project.clone(),
+        });
+    }
+
+    /// Whether a session is on its way in: the loading dialog is up, and input waits.
+    pub fn session_loading(&self) -> bool {
+        self.opening.is_some()
+            || self.loading_since.is_some()
+            || self.reverting
+            || self.job.as_ref().is_some_and(|j| j.control.in_bytes)
+    }
+
+    /// Cancel in the loading dialog: back to how things were before it began.
+    pub fn cancel_load(&mut self) {
+        if self.reverting {
+            return;
+        }
+        if self.job.as_ref().is_some_and(|j| j.control.in_bytes) {
+            self.cancel_job();
+        } else if self.opening.take().is_some() {
+            crate::log::info("cancelled opening a session");
+        } else if let Some(r) = self.revert.take() {
+            crate::log::info("cancelled loading a session; going back");
+            self.loading_since = Some(Instant::now());
+            self.reverting = true;
+            let mut c = self.lock();
+            c.replace_project(r.project, r.path);
+            if r.dirty {
+                c.set_dirty();
+            }
+            drop(c);
+            self.saved_at = r.saved_at;
+            self.select = Some(None);
+            self.prefs.last_project = r.last_project;
             self.save_prefs();
         }
     }
@@ -1173,6 +1295,7 @@ impl Core {
                 self.loading_since = Some(Instant::now());
                 self.cloud_checked = None;
                 self.cloud_alerted = false;
+                self.remember_for_revert();
                 {
                     let mut c = self.lock();
                     c.use_resolved(found);
@@ -1201,6 +1324,11 @@ impl Core {
             let c = self.lock();
             (c.edit_count(), c.is_dirty())
         };
+        // A version for Restore from Backup, every so often while there are new edits.
+        if edits != self.backup_edits && self.backup_at.elapsed() >= BACKUP_EVERY {
+            self.backup_edits = edits;
+            self.keep_backup();
+        }
         if edits != self.autosave.seen {
             self.autosave.seen = edits;
             self.autosave.changed = Instant::now();
@@ -1327,6 +1455,7 @@ impl Core {
                 self.begin_new_session(stem, AfterCreate::Import(p));
             }
             PendingAction::Close => intents.push(Intent::CloseSession),
+            PendingAction::Restore(p) => intents.push(Intent::RestoreBackup(p)),
         }
     }
 

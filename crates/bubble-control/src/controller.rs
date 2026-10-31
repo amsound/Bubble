@@ -334,6 +334,11 @@ impl Controller {
         self.streamer.take_read_failure()
     }
 
+    /// The last audio file to finish loading.
+    pub fn last_loaded_file(&self) -> Option<PathBuf> {
+        self.assets.last_loaded().map(Path::to_path_buf)
+    }
+
     /// The rate audio is prepared at.
     pub fn prepared_rate(&self) -> u32 {
         self.assets.rate()

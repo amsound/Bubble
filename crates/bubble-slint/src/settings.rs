@@ -273,6 +273,7 @@ impl Settings {
         w.set_rate(rate_text(self.rate).into());
         w.set_buffer(menu::buffer_label(self.buffer).into());
         w.set_dropouts(core.dropouts.to_string().into());
+        w.set_file_link(!p.no_file_link);
         w.set_audio_changed(self.audio_changed(core));
         w.set_audio_problem(core.audio_error.clone().unwrap_or_default().into());
         w.set_scanning(core.devices_scan.is_some());
@@ -487,6 +488,7 @@ impl Settings {
     pub fn toggle(&self, what: &str, row: usize, core: &Core) -> Option<Cmd> {
         match what {
             "limiter" => Some(Cmd::Limiter),
+            "file-link" => Some(Cmd::OpenBubbleFiles),
             "midi" => Some(Cmd::MidiEnabled),
             "all-ports" => {
                 if core.prefs.midi_inputs.is_empty() {

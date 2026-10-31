@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod autosave;
+pub mod backups;
 pub mod cloud;
 pub mod crash;
 pub mod dialogs;

@@ -44,6 +44,8 @@ pub struct ImportControl {
     pub cancel: Arc<AtomicBool>,
     pub done: Arc<AtomicU64>,
     pub total: Arc<AtomicU64>,
+    /// The file being copied out, to show.
+    pub current: Arc<std::sync::Mutex<String>>,
 }
 
 /// Identity of the source file, for the report.

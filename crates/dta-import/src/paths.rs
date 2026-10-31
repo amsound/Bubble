@@ -136,6 +136,15 @@ impl PathTranslator {
                 tried: Vec::new(),
             };
         }
+        // The same computer: the file is where the session says it is.
+        #[cfg(windows)]
+        if Path::new(path).is_file() {
+            return Located {
+                found: Some(PathBuf::from(path)),
+                via: Some("same_path"),
+                tried: Vec::new(),
+            };
+        }
         let (_, parts) = split_windows(path);
         let mut tried = Vec::new();
         let hit = |c: PathBuf, tried: &mut Vec<PathBuf>| {

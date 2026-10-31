@@ -399,6 +399,81 @@ pub fn release_shutdown(ui: &MainWindow) {
     let _ = ui;
 }
 
+/// Windows: links .bubble files to this Bubble, for the current user only (no admin
+/// rights needed), or removes the link. Called at each start, so a moved Bubble follows.
+pub fn link_session_files(on: bool) {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Registry::{
+            HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
+            RegCreateKeyExW, RegDeleteTreeW, RegSetValueExW,
+        };
+        use windows_sys::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
+        const CLASS: &str = r"Software\Classes\Bubble.Session";
+        const EXT: &str = r"Software\Classes\.bubble";
+        let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+        let set = |key: &str, value: &str| {
+            let (key, value) = (wide(key), wide(value));
+            let mut h: HKEY = std::ptr::null_mut();
+            // SAFETY: NUL-terminated strings, valid for each call; the key is closed.
+            unsafe {
+                if RegCreateKeyExW(
+                    HKEY_CURRENT_USER,
+                    key.as_ptr(),
+                    0,
+                    std::ptr::null(),
+                    REG_OPTION_NON_VOLATILE,
+                    KEY_WRITE,
+                    std::ptr::null(),
+                    &mut h,
+                    std::ptr::null_mut(),
+                ) == 0
+                {
+                    RegSetValueExW(
+                        h,
+                        std::ptr::null(),
+                        0,
+                        REG_SZ,
+                        value.as_ptr().cast(),
+                        (value.len() * 2) as u32,
+                    );
+                    RegCloseKey(h);
+                }
+            }
+        };
+        if on {
+            let Ok(exe) = std::env::current_exe() else {
+                return;
+            };
+            let exe = exe.display().to_string();
+            set(EXT, "Bubble.Session");
+            set(CLASS, "Bubble session");
+            set(&format!(r"{CLASS}\DefaultIcon"), &format!("{exe},0"));
+            set(
+                &format!(r"{CLASS}\shell\open\command"),
+                &format!("\"{exe}\" \"%1\""),
+            );
+        } else {
+            for key in [EXT, CLASS] {
+                let key = wide(key);
+                // SAFETY: a NUL-terminated name; only Bubble's own keys.
+                unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) };
+            }
+        }
+        // SAFETY: tells the shell associations changed; no items are passed.
+        unsafe {
+            SHChangeNotify(
+                SHCNE_ASSOCCHANGED as i32,
+                SHCNF_IDLIST,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+    }
+    #[cfg(not(windows))]
+    let _ = on;
+}
+
 /// A tool window just shown (Cart Setup, the settings windows): rounded corners, the
 /// icon in its title bar, kept in front of the main window. Done again a moment later:
 /// on Windows the window may not exist yet straight after `show`, and the icon set

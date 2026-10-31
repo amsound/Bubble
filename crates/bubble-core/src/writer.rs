@@ -3,7 +3,7 @@
 //! is holding must never hold up a trigger, which runs on the interface thread or
 //! waits for the session's lock.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -27,6 +27,11 @@ pub enum WriteJob {
     },
     Prefs {
         path: PathBuf,
+        bytes: Vec<u8>,
+    },
+    /// A version of the session for Restore from Backup.
+    Backup {
+        dir: PathBuf,
         bytes: Vec<u8>,
     },
     Remove(Vec<PathBuf>),
@@ -56,7 +61,6 @@ fn run(job: WriteJob, done: &Sender<WriteDone>) {
             bytes,
             then_remove,
         } => {
-            keep_version(&path, &bytes);
             let result = write_atomic(&path, &bytes, true).map_err(|e| text(&path, e));
             if result.is_ok() {
                 for p in then_remove {
@@ -71,6 +75,13 @@ fn run(job: WriteJob, done: &Sender<WriteDone>) {
         WriteJob::Prefs { path, bytes } => {
             WriteDone::Prefs(write_atomic(&path, &bytes, false).map_err(|e| text(&path, e)))
         }
+        WriteJob::Backup { dir, bytes } => {
+            let now = jiff::Zoned::now().datetime();
+            if let Err(e) = crate::backups::keep(&dir, &bytes, now) {
+                crate::log::info(&format!("no backup in {}: {e}", dir.display()));
+            }
+            return;
+        }
         WriteJob::Remove(paths) => {
             for p in paths {
                 let _ = std::fs::remove_file(p);
@@ -83,51 +94,6 @@ fn run(job: WriteJob, done: &Sender<WriteDone>) {
         }
     };
     let _ = done.send(result);
-}
-
-/// How many earlier versions of a session are kept in its Backups folder.
-const VERSIONS_KEPT: usize = 10;
-
-/// Before a save replaces a session: its current file goes to `Backups` next to it,
-/// named by the time, and the oldest beyond [`VERSIONS_KEPT`] go. Saving the same again
-/// keeps nothing new. A failure here is logged, and does not stop the save.
-fn keep_version(path: &Path, new: &[u8]) {
-    let (Some(dir), Some(stem)) = (path.parent(), path.file_stem()) else {
-        return;
-    };
-    let Ok(old) = std::fs::read(path) else {
-        return;
-    };
-    if old == new {
-        return;
-    }
-    let stem = stem.to_string_lossy();
-    let folder = dir.join("Backups");
-    let time = jiff::Zoned::now().strftime("%Y-%m-%d %H-%M-%S");
-    let copy = folder.join(format!("{stem} {time}.bubble"));
-    if let Err(e) = std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&copy, &old)) {
-        crate::log::info(&format!("no backup of {}: {e}", path.display()));
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(&folder) else {
-        return;
-    };
-    let prefix = format!("{stem} ");
-    let mut versions: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension().is_some_and(|x| x == "bubble")
-                && p.file_name()
-                    .is_some_and(|n| n.to_string_lossy().starts_with(&prefix))
-        })
-        .collect();
-    // The time in the name sorts them oldest first.
-    versions.sort();
-    let extra = versions.len().saturating_sub(VERSIONS_KEPT);
-    for old in &versions[..extra] {
-        let _ = std::fs::remove_file(old);
-    }
 }
 
 pub struct Writer {
@@ -237,42 +203,6 @@ mod tests {
             w.finished().as_slice(),
             [WriteDone::Session { result: Err(_), .. }]
         ));
-    }
-
-    #[test]
-    fn earlier_versions_are_kept_and_the_oldest_go() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("a.bubble");
-        let backups = dir.path().join("Backups");
-        std::fs::create_dir(&backups).unwrap();
-        for i in 0..VERSIONS_KEPT {
-            std::fs::write(
-                backups.join(format!("a 2020-01-01 00-00-{i:02}.bubble")),
-                "",
-            )
-            .unwrap();
-        }
-        std::fs::write(backups.join("other 2019.bubble"), "").unwrap();
-        std::fs::write(&file, "one").unwrap();
-        keep_version(&file, b"one");
-        assert_eq!(
-            std::fs::read_dir(&backups).unwrap().count(),
-            VERSIONS_KEPT + 1
-        );
-        keep_version(&file, b"two");
-        let names: Vec<String> = std::fs::read_dir(&backups)
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(names.len(), VERSIONS_KEPT + 1);
-        assert!(names.contains(&"other 2019.bubble".to_string()));
-        assert!(!names.contains(&"a 2020-01-01 00-00-00.bubble".to_string()));
-        assert!(
-            names
-                .iter()
-                .any(|n| n.starts_with("a 20") && !n.starts_with("a 2020"))
-        );
     }
 
     #[test]

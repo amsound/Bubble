@@ -92,6 +92,7 @@ enum OverviewState {
 
 /// Cache of prepared assets plus the worker threads that fill it.
 pub struct AssetCache {
+    last_loaded: Option<PathBuf>,
     states: HashMap<Uuid, AssetState>,
     jobs: Sender<Job>,
     done: Receiver<Done>,
@@ -206,6 +207,7 @@ impl AssetCache {
             states: HashMap::new(),
             jobs: jtx,
             done: drx,
+            last_loaded: None,
             generation: 0,
             rate: 0,
             used,
@@ -236,6 +238,11 @@ impl AssetCache {
 
     pub fn rate(&self) -> u32 {
         self.rate
+    }
+
+    /// The last file to finish loading, to show.
+    pub fn last_loaded(&self) -> Option<&Path> {
+        self.last_loaded.as_deref()
     }
 
     /// Where an asset's file was found when it was armed, without looking at the disk.
@@ -424,6 +431,7 @@ impl AssetCache {
             if d.generation != self.generation {
                 continue;
             }
+            self.last_loaded = Some(d.path.clone());
             if self.reheading.remove(&d.asset) {
                 // New heads for an asset that already plays: keep the old audio if
                 // this attempt failed.

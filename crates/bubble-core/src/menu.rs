@@ -119,6 +119,9 @@ pub enum Cmd {
     OutputLevel(i32),
     ProjectSettings,
     RevealSession,
+    RestoreBackup,
+    /// Settings: whether double-clicking a .bubble file opens Bubble.
+    OpenBubbleFiles,
     CopyPage,
     PastePage,
     DuplicateCart,
@@ -256,6 +259,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             Cmd::RevealSession,
         )
         .enabled(snap.path.is_some()),
+        Item::action("Restore from Backup…", Cmd::RestoreBackup),
         Item::action("Relink Missing Files…", Cmd::Relink),
         Item::action("Reload All Audio", Cmd::ReloadAudio),
     ]);

@@ -285,10 +285,17 @@ Done (main window):
       are counted (page bar, Settings ▸ Audio, log); MIDI port errors show on the page
       bar. `BUBBLE_CRASH_TEST=audio-panic` and `audio-hang` test the first of these.
 - [x] Save As writes on the file writer; adding a file no longer checks every asset on
-      disk under the lock; Ctrl+. (⌘.) cancels what the busy popover offers to. Guards:
+      disk under the lock. Guards:
       audio-thread code denies unwrap, expect and panic; a debug build stops if the live
       audio callback allocates (`BUBBLE_CRASH_TEST=play` plays a cart to check); the
       Windows test job runs clippy. Relinking still looks at the disk under the lock.
+- [x] Loading dialog for a session on its way in (opening, its audio, a package or
+      session being imported): modal, shown after 250 ms, Esc, Enter or its button cancel,
+      and Cancel goes back to the session before. Other work keeps the non-modal popover.
+      Session ▸ Restore from Backup lists versions kept in Bubble's own folder (each save
+      and every 5 minutes with new edits; the newest 30, then a day's last for 14 days).
+      Windows: .bubble files open in Bubble (Settings ▸ General, per user). An import on
+      the computer that made the session finds files at their own paths at once.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;
