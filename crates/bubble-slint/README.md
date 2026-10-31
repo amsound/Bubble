@@ -256,6 +256,13 @@ Done (main window):
       (no smaller than 13 px), then from the top with an ellipsis. New carts' labels
       read underscores in the file name as spaces. Quick edit stays clear of the page
       bar. One-line text fields scroll with the cursor.
+- [x] Triggers never wait (audit group 1): saves, autosaves and preferences are written
+      on their own thread, in order; "Save, then quit or open" only follows a save that
+      succeeded. Audio opens on a helper thread, and with a device lost the other
+      engines stay attached. Play Next runs on its own thread. Opening a session, a new
+      rate and the cloud check look at the disk off the session's lock. The log says
+      when the lock or the interface was held up. Still on the interface thread and
+      lock: Save As, relinking and adding files.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

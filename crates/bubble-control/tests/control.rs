@@ -933,7 +933,7 @@ fn asset_cache_refuses_audio_beyond_its_budget() {
     };
 
     let mut tight = AssetCache::with_budget(1_000);
-    tight.rearm_all(&project, None, SR);
+    tight.rearm_all(&project, None, SR, None);
     settle(&mut tight);
     let id = project.assets[0].id;
     match tight.state(id) {
@@ -945,7 +945,7 @@ fn asset_cache_refuses_audio_beyond_its_budget() {
     assert_eq!(tight.memory().0, 0);
 
     let mut roomy = AssetCache::with_budget(1_000_000_000);
-    roomy.rearm_all(&project, None, SR);
+    roomy.rearm_all(&project, None, SR, None);
     settle(&mut roomy);
     assert!(roomy.state(id).and_then(AssetState::audio).is_some());
     assert!(roomy.memory().0 > 0, "prepared audio is counted");
@@ -1157,4 +1157,30 @@ fn file_names_become_labels_with_spaces() {
     );
     assert_eq!(label("_a__b_ c"), "a b c");
     assert_eq!(label("No underscores - here"), "No underscores - here");
+}
+
+#[test]
+fn a_save_in_the_background_keeps_later_edits_and_failures_unsaved() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.bubble");
+    let (mut c, _m) = setup();
+    c.replace_project(Controller::new_project("S"), Some(path.clone()));
+    c.set_dirty();
+
+    // Saved once the bytes are taken; the disk has not been touched.
+    let (to, bytes) = c.begin_save().unwrap();
+    assert_eq!(to, path);
+    assert!(!bytes.is_empty() && !path.exists());
+    assert!(!c.is_dirty());
+
+    // An edit while it is being written stays unsaved when the write succeeds.
+    c.set_dirty();
+    c.save_finished(&path, true);
+    assert!(c.is_dirty());
+
+    // A write that fails leaves the session unsaved.
+    c.begin_save().unwrap();
+    assert!(!c.is_dirty());
+    c.save_finished(&path, false);
+    assert!(c.is_dirty());
 }

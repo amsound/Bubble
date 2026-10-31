@@ -13,6 +13,19 @@ use bubble_engine::loader::{PrepareOptions, SourceInfo, engine_frame, prepare, s
 use bubble_engine::{Overview, Playable};
 use bubble_project::fingerprint::Match;
 use bubble_project::{Project, Resolution, Resolver};
+
+/// Where each asset's file is. Looks at the disk, so made off the session's lock.
+pub type Resolved = HashMap<Uuid, Resolution>;
+
+/// Looks up every asset of a project, a copy of it, on any thread.
+pub fn resolve_all(project: &Project, project_dir: Option<&Path>) -> Resolved {
+    let mut resolver = Resolver::new(project_dir, project);
+    project
+        .assets
+        .iter()
+        .map(|a| (a.id, resolver.resolve(a)))
+        .collect()
+}
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use uuid::Uuid;
 
@@ -218,7 +231,15 @@ impl AssetCache {
     }
 
     /// Drops all prepared data and re-arms every asset at `rate`.
-    pub fn rearm_all(&mut self, project: &Project, project_dir: Option<&Path>, rate: u32) {
+    /// `known` holds files already looked up off the session's lock; any others are
+    /// looked up here.
+    pub fn rearm_all(
+        &mut self,
+        project: &Project,
+        project_dir: Option<&Path>,
+        rate: u32,
+        known: Option<&Resolved>,
+    ) {
         self.generation += 1;
         self.rate = rate;
         self.states.clear();
@@ -228,7 +249,10 @@ impl AssetCache {
         let starts = self.starts(project);
         let mut resolver = Resolver::new(project_dir, project);
         for a in &project.assets {
-            self.arm_with(&mut resolver, a, rate, &starts);
+            match known.and_then(|k| k.get(&a.id)) {
+                Some(found) => self.arm_resolved(a, found.clone(), rate, &starts),
+                None => self.arm_with(&mut resolver, a, rate, &starts),
+            }
         }
         self.recount();
     }
@@ -279,8 +303,22 @@ impl AssetCache {
         if rate == 0 {
             return;
         }
+        let found = resolver.resolve(a);
+        self.arm_resolved(a, found, rate, starts);
+    }
+
+    fn arm_resolved(
+        &mut self,
+        a: &bubble_project::AssetRef,
+        found: Resolution,
+        rate: u32,
+        starts: &HashMap<Uuid, Vec<u64>>,
+    ) {
+        if rate == 0 {
+            return;
+        }
         self.reheading.remove(&a.id);
-        match resolver.resolve(a) {
+        match found {
             Resolution::Found { path, matched, .. } => {
                 self.states
                     .insert(a.id, AssetState::Loading { path: path.clone() });

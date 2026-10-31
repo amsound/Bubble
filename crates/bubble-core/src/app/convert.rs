@@ -46,8 +46,7 @@ impl Core {
     /// Assets whose files are not yet WAV at the engine rate.
     pub fn wav_candidates(&self) -> Vec<(Uuid, PathBuf)> {
         let rate = self.prefs.rate();
-        self.lock()
-            .asset_files()
+        self.asset_files()
             .into_iter()
             .filter(|(_, p)| needs_wav_conversion(p, rate))
             .collect()

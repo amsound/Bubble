@@ -136,6 +136,12 @@ impl Prefs {
         bubble_project::io::write_atomic(&p, json.as_bytes(), false)
     }
 
+    /// The file and bytes of a save, for the file writer.
+    pub fn encoded(&self) -> Option<(PathBuf, Vec<u8>)> {
+        let json = serde_json::to_string_pretty(self).expect("prefs serialise");
+        Some((path()?, json.into_bytes()))
+    }
+
     /// Outputs in letter order (never empty).
     pub fn effective_outputs(&self) -> Vec<OutputPref> {
         if self.outputs.is_empty() {

@@ -129,14 +129,21 @@ pub fn backup_path(path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Atomically writes `project` to `path` (validated first).
-pub fn save(project: &mut Project, path: &Path) -> Result<(), SaveError> {
+/// The bytes of a save: `project` stamped, validated and serialised. Quick, and touches
+/// no disk; [`write_atomic`] (with a backup) then writes them.
+pub fn encode_for_save(project: &mut Project) -> Result<Vec<u8>, SaveError> {
     project.modified_with = Some(app_version());
     let issues = validate(project);
     if !issues.is_empty() {
         return Err(SaveError::Invalid(issues));
     }
-    write_atomic(path, to_json_string(project).as_bytes(), true).map_err(|e| SaveError::Io {
+    Ok(to_json_string(project).into_bytes())
+}
+
+/// Atomically writes `project` to `path` (validated first).
+pub fn save(project: &mut Project, path: &Path) -> Result<(), SaveError> {
+    let bytes = encode_for_save(project)?;
+    write_atomic(path, &bytes, true).map_err(|e| SaveError::Io {
         path: path.display().to_string(),
         source: e,
     })

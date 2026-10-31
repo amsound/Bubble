@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use bubble_control::{CartState as Cs, InputEvent, MouseButton};
-use bubble_core::app::{AfterCreate, Core};
+use bubble_core::app::{AfterCreate, AfterSave, Core};
 use bubble_core::dialogs::{AUDIO_EXTS, OPEN_EXTS, Purpose};
 use bubble_core::menu::{Cmd, MenuState};
 use bubble_core::prefs::Appearance;
@@ -43,6 +43,8 @@ const BUSY: Duration = Duration::from_millis(100);
 const DRAGGING: Duration = Duration::from_millis(30);
 /// Otherwise: autosave, cloud checks and the status line keep going.
 const IDLE: Duration = Duration::from_secs(1);
+/// A late update worth a line in the log.
+const STALL_LOGGED: Duration = Duration::from_millis(250);
 
 thread_local! {
     /// Runs a tick on the UI thread when another thread wakes the window.
@@ -170,6 +172,7 @@ pub struct App {
     /// The next refresh, chosen after each tick (input ticks too, so a cart that just
     /// started gets the playing rate at once, not after the idle interval).
     interval: Duration,
+    last_tick: Instant,
     timer: std::rc::Weak<slint::Timer>,
     /// The last input: the engine reports a cart as playing a moment after the press,
     /// so the window refreshes at the playing rate for a while after any input.
@@ -1232,6 +1235,7 @@ impl App {
             accent: None,
             accent_read: None,
             interval: IDLE,
+            last_tick: Instant::now(),
             timer: std::rc::Weak::new(),
             last_input: Instant::now(),
             last_playing: Instant::now(),
@@ -1306,6 +1310,16 @@ impl App {
             return;
         }
         self.core.crash_test();
+        // A trigger from the keyboard or the screen waits for the same thread.
+        let gap = self.last_tick.elapsed();
+        if self.started && gap > self.interval + STALL_LOGGED {
+            log_info(&format!(
+                "interface stalled: {} ms since the last update, {} ms expected",
+                gap.as_millis(),
+                self.interval.as_millis()
+            ));
+        }
+        self.last_tick = Instant::now();
         if self.first_tick {
             self.first_tick = false;
             log_info("first frame shown");
@@ -1400,6 +1414,9 @@ impl App {
         };
         self.core.files.launch(&parent);
         self.core.autosave();
+        if std::mem::take(&mut self.core.quit_after_save) {
+            self.quit_after_apply();
+        }
         if self.place.due() {
             self.core.save_prefs();
         }
@@ -1603,7 +1620,7 @@ impl App {
         if self.startup_over {
             return None;
         }
-        let text = if !self.started {
+        let text = if !self.started || self.core.audio_opening() {
             "Starting audio…".to_string()
         } else if let Some((p, _, _)) = &self.core.opening {
             format!("Opening {}…", bubble_core::app::session::file_name(p))
@@ -3218,8 +3235,9 @@ impl App {
             (Dialog::ConfirmClose, 0) => {
                 self.confirm_close = false;
                 if snap.path.is_some() {
+                    // Quits once it is safely written (`tick`), and not if that fails.
                     intents.push(Intent::Save);
-                    self.quit_after_apply();
+                    self.core.after_save = Some(AfterSave::Quit);
                 } else {
                     // Untitled: Save As first; quitting is left to the operator.
                     self.core.save_or_save_as(&snap, intents);
@@ -3240,7 +3258,11 @@ impl App {
                             // not closed meanwhile.
                             let untitled = snap.path.is_none();
                             self.core.save_or_save_as(&snap, intents);
-                            if !(untitled && matches!(action, PendingAction::Close)) {
+                            if !untitled {
+                                // Follows once it is safely written, and not if that
+                                // fails, so the changes are still there.
+                                self.core.after_save = Some(AfterSave::Perform(action));
+                            } else if !matches!(action, PendingAction::Close) {
                                 self.core.perform(action, intents);
                             }
                         }
@@ -3408,6 +3430,7 @@ impl App {
         } else {
             self.core.write_autosave();
         }
+        self.core.finish_writes();
     }
 }
 

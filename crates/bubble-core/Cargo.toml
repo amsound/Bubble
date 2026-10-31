@@ -19,3 +19,6 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 raw-window-handle = "0.6"
+
+[dev-dependencies]
+tempfile.workspace = true

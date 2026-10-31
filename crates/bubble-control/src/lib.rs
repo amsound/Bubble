@@ -10,6 +10,7 @@ pub mod memory;
 pub use assets::{AssetCache, AssetState};
 pub use controller::{
     AttrSet, CartClip, CartRuntime, CartState, ControlError, Controller, Conversion, Learn,
-    LogEntry, LogKind, Machine, MouseButton, PageClip, ReassignScope, Route, display_label,
+    LogEntry, LogKind, Machine, MouseButton, PageClip, ReassignScope, Route, asset_files_of,
+    display_label,
 };
 pub use input::{InputEvent, MidiEvent, TriggerSource, describe};

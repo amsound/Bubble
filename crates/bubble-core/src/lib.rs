@@ -15,5 +15,6 @@ pub mod midi;
 pub mod outputs;
 pub mod prefs;
 pub mod view;
+pub mod writer;
 
 pub use app::{Core, Intent, PendingAction, Prompts, Snapshot};

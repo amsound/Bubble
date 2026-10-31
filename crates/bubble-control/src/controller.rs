@@ -21,7 +21,7 @@ use bubble_project::{
 };
 use uuid::Uuid;
 
-use crate::assets::{AssetCache, AssetState};
+use crate::assets::{AssetCache, AssetState, Resolved};
 use crate::input::{Hit, InputEvent, TriggerSource, matches, source_from_event};
 
 #[derive(Debug, thiserror::Error)]
@@ -131,6 +131,8 @@ pub struct Controller {
     /// Output letter (index) → where it plays.
     routes: Vec<Route>,
     assets: AssetCache,
+    /// Files already looked up, for the next re-arm.
+    resolved: Option<Resolved>,
     /// Disk reader for streamed assets (shared by every output device).
     streamer: Streamer,
     keys: HashMap<Uuid, CartKey>,
@@ -236,6 +238,7 @@ impl Controller {
             engines: Vec::new(),
             routes: Vec::new(),
             assets: AssetCache::new(),
+            resolved: None,
             streamer: Streamer::new(),
             keys: HashMap::new(),
             by_key: HashMap::new(),
@@ -313,6 +316,17 @@ impl Controller {
         self.info(format!("Opened project \"{}\"", self.project.name));
     }
 
+    /// Files looked up off the lock, for the next re-arm: so that replacing the project
+    /// or changing the rate does not look at the disk while triggers wait.
+    pub fn use_resolved(&mut self, resolved: Resolved) {
+        self.resolved = Some(resolved);
+    }
+
+    /// The rate audio is prepared at.
+    pub fn prepared_rate(&self) -> u32 {
+        self.assets.rate()
+    }
+
     pub fn open(&mut self, path: &Path) -> Result<(), ControlError> {
         let p = pio::load(path)?;
         self.replace_project(p, Some(path.to_path_buf()));
@@ -329,6 +343,28 @@ impl Controller {
         self.dirty = false;
         self.info(format!("Saved {}", path.display()));
         Ok(())
+    }
+
+    /// Starts a save done elsewhere: the file's path and bytes, without touching the
+    /// disk. The session counts as saved from now, so an edit made while the file is
+    /// being written still counts as unsaved; [`Self::save_finished`] says how it went.
+    pub fn begin_save(&mut self) -> Result<(PathBuf, Vec<u8>), ControlError> {
+        let path = self
+            .path
+            .clone()
+            .ok_or_else(|| ControlError::Invalid("project has no file yet".into()))?;
+        let bytes = pio::encode_for_save(&mut self.project)?;
+        self.dirty = false;
+        Ok((path, bytes))
+    }
+
+    /// A save from [`Self::begin_save`] has ended. If it failed, the session is unsaved.
+    pub fn save_finished(&mut self, path: &Path, ok: bool) {
+        if ok {
+            self.info(format!("Saved {}", path.display()));
+        } else if self.path.as_deref() == Some(path) {
+            self.dirty = true;
+        }
     }
 
     /// Saves to a new location, rewriting asset paths relative to it.
@@ -432,7 +468,9 @@ impl Controller {
         let rate = self.rate();
         if rate > 0 {
             let dir = self.project_dir();
-            self.assets.rearm_all(&self.project, dir.as_deref(), rate);
+            let known = self.resolved.take();
+            self.assets
+                .rearm_all(&self.project, dir.as_deref(), rate, known.as_ref());
         }
     }
 
@@ -497,10 +535,18 @@ impl Controller {
             }
         }
         self.end_halted();
+        self.pump_events();
+    }
+
+    /// Handles what the engines have reported (logging, Play Next) and releases retired
+    /// buffers; returns whether anything was reported. Runs on its own thread as well
+    /// as from [`Self::tick`], so a busy interface does not delay Play Next.
+    pub fn pump_events(&mut self) -> bool {
         let mut events = Vec::new();
         for e in &mut self.engines {
             e.poll_events(|ev| events.push(ev));
         }
+        let any = !events.is_empty();
         for ev in events {
             match ev {
                 EngineEvent::VoiceStarted { .. } => {}
@@ -526,6 +572,7 @@ impl Controller {
                 }
             }
         }
+        any
     }
 
     /// (bytes held by prepared audio, bytes allowed).
@@ -2102,13 +2149,7 @@ impl Controller {
 
     /// The file each asset resolves to, for assets that can be found.
     pub fn asset_files(&self) -> Vec<(Uuid, PathBuf)> {
-        let dir = self.project_dir();
-        let mut resolver = bubble_project::Resolver::new(dir.as_deref(), &self.project);
-        self.project
-            .assets
-            .iter()
-            .filter_map(|a| resolver.resolve(a).path().map(|p| (a.id, p.to_path_buf())))
-            .collect()
+        asset_files_of(&self.project, self.project_dir().as_deref())
     }
 
     /// Assets whose files live outside the session folder (to be collected into it).
@@ -2267,6 +2308,17 @@ fn needs_targets(a: Action) -> bool {
 pub fn label_from_file_name(stem: &str) -> String {
     let spaced = stem.replace('_', " ");
     spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The file of each asset found on disk. Looks at the disk, so call it with a copy of
+/// the project, not holding the session's lock.
+pub fn asset_files_of(project: &Project, dir: Option<&Path>) -> Vec<(Uuid, PathBuf)> {
+    let mut resolver = bubble_project::Resolver::new(dir, project);
+    project
+        .assets
+        .iter()
+        .filter_map(|a| resolver.resolve(a).path().map(|p| (a.id, p.to_path_buf())))
+        .collect()
 }
 
 /// Label shown on a cart: explicit label, else asset title, else file name.

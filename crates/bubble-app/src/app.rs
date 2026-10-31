@@ -746,6 +746,7 @@ impl eframe::App for BubbleApp {
         } else {
             self.write_autosave();
         }
+        self.finish_writes();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

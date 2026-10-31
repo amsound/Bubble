@@ -318,6 +318,7 @@ impl Core {
     /// Logs once when the open session's audio has finished loading.
     pub fn note_loaded(&mut self, snap: &Snapshot) {
         if snap.pending == 0
+            && !self.audio_opening()
             && let Some(t) = self.loading_since.take()
         {
             let (used, _) = self.lock().audio_memory();

@@ -19,6 +19,7 @@ use crate::autosave::{autosave_path, recovery_dir};
 use crate::dialogs::{FileDialogs, Purpose};
 use crate::midi::{MidiInputs, available_ports};
 use crate::prefs::Prefs;
+use crate::writer::{WriteDone, WriteJob, Writer};
 use crate::{cloud, crash};
 
 pub mod audio_out;
@@ -31,7 +32,7 @@ pub use session::{AfterCreate, Job, JobResult, NewSession, saved_text};
 pub type PendingOpen = (
     PathBuf,
     bool,
-    std::sync::mpsc::Receiver<Result<Project, String>>,
+    std::sync::mpsc::Receiver<Result<(Project, bubble_control::assets::Resolved), String>>,
 );
 
 pub const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
@@ -151,6 +152,17 @@ pub struct Prompts {
     pub new_session: Option<NewSession>,
 }
 
+/// How often the engines' reports are handled, and the wait for the session's lock
+/// worth a line in the log.
+const EVENT_PUMP_EVERY: Duration = Duration::from_millis(10);
+const LOCK_WAIT_LOGGED: Duration = Duration::from_millis(20);
+
+/// What follows a save, once it has succeeded.
+pub enum AfterSave {
+    Perform(PendingAction),
+    Quit,
+}
+
 /// Everything Bubble does that is not drawing. Fields are public so interfaces can show
 /// them; change them through the methods.
 pub struct Core {
@@ -159,6 +171,15 @@ pub struct Core {
     /// until a meter takes them: a snapshot taken for another reason must not lose
     /// them.
     peaks: Mutex<HashMap<Uuid, (f32, f32)>>,
+    /// Writes sessions, autosaves and preferences on its own thread.
+    pub writer: Writer,
+    /// An autosave is on its way to the disk: the next waits for it.
+    autosave_writing: bool,
+    /// What to do once the save being written has succeeded (a failed one does neither,
+    /// so unsaved work is not thrown away).
+    pub after_save: Option<AfterSave>,
+    /// The session was saved as part of quitting: the interface should close now.
+    pub quit_after_save: bool,
     /// One running stream per output device (output A's device first).
     pub audio: Vec<AudioOutput>,
     /// The device each stream was asked for ("" = system default), parallel to `audio`.
@@ -204,6 +225,7 @@ pub struct Core {
     /// checked, and whether the fuller alert was shown for this session.
     pub cloud_status: Option<String>,
     pub cloud_checked: Option<Instant>,
+    cloud_job: Option<std::sync::mpsc::Receiver<Option<cloud::CloudCheck>>>,
     pub cloud_alerted: bool,
     /// Set when the user chose to quit without saving.
     pub discard_on_exit: bool,
@@ -241,6 +263,10 @@ impl Core {
             // Listed in `start`, after the window is up (it can take a while).
             midi_ports: Vec::new(),
             midi_opening: None,
+            writer: Writer::new(repaint.clone()),
+            autosave_writing: false,
+            after_save: None,
+            quit_after_save: false,
             prefs: Prefs::load(),
             prompts: Prompts::default(),
             select: None,
@@ -264,6 +290,7 @@ impl Core {
             prefs_problem: None,
             cloud_status: None,
             cloud_checked: None,
+            cloud_job: None,
             cloud_alerted: false,
             discard_on_exit: false,
             devices: Vec::new(),
@@ -305,18 +332,9 @@ impl Core {
         };
         crash::install(self.ctrl.clone(), self.session_id);
         self.scan_devices();
-        let s = Instant::now();
+        // Opened in the background; `watch_audio` takes them when ready.
         self.open_audio();
-        step("audio outputs opened", s);
-        for a in &self.audio {
-            crate::log::info(&format!(
-                "audio output: {} at {} Hz, {} ch, {}",
-                a.device_name, a.sample_rate, a.channels, a.sample_format
-            ));
-        }
-        for e in self.output_errors.iter().chain(self.audio_error.iter()) {
-            crate::log::info(&format!("audio problem: {e}"));
-        }
+        self.start_event_pump();
         // Listed and opened in the background; `poll_midi` takes them when ready.
         self.open_midi();
         let s = Instant::now();
@@ -373,6 +391,17 @@ impl Core {
     /// Warns when the open session lives in a cloud-synced folder, and clearly when
     /// any of its audio is online-only (checked on open and every minute).
     pub fn check_cloud(&mut self) {
+        if let Some(rx) = &self.cloud_job {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.cloud_job = None;
+                    self.apply_cloud_check(found);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.cloud_job = None,
+            }
+            return;
+        }
         if self.opening.is_some()
             || self
                 .cloud_checked
@@ -381,16 +410,37 @@ impl Core {
             return;
         }
         self.cloud_checked = Some(Instant::now());
-        let (path, audio) = {
+        let (project, dir, path) = {
             let c = self.lock();
-            let audio: Vec<PathBuf> = c.asset_files().into_iter().map(|(_, p)| p).collect();
-            (c.path().map(Path::to_path_buf), audio)
+            (
+                c.project().clone(),
+                c.project_dir(),
+                c.path().map(Path::to_path_buf),
+            )
         };
         let Some(path) = path else {
             self.cloud_status = None;
             return;
         };
-        let found = cloud::check(&path, &audio);
+        // Every audio file is looked at on disk, perhaps a slow or missing one.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let repaint = self.repaint.clone();
+        let spawned = std::thread::Builder::new()
+            .name("bubble-cloud-check".into())
+            .spawn(move || {
+                let audio: Vec<PathBuf> = bubble_control::asset_files_of(&project, dir.as_deref())
+                    .into_iter()
+                    .map(|(_, p)| p)
+                    .collect();
+                let _ = tx.send(cloud::check(&path, &audio));
+                repaint();
+            });
+        if spawned.is_ok() {
+            self.cloud_job = Some(rx);
+        }
+    }
+
+    fn apply_cloud_check(&mut self, found: Option<cloud::CloudCheck>) {
         let status = found.as_ref().map(|c| c.status.clone());
         if status != self.cloud_status
             && let Some(s) = &status
@@ -409,14 +459,127 @@ impl Core {
     /// Saves preferences; a failure is logged and shown in the status bar until a
     /// later save succeeds.
     pub fn save_prefs(&mut self) {
-        match self.prefs.save() {
-            Ok(()) => self.prefs_problem = None,
-            Err(e) => {
-                let msg = format!("Preferences could not be saved: {e}");
-                crate::log::info(&msg);
-                self.prefs_problem = Some(msg);
+        if let Some((path, bytes)) = self.prefs.encoded() {
+            self.writer.submit(WriteJob::Prefs { path, bytes });
+        }
+    }
+
+    /// Handles the engines' reports on a thread of its own: Play Next must not wait for
+    /// the interface. Also logs when the session's lock made it wait, the same wait a
+    /// MIDI trigger would have had.
+    fn start_event_pump(&self) {
+        let ctrl = Arc::downgrade(&self.ctrl);
+        let repaint = self.repaint.clone();
+        let spawned = std::thread::Builder::new()
+            .name("bubble-events".into())
+            .spawn(move || {
+                let mut logged = None::<Instant>;
+                while let Some(ctrl) = ctrl.upgrade() {
+                    let t = Instant::now();
+                    let mut c = ctrl.lock().unwrap_or_else(|p| p.into_inner());
+                    let waited = t.elapsed();
+                    let any = c.pump_events();
+                    drop(c);
+                    drop(ctrl);
+                    if any {
+                        repaint();
+                    }
+                    if waited > LOCK_WAIT_LOGGED
+                        && logged.is_none_or(|l: Instant| l.elapsed() > Duration::from_secs(1))
+                    {
+                        logged = Some(Instant::now());
+                        crate::log::info(&format!("session lock waited {} ms", waited.as_millis()));
+                    }
+                    std::thread::sleep(EVENT_PUMP_EVERY);
+                }
+            });
+        if let Err(e) = spawned {
+            crate::log::info(&format!(
+                "no event thread ({e}); events follow the interface"
+            ));
+        }
+    }
+
+    /// Takes the results of finished file writes. Call once per frame.
+    pub fn poll_writes(&mut self) {
+        for done in self.writer.finished() {
+            match done {
+                WriteDone::Session { path, result } => {
+                    let ok = result.is_ok();
+                    let same = {
+                        let mut c = self.lock();
+                        c.save_finished(&path, ok);
+                        c.path() == Some(path.as_path())
+                    };
+                    match result {
+                        Ok(()) => {
+                            if same {
+                                self.saved_at = Some(std::time::SystemTime::now());
+                            }
+                            match self.after_save.take() {
+                                Some(AfterSave::Perform(action)) => {
+                                    let mut intents = Vec::new();
+                                    self.perform(action, &mut intents);
+                                    self.apply(intents);
+                                }
+                                Some(AfterSave::Quit) => self.quit_after_save = true,
+                                None => {}
+                            }
+                        }
+                        Err(e) => {
+                            crate::log::info(&format!("save failed: {e}"));
+                            self.after_save = None;
+                            self.prompts.error = Some(e);
+                        }
+                    }
+                }
+                WriteDone::Autosave(result) => {
+                    self.autosave_writing = false;
+                    match result {
+                        Ok(()) => self.autosave_problem = None,
+                        Err(e) => {
+                            let msg = format!("Autosave failed: {e}");
+                            crate::log::info(&msg);
+                            self.autosave_problem = Some(msg);
+                        }
+                    }
+                }
+                WriteDone::Prefs(result) => match result {
+                    Ok(()) => self.prefs_problem = None,
+                    Err(e) => {
+                        let msg = format!("Preferences could not be saved: {e}");
+                        crate::log::info(&msg);
+                        self.prefs_problem = Some(msg);
+                    }
+                },
             }
         }
+    }
+
+    /// Waits for files still being written (Bubble is quitting).
+    pub fn finish_writes(&self) {
+        self.writer.finish();
+    }
+
+    /// The file of each asset on disk, without holding the session's lock meanwhile.
+    pub fn asset_files(&self) -> Vec<(Uuid, PathBuf)> {
+        let (project, dir) = {
+            let c = self.lock();
+            (c.project().clone(), c.project_dir())
+        };
+        bubble_control::asset_files_of(&project, dir.as_deref())
+    }
+
+    /// The autosaves of the session in the controller.
+    fn autosave_files(&self, c: &Controller) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        if let Some(p) = c.path() {
+            files.push(autosave_path(p));
+        }
+        if let Some(d) = recovery_dir() {
+            files.push(d.join(format!("Untitled-{}.bubble", self.session_id)));
+        }
+        files
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Controller> {
@@ -826,10 +989,9 @@ impl Core {
                     Ok(())
                 }
                 Intent::CloseSession => {
-                    if let Some(p) = c.path() {
-                        // Changes were saved or given up: their autosave goes too.
-                        let _ = std::fs::remove_file(autosave_path(p));
-                    }
+                    // Changes were saved or given up: their autosaves go too.
+                    let files = self.autosave_files(&c);
+                    self.writer.submit(WriteJob::Remove(files));
                     c.replace_project(Controller::new_project("Untitled"), None);
                     self.select = Some(None);
                     self.saved_at = None;
@@ -852,14 +1014,21 @@ impl Core {
                     c.paste_attributes(&from, &targets, what);
                     Ok(())
                 }
-                Intent::Save => match c.save() {
-                    Ok(()) => {
+                Intent::Save => match c.begin_save() {
+                    Ok((path, bytes)) => {
+                        let then_remove = self.autosave_files(&c);
                         drop(c);
-                        self.saved_at = Some(std::time::SystemTime::now());
-                        self.remove_autosave();
+                        self.writer.submit(WriteJob::Session {
+                            path,
+                            bytes,
+                            then_remove,
+                        });
                         continue;
                     }
-                    Err(e) => Err(e.to_string()),
+                    Err(e) => {
+                        self.after_save = None;
+                        Err(e.to_string())
+                    }
                 },
             };
             drop(c);
@@ -882,6 +1051,11 @@ impl Core {
             .name("bubble-open".into())
             .spawn(move || {
                 let r = bubble_project::io::load(&p).map_err(|e| e.to_string());
+                // Its files are looked up here, off the session's lock.
+                let r = r.map(|project| {
+                    let found = bubble_control::assets::resolve_all(&project, p.parent());
+                    (project, found)
+                });
                 let _ = tx.send(r);
                 repaint();
             })
@@ -897,7 +1071,7 @@ impl Core {
         let (path, startup) = (path.clone(), *startup);
         self.opening = None;
         match result {
-            Ok(project) => {
+            Ok((project, found)) => {
                 crate::log::info(&format!(
                     "opened: {} page(s), {} audio file(s)",
                     project.pages.len(),
@@ -910,7 +1084,11 @@ impl Core {
                 self.loading_since = Some(Instant::now());
                 self.cloud_checked = None;
                 self.cloud_alerted = false;
-                self.lock().replace_project(project, Some(path.clone()));
+                {
+                    let mut c = self.lock();
+                    c.use_resolved(found);
+                    c.replace_project(project, Some(path.clone()));
+                }
                 self.select = Some(None);
                 self.saved_at = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
                 self.want_collect = true;
@@ -929,7 +1107,8 @@ impl Core {
     }
 
     pub fn autosave(&mut self) {
-        if self.last_autosave.elapsed() < AUTOSAVE_EVERY {
+        self.poll_writes();
+        if self.autosave_writing || self.last_autosave.elapsed() < AUTOSAVE_EVERY {
             return;
         }
         self.last_autosave = Instant::now();
@@ -949,26 +1128,18 @@ impl Core {
             None => recovery_dir().map(|d| d.join(format!("Untitled-{}.bubble", self.session_id))),
         };
         drop(c);
-        if let Some(t) = target {
-            match bubble_project::io::write_atomic(&t, json.as_bytes(), false) {
-                Ok(()) => self.autosave_problem = None,
-                Err(e) => {
-                    let msg = format!("Autosave failed ({}): {e}", t.display());
-                    crate::log::info(&msg);
-                    self.autosave_problem = Some(msg);
-                }
-            }
+        if let Some(path) = target {
+            self.autosave_writing = true;
+            self.writer.submit(WriteJob::Autosave {
+                path,
+                bytes: json.into_bytes(),
+            });
         }
     }
 
     pub fn remove_autosave(&self) {
-        let c = self.lock();
-        if let Some(p) = c.path() {
-            let _ = std::fs::remove_file(autosave_path(p));
-        }
-        if let Some(d) = recovery_dir() {
-            let _ = std::fs::remove_file(d.join(format!("Untitled-{}.bubble", self.session_id)));
-        }
+        let files = self.autosave_files(&self.lock());
+        self.writer.submit(WriteJob::Remove(files));
     }
 
     /// Looks for unsaved work left by a previous session.

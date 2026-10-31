@@ -161,11 +161,14 @@ impl Core {
 
     /// Copies audio that lives outside the session into its Audio folder.
     pub fn collect_external(&mut self) {
-        let (dir, external) = {
-            let c = self.lock();
-            (c.project_dir(), c.external_assets())
+        let Some(dir) = self.lock().project_dir() else {
+            return;
         };
-        let Some(dir) = dir else { return };
+        let external: Vec<_> = self
+            .asset_files()
+            .into_iter()
+            .filter(|(_, p)| !bubble_project::session::is_inside(p, &dir))
+            .collect();
         if external.is_empty() {
             return;
         }
@@ -344,7 +347,7 @@ impl Core {
                 });
             }
             AfterCreate::SaveAs => {
-                let assets = self.lock().asset_files();
+                let assets = self.asset_files();
                 let dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
                 let n = assets.len();
                 self.start_job(
