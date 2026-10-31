@@ -214,7 +214,36 @@ pub fn system_dark(ui: &MainWindow) -> Option<bool> {
             .stringForKey(&NSString::from_str("AppleInterfaceStyle"));
         Some(style.is_some_and(|s| s.to_string() == "Dark"))
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the setting itself too. The window's own idea of it is not available
+    // until the window exists, which can be after the first update, and then the
+    // interface kept its dark default while the menu bar followed the system.
+    #[cfg(windows)]
+    {
+        let _ = ui;
+        use windows_sys::Win32::System::Registry::{
+            HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW,
+        };
+        let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+        let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+        let value = wide("AppsUseLightTheme");
+        let mut light = 0u32;
+        let mut len = std::mem::size_of::<u32>() as u32;
+        // SAFETY: NUL-terminated names and a 4-byte buffer, as a DWORD takes.
+        let r = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_DWORD,
+                std::ptr::null_mut(),
+                (&mut light as *mut u32).cast(),
+                &mut len,
+            )
+        };
+        // No value at all: Windows' own default, light.
+        Some(r == 0 && light == 0)
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     ui.window()
         .with_winit_window(|w| w.theme())
         .flatten()
