@@ -68,6 +68,8 @@ export component TileView inherits Rectangle {
     in property <Tile> tile;
     in property <LabelStyle> style;
     in property <bool> edit-mode;
+    // Quick edit's ring marks this cart instead of the selection outline.
+    in property <bool> ringed;
     // Files are dragged over it, or a cart is being moved onto it.
     in property <bool> drop-target;
     in property <color> drop-color: Theme.drop;
@@ -409,7 +411,7 @@ export component TileView inherits Rectangle {
             background: root.state-color;
         }
     }
-    if tile.selected && edit-mode: Rectangle {
+    if tile.selected && edit-mode && !ringed: Rectangle {
         x: -4px;
         y: -4px;
         width: root.width + 8px;

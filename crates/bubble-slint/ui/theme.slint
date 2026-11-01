@@ -95,6 +95,15 @@ export global Theme {
     // Quick edit and the busy popover. Dark: Cart Setup's background, so the same
     // controls look the same in both.
     out property <color> popover: card;
+    out property <color> popover-edge: dark ? #7b8391 : #8a929e;
+    // The double ring round the cart quick edit belongs to: the inner band parts it from
+    // the cart's colour, whatever that is.
+    out property <color> ring-inner: dark ? #000000 : #ffffff;
+    out property <color> ring-outer: dark ? #ffffff : #1c1f23;
+    // Quick edit's Delete.
+    out property <color> danger-fill: dark ? #3d2326 : #fdecec;
+    out property <color> danger-edge: dark ? #cf6a70 : #d99ba0;
+    out property <color> danger-icon: dark ? #ff8d86 : #b3202a;
 }
 
 // Copy, cut, paste, undo, redo and select-all from the menus, for whichever text

@@ -2671,6 +2671,7 @@ impl App {
         self.qe_cart = None;
         self.qe_seen = None;
         self.qe_soft = false;
+        ui.set_qe_cell(idx);
         // Beside the cart (right of it, or left when there is no room).
         let width = ui
             .window()
@@ -2678,7 +2679,7 @@ impl App {
             .to_logical(ui.window().scale_factor())
             .width;
         let (x, w) = (ui.invoke_cell_x(idx), ui.invoke_cell_w());
-        let panel = 384.0;
+        let panel = 392.0;
         let right = x + w + 10.0;
         let fits_right = right + panel <= width - 8.0;
         ui.set_qe_x(if fits_right { right } else { x - panel - 10.0 });

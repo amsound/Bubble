@@ -1,8 +1,8 @@
 // Quick edit: the common cart settings in a popover inside the main window, beside the
 // cart (window design pass, 2026-10-29). Opened by right-click, press-and-hold or Return
-// in Edit mode; closed by Esc or a click outside it. One 64 px label column, 36 px rows.
+// in Edit mode; closed by Esc or a click outside it. One 72 px label column, 36 px rows.
 //
-//   ● Button 8                      Cart Setup… ↗
+//   ● Button 8
 //   Label     [Morning News                     ]
 //   Colour    ■ ■ ■ ■ ■ ■ ■ ■
 //   Gain      ───────●──────            +1.5 dB
@@ -12,7 +12,7 @@
 //   Hotkey    [F6 ✕]                     [Learn]
 //   Playback  [✓ Loop]          [Play next]
 //   ─────────────────────────────────────────────
-//   [Copy] [Paste] [Replace…]            [🗑 Delete]
+//   [⧉] [📋]    [≡ Cart setup…]                [🗑]
 
 import { Theme, TextCommand, Panel, SysButton, PopButton, ClearX, SetupSlider } from "theme.slint";
 
@@ -187,7 +187,8 @@ export component FieldRow inherits HorizontalLayout {
     padding-left: Theme.mac && grouped ? 10px : 0px;
     padding-right: Theme.mac && grouped ? 10px : 0px;
     padding-top: Theme.mac && grouped ? 6px : 0px;
-    padding-bottom: Theme.mac && grouped ? 6px : 0px;
+    // A layout puts a 32 px control at the top of the row, so the label centres on that.
+    padding-bottom: Theme.mac && grouped ? 6px : Theme.mac ? 0px : 4px;
     Text {
         text: root.label;
         width: root.label-width;
@@ -284,6 +285,78 @@ export component Toggle inherits Rectangle {
     }
 }
 
+// A 32 px icon-only button, with a 40 px hit area for a finger and a tooltip for a mouse.
+component IconButton inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> enabled: true;
+    in property <bool> destructive;
+    callback clicked;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: destructive ? Theme.danger-edge : Theme.control-border;
+    property <color> fill: destructive ? Theme.danger-fill : Theme.control;
+    background: ta.pressed ? (Theme.dark ? fill.brighter(30%) : fill.darker(10%))
+        : ta.has-hover ? (Theme.dark ? fill.brighter(15%) : fill.darker(5%)) : fill;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: label;
+    Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: root.icon;
+        stroke: root.destructive ? Theme.danger-icon : Theme.text;
+        stroke-width: 1.4px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        fill: transparent;
+    }
+    ta := TouchArea {
+        x: -4px;
+        y: -4px;
+        width: 40px;
+        height: 40px;
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+    tip-delay := Timer {
+        interval: 600ms;
+        running: ta.has-hover && !root.tip-shown && !ta.pressed;
+        triggered => {
+            root.tip-shown = true;
+        }
+    }
+    property <bool> tip-shown;
+    property <bool> hovering: ta.has-hover;
+    changed hovering => {
+        if !self.hovering {
+            self.tip-shown = false;
+        }
+    }
+    if root.tip-shown && ta.has-hover && !ta.pressed: Rectangle {
+        y: -self.height - 6px;
+        x: (root.width - self.width) / 2;
+        width: tip.preferred-width + 16px;
+        height: tip.preferred-height + 8px;
+        border-radius: 4px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.panel-border;
+        tip := Text {
+            text: root.label;
+            color: Theme.text;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
 export component QuickEditPanel inherits Panel {
     in property <QuickEdit> qe;
     callback label(string);
@@ -293,7 +366,7 @@ export component QuickEditPanel inherits Panel {
     callback choice-menu(string, length, length);
     // "loop", "next" or "stop-all".
     callback flag(string, bool);
-    // "done", "learn", "clear-key", "replace", "copy", "paste", "delete",
+    // "done", "learn", "clear-key", "copy", "paste", "delete",
     // "gain-reset" or "setup" (Cart Setup).
     callback action(string);
 
@@ -313,43 +386,48 @@ export component QuickEditPanel inherits Panel {
         self.shown = true;
     }
 
-    // As wide as the label column and eight 30 px swatches (5 px apart) need.
-    width: 384px;
+    // As wide as the label column and eight 30 px swatches (4 px apart) need.
+    width: 392px;
     height: layout.preferred-height;
     border-radius: Theme.mac ? 12px : 8px;
     background: Theme.popover;
-    border-color: Theme.card-border;
+    // The strongest line in the window: it has to read against saturated carts.
+    border-color: Theme.popover-edge;
 
     // Clicks inside the panel must not reach the backdrop (which closes it).
     TouchArea { }
 
-    // The arrow pointing at the cart (it fills the 10 px gap to the tile).
+    // The arrow pointing at the cart: its centre at the cart's, at least 24 px from the
+    // panel's corners. Only its two outer edges are stroked.
+    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 10px;
     Path {
-        x: root.arrow-left ? -11px : root.width - 1px;
-        y: clamp(root.arrow-y - 13px, 14px, root.height - 40px);
-        width: 12px;
-        height: 26px;
-        viewbox-width: 12;
-        viewbox-height: 26;
-        commands: root.arrow-left ? "M12 0L0 13L12 26Z" : "M0 0L12 13L0 26Z";
+        x: root.arrow-left ? -10px : root.width;
+        y: root.arrow-top;
+        width: 10px;
+        height: 20px;
+        viewbox-width: 10;
+        viewbox-height: 20;
+        commands: root.arrow-left ? "M10 0L0 10L10 20" : "M0 0L10 10L0 20";
         fill: Theme.popover;
-        stroke: Theme.card-border;
+        stroke: Theme.popover-edge;
         stroke-width: 1px;
     }
-    // Hides the arrow's stroke where it meets the panel.
+    // Opens the panel's edge where the arrow joins it.
     Rectangle {
-        x: root.arrow-left ? 0px : root.width - 2px;
-        y: clamp(root.arrow-y - 12px, 15px, root.height - 39px);
-        width: 2px;
-        height: 24px;
+        x: root.arrow-left ? 0px : root.width - 1px;
+        y: root.arrow-top + 1px;
+        width: 1px;
+        height: 18px;
         background: Theme.popover;
     }
 
     layout := VerticalLayout {
-        padding: 16px;
+        padding-left: 20px;
+        padding-right: 20px;
         padding-top: 12px;
+        padding-bottom: 16px;
         spacing: 0px;
-        // The cart's colour and number; Cart Setup… as a link on the right.
+        // The cart's colour and number.
         HorizontalLayout {
             height: 40px;
             spacing: 10px;
@@ -369,42 +447,11 @@ export component QuickEditPanel inherits Panel {
                 color: Theme.text;
                 vertical-alignment: center;
             }
-            Rectangle {
-                horizontal-stretch: 1;
-            }
-            // A control button has nothing to set up.
-            if !qe.control: Rectangle {
-                width: link.preferred-width;
-                link := HorizontalLayout {
-                    spacing: 6px;
-                    Text {
-                        text: "Cart Setup…";
-                        color: link-ta.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                    }
-                    Path {
-                        width: 14px;
-                        height: 14px;
-                        y: (parent.height - self.height) / 2;
-                        viewbox-width: 16;
-                        viewbox-height: 16;
-                        commands: "M9 2.5H13.5V7 M13.5 2.5L7.5 8.5 M11.5 9.5V13.5H2.5V4.5H6.5";
-                        stroke: Theme.accent;
-                        stroke-width: 1.4px;
-                        fill: transparent;
-                    }
-                }
-                link-ta := TouchArea {
-                    clicked => {
-                        root.action("setup");
-                    }
-                }
-            }
         }
 
         FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Label";
             LabelField {
                 y: (parent.height - self.height) / 2;
@@ -417,11 +464,12 @@ export component QuickEditPanel inherits Panel {
         }
         FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Colour";
-            // The quick colours, 30 px with 5 px between (any other colour is in Cart
+            // The quick colours, 30 px with 4 px between (any other colour is in Cart
             // Setup).
             HorizontalLayout {
-                spacing: 5px;
+                spacing: 4px;
                 alignment: start;
                 for c[i] in qe.swatches: Rectangle {
                     width: 30px;
@@ -443,6 +491,7 @@ export component QuickEditPanel inherits Panel {
         }
         if !qe.control: FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Gain";
             // As tall as a drop-down on Windows, for a finger; a press on the track
             // jumps there and a double-click on the knob goes back to 0 dB.
@@ -473,6 +522,7 @@ export component QuickEditPanel inherits Panel {
         }
         if !qe.control: FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Output";
             PopButton {
                 y: (parent.height - self.height) / 2;
@@ -486,6 +536,7 @@ export component QuickEditPanel inherits Panel {
         }
         if !qe.control: FieldRow {
             grouped: false;
+            label-width: 72px;
             label: Theme.mac ? "Fade Out" : "Fade out";
             PopButton {
                 y: (parent.height - self.height) / 2;
@@ -498,6 +549,7 @@ export component QuickEditPanel inherits Panel {
         }
         if qe.show-group: FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Group";
             PopButton {
                 y: (parent.height - self.height) / 2;
@@ -510,6 +562,7 @@ export component QuickEditPanel inherits Panel {
         }
         FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Hotkey";
             HorizontalLayout {
                 spacing: 8px;
@@ -548,6 +601,7 @@ export component QuickEditPanel inherits Panel {
         }
         if !qe.control: FieldRow {
             grouped: false;
+            label-width: 72px;
             label: "Playback";
             HorizontalLayout {
                 spacing: 8px;
@@ -576,9 +630,10 @@ export component QuickEditPanel inherits Panel {
             }
         }
 
-        // The actions, below a rule: Delete on its own at the right.
+        // The actions, below a rule, on the form's grid: Copy and Paste in the label
+        // column, Cart setup… on the controls' left edge, Delete on their right edge.
         Rectangle {
-            height: 12px;
+            height: 8px;
         }
         Rectangle {
             height: 1px;
@@ -586,35 +641,81 @@ export component QuickEditPanel inherits Panel {
         }
         HorizontalLayout {
             padding-top: 12px;
-            spacing: 8px;
-            SysButton {
-                text: "Copy";
-                clicked => {
-                    root.action("copy");
+            spacing: 12px;
+            HorizontalLayout {
+                width: 72px;
+                spacing: 8px;
+                IconButton {
+                    label: "Copy";
+                    icon: "M5.5 5.5H13.5V13.5H5.5Z M3 10.5H2.5V2.5H10.5V3";
+                    clicked => {
+                        root.action("copy");
+                    }
+                }
+                IconButton {
+                    label: "Paste";
+                    icon: "M5.5 3H3V14H13V3H10.5 M5.5 1.75H10.5V4.5H5.5Z";
+                    enabled: qe.can-paste;
+                    clicked => {
+                        root.action("paste");
+                    }
                 }
             }
-            SysButton {
-                text: "Paste";
-                enabled: qe.can-paste;
-                clicked => {
-                    root.action("paste");
+            HorizontalLayout {
+                // A control button has nothing to set up.
+                if !qe.control: Rectangle {
+                    height: 32px;
+                    width: setup.preferred-width;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+                    background: Theme.accent.transparentize(Theme.dark
+                        ? (setup-ta.pressed ? 70% : setup-ta.has-hover ? 78% : 86%)
+                        : (setup-ta.pressed ? 80% : setup-ta.has-hover ? 86% : 92%));
+                    accessible-role: button;
+                    accessible-label: "Cart setup";
+                    setup := HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 14px;
+                        spacing: 8px;
+                        Path {
+                            width: 18px;
+                            height: 18px;
+                            y: (parent.height - self.height) / 2;
+                            viewbox-width: 16;
+                            viewbox-height: 16;
+                            commands: "M2 5H6.5 M10.5 5H14 M2 11H5.5 M9.5 11H14 M8.5 3.25A1.75 1.75 0 1 0 8.5 6.75A1.75 1.75 0 1 0 8.5 3.25Z M7.5 9.25A1.75 1.75 0 1 0 7.5 12.75A1.75 1.75 0 1 0 7.5 9.25Z";
+                            stroke: Theme.accent;
+                            stroke-width: 1.4px;
+                            stroke-line-cap: round;
+                            stroke-line-join: round;
+                            fill: transparent;
+                        }
+                        Text {
+                            text: "Cart setup…";
+                            color: Theme.accent;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+                    setup-ta := TouchArea {
+                        y: -4px;
+                        height: 40px;
+                        clicked => {
+                            root.action("setup");
+                        }
+                    }
                 }
-            }
-            if !qe.control: SysButton {
-                text: "Replace…";
-                clicked => {
-                    root.action("replace");
+                Rectangle {
+                    horizontal-stretch: 1;
                 }
-            }
-            Rectangle {
-                horizontal-stretch: 1;
-            }
-            SysButton {
-                text: "Delete";
-                destructive: true;
-                icon: "M2.5 4H13.5 M6 4V2.5H10V4 M4 4L4.8 13.5H11.2L12 4 M6.6 6.5V11 M9.4 6.5V11";
-                clicked => {
-                    root.action("delete");
+                IconButton {
+                    label: "Delete";
+                    destructive: true;
+                    icon: "M2.5 4H13.5 M6 4V2.5H10V4 M4 4L4.8 13.5H11.2L12 4 M6.6 6.5V11 M9.4 6.5V11";
+                    clicked => {
+                        root.action("delete");
+                    }
                 }
             }
         }

@@ -132,6 +132,8 @@ export component MainWindow inherits Window {
     // Where the quick-edit arrow points (the cart's middle), and on which side.
     in property <length> qe-point-y;
     in property <bool> qe-arrow-left: true;
+    // The cell quick edit belongs to, ringed while it is open.
+    in property <int> qe-cell: -1;
     in property <[PopupRow]> popup-rows;
     in property <string> popup-sub-title;
     in property <[PopupRow]> popup-sub;
@@ -387,6 +389,7 @@ export component MainWindow inherits Window {
         tile: t;
         style: root.label-style;
         edit-mode: root.edit-mode;
+        ringed: i == root.qe-cell && root.qe-gen.length > 0;
         drop-target: i == root.drop-index || (root.drag-from >= 0 && i == root.drag-to && i != root.drag-from);
         drop-color: root.drag-from >= 0 ? Theme.select : Theme.drop;
         down(right, touch, shift, alt, ctrl) => {
@@ -769,6 +772,27 @@ export component MainWindow inherits Window {
                     // A finger that moves is not a hold: it closes quick edit on lifting.
                     hold-timer.running = false;
                 }
+            }
+        }
+        // The double ring: above the neighbouring carts, which it may overlap slightly.
+        Rectangle {
+            property <length> left: root.cell-x(root.qe-cell);
+            property <length> top: root.cell-y(root.qe-cell);
+            x: self.left - 6px;
+            y: self.top - 6px;
+            width: root.pixel(pad + mod(root.qe-cell, max(cols, 1)) * (tile-w + gap) + tile-w) - self.left + 12px;
+            height: root.pixel(wall-top + floor(root.qe-cell / max(cols, 1)) * (tile-h + gap) + tile-h) - self.top + 12px;
+            border-radius: 14px;
+            border-width: 4px;
+            border-color: Theme.ring-outer;
+            Rectangle {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                height: parent.height - 8px;
+                border-radius: 10px;
+                border-width: 2px;
+                border-color: Theme.ring-inner;
             }
         }
         QuickEditPanel {
