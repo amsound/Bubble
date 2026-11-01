@@ -40,6 +40,8 @@ opt-level = 2
 [profile.release]
 debug = 1
 
-# Slint's femtovg renderer with everything on whole device pixels (see vendor/README.md).
+# Slint's femtovg renderer with everything on whole device pixels, and femtovg compiling
+# its shaders only when used (see vendor/README.md).
 [patch.crates-io]
 i-slint-renderer-femtovg = { path = "vendor/i-slint-renderer-femtovg" }
+femtovg = { path = "vendor/femtovg" }

@@ -138,9 +138,9 @@ pub struct App {
     /// The Cart Setup window, and its close button asking about unkept edits.
     setup: Option<cartsetup::Setup>,
     setup_close_ask: bool,
-    /// Windows: a Cart Setup window kept ready, off screen: a new one takes half a second.
-    spare_setup: Option<crate::CartSetupWindow>,
-    spare_parked: bool,
+    /// After Cart Setup closes, the main window ignores presses until then: Windows turns
+    /// a tap into a mouse click as the finger lifts, which would land on what was under OK.
+    setup_guard: Option<Instant>,
     /// The Settings (this computer) and Session Settings windows, while open.
     settings: Option<settings::Settings>,
     session_settings: Option<settings::SessionSettings>,
@@ -677,12 +677,7 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
             a.close_setup(false, &mut intents);
             a.apply_intents(intents);
             a.tick();
-            // Windows: kept for next time, off screen.
-            if cfg!(windows) {
-                slint::CloseRequestResponse::KeepWindowShown
-            } else {
-                slint::CloseRequestResponse::HideWindow
-            }
+            slint::CloseRequestResponse::HideWindow
         }
     });
 
@@ -1277,8 +1272,7 @@ impl App {
             picker_setup: false,
             setup: None,
             setup_close_ask: false,
-            spare_setup: None,
-            spare_parked: false,
+            setup_guard: None,
             settings: None,
             session_settings: None,
             me: std::rc::Weak::new(),
@@ -1370,16 +1364,6 @@ impl App {
         }
         log_info("first frame drawn; starting audio, MIDI and the session");
         self.core.start();
-        // Not from here, inside the main window's first frame: a graphics context started
-        // then leaves the new window unable to draw text or images.
-        let me = self.me.clone();
-        slint::Timer::single_shot(Duration::from_millis(200), move || {
-            if let Some(app) = me.upgrade()
-                && let Ok(mut a) = app.try_borrow_mut()
-            {
-                a.prepare_setup();
-            }
-        });
         self.started = true;
         self.started_at = Some(Instant::now());
         log_info(&format!(
@@ -1647,17 +1631,13 @@ impl App {
         self.show_setup(ui, snap);
         // Cart Setup needs OK or Cancel before anything else in the main window. Again
         // each time: a closed message box turns its owner back on.
-        let blocked = self.setup.is_some();
+        self.setup_guard = self.setup_guard.filter(|t| Instant::now() < *t);
+        let blocked = self.setup.is_some() || self.setup_guard.is_some();
         if ui.get_blocked() != blocked {
             ui.set_blocked(blocked);
         }
-        if blocked && !self.alerts.is_open() {
+        if self.setup.is_some() && !self.alerts.is_open() {
             window::set_enabled(ui.window(), false);
-        }
-        if !self.spare_parked
-            && let Some(w) = &self.spare_setup
-        {
-            self.spare_parked = window::set_parked(w.window(), true);
         }
         let edited = self.setup.as_ref().map(|s| s.id).or(self.quick_edit);
         let ring = edited
@@ -2795,84 +2775,33 @@ impl App {
         let undo_mark = self.lock().undo_len();
         window::set_enabled(ui.window(), false);
         window::remember_menu();
-        let reuse = self.spare_setup.take();
-        let ready = reuse.is_some();
-        let win = match reuse.or_else(|| self.new_setup_window(&ui)) {
-            Some(win) => win,
-            None => {
-                window::set_enabled(ui.window(), true);
-                return;
-            }
+        let Ok(win) = crate::CartSetupWindow::new() else {
+            window::set_enabled(ui.window(), true);
+            return;
         };
         settings::share_theme!(ui, win);
-        win.set_wave_path("".into());
-        win.invoke_reset_focus();
-        win.global::<TextCommand>().set_typing(false);
-        let weak = win.as_weak();
-        if ready {
-            // Filled in off screen, so it never shows the last cart.
-            let snap = self.core.snapshot();
-            let mut setup = cartsetup::Setup::new(win, cart);
-            setup.undo_mark = undo_mark;
-            self.setup = Some(setup);
-            self.show_setup(&ui, &snap);
-            let main = ui.as_weak();
-            slint::Timer::single_shot(Duration::from_millis(40), move || {
-                if let (Some(w), Some(ui)) = (weak.upgrade(), main.upgrade()) {
-                    window::set_parked(w.window(), false);
-                    window::place_over(w.window(), ui.window(), 860.0, 640.0);
-                    window::focus(w.window());
-                    log_info(&format!(
-                        "Cart Setup opened from the ready window in {} ms",
-                        began.elapsed().as_millis()
-                    ));
-                }
-            });
-            return;
-        }
+        win.set_window_icon(window::icon());
+        wire_setup(&win, &self.me);
         window::place_over(win.window(), ui.window(), 860.0, 640.0);
         let _ = win.show();
         window::finish_tool(&win, &ui);
-        let mut logged = false;
+        let mut stage = 0;
         let _ = win.window().set_rendering_notifier(move |state, _| {
-            if matches!(state, slint::RenderingState::AfterRendering) && !logged {
-                logged = true;
-                log_info(&format!(
-                    "Cart Setup opened: a new window, first drawn at {} ms",
-                    began.elapsed().as_millis()
-                ));
-            }
+            let name = match state {
+                slint::RenderingState::RenderingSetup => "graphics ready",
+                slint::RenderingState::BeforeRendering if stage < 2 => "first draw starts",
+                slint::RenderingState::AfterRendering if stage < 3 => "first draw done",
+                _ => return,
+            };
+            stage += 1;
+            log_info(&format!(
+                "Cart Setup opening: {name} at {} ms",
+                began.elapsed().as_millis()
+            ));
         });
         let mut setup = cartsetup::Setup::new(win, cart);
         setup.undo_mark = undo_mark;
         self.setup = Some(setup);
-    }
-
-    fn new_setup_window(&self, ui: &MainWindow) -> Option<crate::CartSetupWindow> {
-        let win = crate::CartSetupWindow::new().ok()?;
-        settings::share_theme!(ui, win);
-        win.set_window_icon(window::icon());
-        wire_setup(&win, &self.me);
-        Some(win)
-    }
-
-    /// Windows: makes Cart Setup's window ready, off screen, so that opening
-    /// it is immediate. Done as start-up ends, when the half second it takes hurts least.
-    fn prepare_setup(&mut self) {
-        if !cfg!(windows) {
-            return;
-        }
-        let Some(ui) = self.ui.upgrade() else { return };
-        let Some(win) = self.new_setup_window(&ui) else {
-            return;
-        };
-        window::open_quietly();
-        win.window()
-            .set_position(slint::PhysicalPosition::new(-32000, -32000));
-        let _ = win.show();
-        window::finish_tool(&win, &ui);
-        self.spare_setup = Some(win);
-        self.spare_parked = false;
     }
 
     /// A key pressed while Cart Setup has the keyboard, for the hot keys: all but its
@@ -2953,42 +2882,22 @@ impl App {
             let _ = s.win.hide();
             return;
         };
-        if cfg!(windows) {
-            // Gone at once, and kept for next time. Windows turns a tap into a mouse
-            // click as the finger lifts: the main window stays off until that is over, so
-            // it can't land on whatever was under OK (EDIT).
-            let win = s.win;
-            window::set_parked(win.window(), true);
-            let (w, me) = (ui.as_weak(), self.me.clone());
-            slint::Timer::single_shot(Duration::from_millis(250), move || {
-                if let Some(ui) = w.upgrade() {
-                    // Before anything else takes the keyboard: Windows would otherwise
-                    // bring forward whatever was behind Bubble.
-                    window::set_enabled(ui.window(), true);
-                    window::focus(ui.window());
-                    // Not from inside this timer: a pointer event here stops every timer.
-                    let w = ui.as_weak();
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = w.upgrade() {
-                            window::sync_pointer(&ui);
-                        }
-                    });
-                }
-                if let Some(app) = me.upgrade()
-                    && let Ok(mut a) = app.try_borrow_mut()
-                    && a.spare_setup.is_none()
-                    && !a.exited
-                {
-                    a.spare_setup = Some(win);
-                    a.spare_parked = true;
-                } else {
-                    let _ = win.hide();
-                }
-            });
-        } else {
-            window::bring_to_front(&ui);
-            let _ = s.win.hide();
-        }
+        // Back to the main window first: Windows would otherwise bring forward whatever
+        // was behind Bubble.
+        window::set_enabled(ui.window(), true);
+        window::focus(ui.window());
+        let win = s.win;
+        let _ = win.hide();
+        self.setup_guard = Some(Instant::now() + Duration::from_millis(250));
+        // Kept a moment: this may be running inside one of its own callbacks.
+        let w = ui.as_weak();
+        slint::Timer::single_shot(Duration::from_millis(250), move || {
+            drop(win);
+            if let Some(ui) = w.upgrade() {
+                ui.set_blocked(false);
+                window::sync_pointer(&ui);
+            }
+        });
     }
 
     fn show_setup(&mut self, ui: &MainWindow, snap: &Snapshot) {
@@ -3830,9 +3739,6 @@ impl App {
 
     fn on_exit(&mut self) {
         // Slint runs until the last window has gone.
-        if let Some(w) = self.spare_setup.take() {
-            let _ = w.hide();
-        }
         if let Some(s) = self.setup.take() {
             let _ = s.win.hide();
         }

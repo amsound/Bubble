@@ -66,7 +66,6 @@ fn main() {
     let result = slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name(renderer.into())
-        .with_winit_window_attributes_hook(window::attributes)
         .select()
         .and_then(|()| app::run(renderer, ui_font));
     match result {
