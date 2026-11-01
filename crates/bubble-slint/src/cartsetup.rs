@@ -829,13 +829,18 @@ impl Setup {
     // ---- showing it ----
 
     /// The cart in the session changed underneath (its audio replaced or relinked):
-    /// the draft follows its file and trims.
+    /// the draft follows its file, trims and label (unless the label was edited here).
     fn follow(&mut self, cart: &Cart) {
         if cart.asset != self.base.asset {
             self.draft.asset = cart.asset;
             self.draft.trim = cart.trim;
             self.base.asset = cart.asset;
             self.base.trim = cart.trim;
+            if self.draft.label == self.base.label && self.draft.label != cart.label {
+                self.draft.label = cart.label.clone();
+                self.push = true;
+            }
+            self.base.label = cart.label.clone();
             self.overview = None;
             self.dur = 0.0;
             self.cursor = None;

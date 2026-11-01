@@ -398,29 +398,30 @@ export component QuickEditPanel inherits Panel {
     TouchArea { }
 
     // The arrow pointing at the cart: its centre at the cart's, at least 24 px from the
-    // panel's corners, stopping short of the cart. Only its two outer edges are stroked.
-    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 8px;
-    // Its fill reaches over the panel's edge, opening it where the arrow joins.
+    // panel's corners, its tip rounded and stopping short of the cart. Only its outer
+    // edges are stroked; its fill reaches over the panel's edge, opening it at the join.
+    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 10px;
     Path {
-        x: root.arrow-left ? -8px : root.width - 2px;
+        x: root.arrow-left ? -10px : root.width - 2px;
         y: root.arrow-top;
-        width: 10px;
-        height: 16px;
-        viewbox-width: 10;
-        viewbox-height: 16;
-        commands: root.arrow-left ? "M0 8L8 0L10 0L10 16L8 16Z" : "M10 8L2 0L0 0L0 16L2 16Z";
+        width: 12px;
+        height: 20px;
+        viewbox-width: 12;
+        viewbox-height: 20;
+        commands: root.arrow-left ? "M12 0H10L1.2 8.8Q0 10 1.2 11.2L10 20H12Z" : "M0 0H2L10.8 8.8Q12 10 10.8 11.2L2 20H0Z";
         fill: Theme.popover;
     }
     Path {
-        x: root.arrow-left ? -8px : root.width - 2px;
+        x: root.arrow-left ? -10px : root.width - 2px;
         y: root.arrow-top;
-        width: 10px;
-        height: 16px;
-        viewbox-width: 10;
-        viewbox-height: 16;
-        commands: root.arrow-left ? "M8 0L0 8L8 16" : "M2 0L10 8L2 16";
+        width: 12px;
+        height: 20px;
+        viewbox-width: 12;
+        viewbox-height: 20;
+        commands: root.arrow-left ? "M10 0L1.2 8.8Q0 10 1.2 11.2L10 20" : "M2 0L10.8 8.8Q12 10 10.8 11.2L2 20";
         stroke: Theme.popover-edge;
         stroke-width: 1px;
+        stroke-line-join: round;
     }
 
     layout := VerticalLayout {

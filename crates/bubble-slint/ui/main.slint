@@ -132,8 +132,8 @@ export component MainWindow inherits Window {
     // Where the quick-edit arrow points (the cart's middle), and on which side.
     in property <length> qe-point-y;
     in property <bool> qe-arrow-left: true;
-    // The cell quick edit belongs to, ringed while it is open.
-    in property <int> qe-cell: -1;
+    // The cell quick edit or Cart Setup belongs to, ringed while it is open.
+    in property <int> ring-cell: -1;
     in property <[PopupRow]> popup-rows;
     in property <string> popup-sub-title;
     in property <[PopupRow]> popup-sub;
@@ -389,7 +389,7 @@ export component MainWindow inherits Window {
         tile: t;
         style: root.label-style;
         edit-mode: root.edit-mode;
-        ringed: i == root.qe-cell && root.qe-gen.length > 0;
+        ringed: i == root.ring-cell;
         drop-target: i == root.drop-index || (root.drag-from >= 0 && i == root.drag-to && i != root.drag-from);
         drop-color: root.drag-from >= 0 ? Theme.select : Theme.drop;
         down(right, touch, shift, alt, ctrl) => {
@@ -720,6 +720,29 @@ export component MainWindow inherits Window {
         }
     }
 
+    // The double ring round the cart being edited, inside its own edge: it never touches
+    // a neighbour.
+    if root.ring-cell >= 0: Rectangle {
+        property <length> outer: root.pixel(3px);
+        property <length> inner: root.pixel(2px);
+        x: root.cell-x(root.ring-cell);
+        y: root.cell-y(root.ring-cell);
+        width: root.pixel(pad + mod(root.ring-cell, max(cols, 1)) * (tile-w + gap) + tile-w) - self.x;
+        height: root.pixel(wall-top + floor(root.ring-cell / max(cols, 1)) * (tile-h + gap) + tile-h) - self.y;
+        border-radius: 8px;
+        border-width: self.outer;
+        border-color: Theme.ring-outer;
+        Rectangle {
+            x: parent.outer;
+            y: parent.outer;
+            width: parent.width - 2 * parent.outer;
+            height: parent.height - 2 * parent.outer;
+            border-radius: 8px - parent.outer;
+            border-width: parent.inner;
+            border-color: Theme.ring-inner;
+        }
+    }
+
     // ---- quick edit ----
     for g in qe-gen: Rectangle {
         // A click outside closes it, and does nothing else; a right-click (or
@@ -772,27 +795,6 @@ export component MainWindow inherits Window {
                     // A finger that moves is not a hold: it closes quick edit on lifting.
                     hold-timer.running = false;
                 }
-            }
-        }
-        // The double ring, inside the cart's own edge: it never touches a neighbour.
-        Rectangle {
-            property <length> outer: root.pixel(3px);
-            property <length> inner: root.pixel(2px);
-            x: root.cell-x(root.qe-cell);
-            y: root.cell-y(root.qe-cell);
-            width: root.pixel(pad + mod(root.qe-cell, max(cols, 1)) * (tile-w + gap) + tile-w) - self.x;
-            height: root.pixel(wall-top + floor(root.qe-cell / max(cols, 1)) * (tile-h + gap) + tile-h) - self.y;
-            border-radius: 8px;
-            border-width: self.outer;
-            border-color: Theme.ring-outer;
-            Rectangle {
-                x: parent.outer;
-                y: parent.outer;
-                width: parent.width - 2 * parent.outer;
-                height: parent.height - 2 * parent.outer;
-                border-radius: 8px - parent.outer;
-                border-width: parent.inner;
-                border-color: Theme.ring-inner;
             }
         }
         QuickEditPanel {

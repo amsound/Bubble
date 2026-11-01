@@ -1602,6 +1602,13 @@ impl App {
         self.show_quick_edit(ui, snap);
         self.show_dialog(ui, snap);
         self.show_setup(ui, snap);
+        let edited = self.setup.as_ref().map(|s| s.id).or(self.quick_edit);
+        let ring = edited
+            .and_then(|id| self.ids.iter().position(|c| *c == Some(id)))
+            .map_or(-1, |i| i as i32);
+        if ui.get_ring_cell() != ring {
+            ui.set_ring_cell(ring);
+        }
         if let Some(s) = &mut self.settings {
             settings::share_theme!(ui, s.win);
             s.show(&self.core);
@@ -2671,7 +2678,6 @@ impl App {
         self.qe_cart = None;
         self.qe_seen = None;
         self.qe_soft = false;
-        ui.set_qe_cell(idx);
         // Beside the cart (right of it, or left when there is no room).
         let width = ui
             .window()
@@ -2680,9 +2686,9 @@ impl App {
             .width;
         let (x, w) = (ui.invoke_cell_x(idx), ui.invoke_cell_w());
         let panel = 392.0;
-        let right = x + w + 12.0;
+        let right = x + w + 14.0;
         let fits_right = right + panel <= width - 8.0;
-        ui.set_qe_x(if fits_right { right } else { x - panel - 12.0 });
+        ui.set_qe_x(if fits_right { right } else { x - panel - 14.0 });
         ui.set_qe_arrow_left(fits_right);
         let y = ui.invoke_cell_y(idx);
         ui.set_qe_y(y);
@@ -2710,16 +2716,31 @@ impl App {
             }
             let _ = s.win.hide();
         }
+        let began = Instant::now();
         let (Ok(win), Some(ui)) = (crate::CartSetupWindow::new(), self.ui.upgrade()) else {
             return;
         };
+        let made = began.elapsed();
         settings::share_theme!(ui, win);
         win.set_window_icon(window::icon());
         window::remember_menu();
         wire_setup(&win, &self.me);
         window::place_over(win.window(), ui.window(), 860.0, 640.0);
         let _ = win.show();
+        let shown = began.elapsed();
         window::finish_tool(&win, &ui);
+        let mut logged = false;
+        let _ = win.window().set_rendering_notifier(move |state, _| {
+            if matches!(state, slint::RenderingState::AfterRendering) && !logged {
+                logged = true;
+                log_info(&format!(
+                    "Cart Setup opened: window made in {} ms, shown at {} ms, first drawn at {} ms",
+                    made.as_millis(),
+                    shown.as_millis(),
+                    began.elapsed().as_millis()
+                ));
+            }
+        });
         self.setup = Some(cartsetup::Setup::new(win, cart));
     }
 
@@ -2745,6 +2766,11 @@ impl App {
             self.picker_setup = false;
         }
         self.setup_close_ask = false;
+        // Back to the main window: left to itself, Windows can bring forward whatever was
+        // behind Bubble, such as a File Explorer window, after a file dialog.
+        if let Some(ui) = self.ui.upgrade() {
+            window::bring_to_front(&ui);
+        }
         // Windows turns a tap into a mouse click as the finger lifts: closing at once let
         // that click land on whatever was under OK in the main window (EDIT). Stay up
         // until the tap is over (the window is no longer Cart Setup to Bubble).
