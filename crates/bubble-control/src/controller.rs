@@ -1463,6 +1463,11 @@ impl Controller {
         !self.redo.is_empty()
     }
 
+    /// How many undo steps there are.
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
     pub fn undo(&mut self) -> bool {
         let Some(prev) = self.undo.pop() else {
             return false;
