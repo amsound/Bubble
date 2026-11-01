@@ -115,6 +115,10 @@ export component MainWindow inherits Window {
     in property <float> scale: 1;
     in property <[BusyRow]> busy;
     in property <LoadInfo> load;
+    // The nearest whole device pixel.
+    pure function pixel(v: length) -> length {
+        round(v * root.scale / 1px) * 1px / root.scale
+    }
     // Where the busy popover was dragged to, from top centre.
     property <length> busy-dx;
     property <length> busy-dy;
@@ -210,7 +214,7 @@ export component MainWindow inherits Window {
         r * cols + c
     }
     public pure function cell-x(i: int) -> length {
-        pad + mod(i, max(cols, 1)) * (tile-w + gap)
+        root.pixel(pad + mod(i, max(cols, 1)) * (tile-w + gap))
     }
     public pure function cell-w() -> length {
         tile-w
@@ -219,7 +223,7 @@ export component MainWindow inherits Window {
         tile-h
     }
     public pure function cell-y(i: int) -> length {
-        wall-top + floor(i / max(cols, 1)) * (tile-h + gap)
+        root.pixel(wall-top + floor(i / max(cols, 1)) * (tile-h + gap))
     }
     public function open-popup() {
         ctx.show({ x: root.popup-x, y: root.popup-y });
@@ -372,10 +376,14 @@ export component MainWindow inherits Window {
 
     // ---- cart wall ----
     for t[i] in tiles: TileView {
-        x: pad + mod(i, max(cols, 1)) * (tile-w + gap);
-        y: wall-top + floor(i / max(cols, 1)) * (tile-h + gap);
-        width: tile-w;
-        height: tile-h;
+        // Each edge on a whole device pixel, so tiles and their text stay sharp; gaps may
+        // differ by a pixel when the window does not divide evenly.
+        property <length> left: pad + mod(i, max(cols, 1)) * (tile-w + gap);
+        property <length> top: wall-top + floor(i / max(cols, 1)) * (tile-h + gap);
+        x: root.pixel(self.left);
+        y: root.pixel(self.top);
+        width: root.pixel(self.left + tile-w) - self.x;
+        height: root.pixel(self.top + tile-h) - self.y;
         tile: t;
         style: root.label-style;
         edit-mode: root.edit-mode;
@@ -458,9 +466,9 @@ export component MainWindow inherits Window {
         }
         width: min(460px, root.width - 24px);
         height: busy-layout.preferred-height;
-        x: clamp((root.width - self.width) / 2 + root.busy-dx, 0px, max(0px, root.width - self.width));
+        x: root.pixel(clamp((root.width - self.width) / 2 + root.busy-dx, 0px, max(0px, root.width - self.width)));
         // In the middle of the cart wall, where it is noticed.
-        y: clamp(wall-top + (wall-h - self.height) / 2 + root.busy-dy, 0px, max(0px, root.height - self.height));
+        y: root.pixel(clamp(wall-top + (wall-h - self.height) / 2 + root.busy-dy, 0px, max(0px, root.height - self.height)));
         border-radius: 8px;
         background: Theme.popover;
         border-width: 1px;
@@ -612,9 +620,9 @@ export component MainWindow inherits Window {
         Rectangle {
             width: 360px;
             height: load-layout.preferred-height;
-            x: (parent.width - self.width) / 2;
+            x: root.pixel((parent.width - self.width) / 2);
             // Centred on the cart wall, not on the window with the page bar.
-            y: (root.bar-top ? root.bar-height : 0px) + (root.height - root.bar-height - self.height) / 2;
+            y: root.pixel((root.bar-top ? root.bar-height : 0px) + (root.height - root.bar-height - self.height) / 2);
             background: Theme.card;
             border-width: 1px;
             border-color: Theme.card-border;
@@ -764,11 +772,12 @@ export component MainWindow inherits Window {
             }
         }
         QuickEditPanel {
-            x: clamp(root.qe-x, 8px, max(8px, root.width - self.width - 8px));
+            // On whole device pixels: half a pixel off blurs every edge and word inside.
+            x: root.pixel(clamp(root.qe-x, 8px, max(8px, root.width - self.width - 8px)));
             // Never over the page bar, at the bottom of the window or the top.
             property <length> top: root.bar-top ? root.bar-height + 8px : 8px;
             property <length> bottom: root.bar-top ? root.height - 8px : root.height - root.bar-height - 8px;
-            y: clamp(root.qe-y, self.top, max(self.top, self.bottom - self.height));
+            y: root.pixel(clamp(root.qe-y, self.top, max(self.top, self.bottom - self.height)));
             arrow-left: root.qe-arrow-left;
             arrow-y: root.qe-point-y - self.y;
             qe: root.qe;

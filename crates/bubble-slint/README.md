@@ -296,6 +296,9 @@ Done (main window):
       and every 5 minutes with new edits; the newest 30, then a day's last for 14 days).
       Windows: .bubble files open in Bubble (Settings ▸ General, per user). An import on
       the computer that made the session finds files at their own paths at once.
+- [x] Text and edges: femtovg's hinted glyphs on Windows; tiles and popovers placed on
+      whole device pixels (half a pixel off blurred their edges and text). A session
+      loading closes quick edit and Cart Setup.
 - [ ] Performance, to look into (measure first, then decide): progress bars that
       update only when they move a whole screen pixel; a refresh rate that follows
       how fast the playing carts' bars move; CPU per renderer with one cart playing;

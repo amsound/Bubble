@@ -1353,6 +1353,17 @@ impl App {
             return;
         }
         self.core.crash_test();
+        // A session coming in replaces the carts these were showing.
+        if self.core.session_loading() {
+            if self.quick_edit.is_some() {
+                self.close_quick_edit();
+            }
+            if self.setup.is_some() {
+                let mut none = Vec::new();
+                self.close_setup(false, &mut none);
+                self.core.apply(none);
+            }
+        }
         // Windows wants to shut down with unsaved work: it has been held back, so ask.
         if self.core.session_end_held() {
             window::bring_to_front(&ui);

@@ -1040,6 +1040,7 @@ dependencies = [
  "bubble-engine",
  "bubble-project",
  "dispatch2",
+ "femtovg",
  "jiff",
  "mouse_position",
  "objc2 0.6.5",
