@@ -258,15 +258,20 @@ pub fn needs_wav_conversion(path: &Path, engine_rate: u32) -> bool {
         return true;
     }
     match hound::WavReader::open(path) {
-        Ok(r) => r.spec().sample_rate != engine_rate,
+        // Another rate, or 32-bit float: not every tool reads those.
+        Ok(r) => {
+            let spec = r.spec();
+            spec.sample_rate != engine_rate || spec.sample_format == hound::SampleFormat::Float
+        }
         // hound reads plain PCM and float WAVs; anything else (e.g. compressed WAV)
         // is converted too, as long as symphonia can decode it.
         Err(_) => true,
     }
 }
 
-/// Decodes `src`, resamples it to `engine_rate` and writes it to `dst` as 32-bit
-/// float WAV (no clipping of decoded overs). Written to a temporary name first, so
+/// Decodes `src`, resamples it to `engine_rate` and writes it to `dst` as a 24-bit WAV,
+/// which every audio tool reads (anything over full scale is limited to it). Written
+/// to a temporary name first, so
 /// a failed conversion never leaves a partial file under `dst`. Returns the source
 /// format.
 pub fn convert_to_wav(src: &Path, dst: &Path, engine_rate: u32) -> Result<SourceInfo, LoadError> {
@@ -291,13 +296,15 @@ pub fn convert_to_wav(src: &Path, dst: &Path, engine_rate: u32) -> Result<Source
     let spec = hound::WavSpec {
         channels: audio.channels,
         sample_rate: engine_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
+        bits_per_sample: 24,
+        sample_format: hound::SampleFormat::Int,
     };
+    const FULL_SCALE: f32 = 8_388_607.0;
     let result = (|| {
         let mut w = hound::WavWriter::create(&tmp, spec).map_err(io)?;
         for s in &audio.samples {
-            w.write_sample(*s).map_err(io)?;
+            let sample = (s.clamp(-1.0, 1.0) * FULL_SCALE).round() as i32;
+            w.write_sample(sample).map_err(io)?;
         }
         w.finalize().map_err(io)?;
         std::fs::rename(&tmp, dst).map_err(|e| LoadError::Open {
