@@ -955,25 +955,43 @@ pub fn attributes(a: winit::window::WindowAttributes) -> winit::window::WindowAt
     if QUIET.take() { a.with_active(false) } else { a }
 }
 
-/// Windows: keeps a window in being, drawing, but unseen (not on screen or in Alt+Tab).
-/// False when it does not exist yet.
-pub fn set_cloaked(w: &slint::Window, on: bool) -> bool {
+/// Windows: parks a window off screen, still drawing, and out of Alt+Tab, or brings it
+/// out of that (the caller then gives it its place). Not cloaking: a graphics swap can
+/// wait indefinitely on a cloaked window, stopping the whole interface. False when the
+/// window does not exist yet.
+pub fn set_parked(w: &slint::Window, on: bool) -> bool {
     #[cfg(windows)]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GWL_EXSTYLE, GetWindowLongPtrW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, WS_EX_TOOLWINDOW,
+        };
         let handle = w.window_handle();
         let Ok(RawWindowHandle::Win32(h)) = handle.window_handle().map(|h| h.as_raw()) else {
             return false;
         };
-        let value: i32 = on.into();
-        // SAFETY: the window's own handle and a BOOL, as the attribute takes.
+        let hwnd = h.hwnd.get() as _;
+        if on {
+            w.set_position(slint::PhysicalPosition::new(-32000, -32000));
+        }
+        // SAFETY: the window's own handle.
         unsafe {
-            DwmSetWindowAttribute(
-                h.hwnd.get() as _,
-                DWMWA_CLOAK as u32,
-                &value as *const _ as *const std::ffi::c_void,
-                std::mem::size_of_val(&value) as u32,
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let tool = WS_EX_TOOLWINDOW as isize;
+            SetWindowLongPtrW(
+                hwnd,
+                GWL_EXSTYLE,
+                if on { style | tool } else { style & !tool },
+            );
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
         true
@@ -1002,7 +1020,31 @@ pub fn set_enabled(w: &slint::Window, on: bool) {
     let _ = (w, on);
 }
 
-/// Gives a window the keyboard.
+/// Tells the window where the pointer really is. It hears nothing while it is disabled or
+/// behind another window, and a click would otherwise land where the pointer last was.
+pub fn sync_pointer(ui: &MainWindow) {
+    if let Some((x, y)) = pointer_in_window(ui) {
+        ui.window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved {
+                position: slint::LogicalPosition::new(x, y),
+            });
+    }
+}
+
+/// Gives a window of Bubble's the keyboard. Windows: directly, not through winit's
+/// `focus_window`, after which the event loop can sleep through its timers until the
+/// next message arrives (the interface stops updating).
 pub fn focus(w: &slint::Window) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+        let handle = w.window_handle();
+        if let Ok(RawWindowHandle::Win32(h)) = handle.window_handle().map(|h| h.as_raw()) {
+            // SAFETY: the window's own handle.
+            unsafe { SetForegroundWindow(h.hwnd.get() as _) };
+        }
+    }
+    #[cfg(not(windows))]
     w.with_winit_window(|w| w.focus_window());
 }

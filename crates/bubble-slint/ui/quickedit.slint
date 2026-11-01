@@ -398,38 +398,40 @@ export component QuickEditPanel inherits Panel {
     TouchArea { }
 
     // The arrow pointing at the cart: its centre at the cart's, clear of the panel's
-    // corners, with a rounded tip that stops just short of the cart. Its stroke leaves
-    // the middle of the panel's edge and curves away, so they read as one outline; its
-    // fill reaches over that edge, opening it. Drawn from a whole-pixel origin (the
-    // panel's edge is a whole number of device pixels, which the line must match).
+    // corners, with a small round on the tip that stops just short of the cart. Its stroke
+    // meets the panel's edge in a square corner; its fill reaches over that edge, opening
+    // it. Drawn from a whole-pixel origin (the panel's edge is a whole number of device
+    // pixels, which the line must match).
     in property <float> scale: 1;
     property <float> edge: max(1, round(root.scale)) / root.scale;
     property <float> line: root.arrow-left ? 12 + root.edge / 2 : 4 - root.edge / 2;
     property <string> outline: root.arrow-left
-        ? "M" + root.line + " 0q0 5 -3.6 8.6l-5.2 5.2q-1.2 1.2 0 2.4l5.2 5.2q3.6 3.6 3.6 8.6"
-        : "M" + root.line + " 0q0 5 3.6 8.6l5.2 5.2q1.2 1.2 0 2.4l-5.2 5.2q-3.6 3.6 -3.6 8.6";
-    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 15px;
+        ? "M" + root.line + " 0v2l-8.8 8.8q-1.2 1.2 0 2.4l8.8 8.8v2"
+        : "M" + root.line + " 0v2l8.8 8.8q1.2 1.2 0 2.4l-8.8 8.8v2";
+    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 13px;
     Path {
         x: root.arrow-left ? -12px : root.width - 4px;
         y: root.arrow-top;
         width: 16px;
-        height: 30px;
+        height: 26px;
         viewbox-width: 16;
-        viewbox-height: 30;
-        commands: root.outline + (root.arrow-left ? "H16V0Z" : "H0V0Z");
+        viewbox-height: 26;
+        // Only below the stroke's first and above its last stretch along the edge.
+        commands: root.arrow-left
+            ? "M" + root.line + " 2l-8.8 8.8q-1.2 1.2 0 2.4l8.8 8.8H16V2Z"
+            : "M" + root.line + " 2l8.8 8.8q1.2 1.2 0 2.4l-8.8 8.8H0V2Z";
         fill: Theme.popover;
     }
     Path {
         x: root.arrow-left ? -12px : root.width - 4px;
         y: root.arrow-top;
         width: 16px;
-        height: 30px;
+        height: 26px;
         viewbox-width: 16;
-        viewbox-height: 30;
+        viewbox-height: 26;
         commands: root.outline;
         stroke: Theme.popover-edge;
         stroke-width: root.edge * 1px;
-        stroke-line-join: round;
     }
 
     layout := VerticalLayout {
