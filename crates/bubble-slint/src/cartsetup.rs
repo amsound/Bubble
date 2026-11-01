@@ -90,6 +90,10 @@ pub struct Setup {
     popup: Vec<Pick>,
     /// Sliders and text to set from here on the next show (opening, a reset).
     push: bool,
+    /// The file was replaced from here; Cancel takes that back.
+    pub replaced: bool,
+    /// How far back Cancel's undo goes then.
+    pub undo_mark: usize,
     /// Two-finger pinch on a touch screen: the fingers and the last distance.
     touches: Vec<(u64, f64, f64)>,
     pinch: Option<f64>,
@@ -186,11 +190,34 @@ impl Setup {
             wave_sig: (0, 0, 0, 0, 0),
             popup: Vec::new(),
             push: true,
+            replaced: false,
+            undo_mark: 0,
             touches: Vec::new(),
             pinch: None,
             resume: false,
             scrub_at: None,
             sounding: false,
+        }
+    }
+
+    /// The cart plays on after Cancel: as it was before this window's changes.
+    pub fn restore_live(&self, snap: &Snapshot, intents: &mut Vec<Intent>) {
+        let (d, b) = (&self.draft, &self.base);
+        if !self.playing(snap) {
+            return;
+        }
+        if d.gain_db != b.gain_db || d.muted != b.muted {
+            intents.push(Intent::LiveGain(self.id, b.gain_db, b.muted));
+        }
+        if d.speed != b.speed {
+            intents.push(Intent::LiveSpeedRamp(self.id, b.speed, 40));
+        }
+        if d.looping != b.looping {
+            intents.push(Intent::LiveLoop(self.id, b.looping));
+        }
+        if d.trim != b.trim {
+            let (start, end) = self.trims_of(b);
+            intents.push(Intent::LiveTrim(self.id, start, end));
         }
     }
 
@@ -212,7 +239,11 @@ impl Setup {
     }
 
     fn trims(&self) -> (f64, f64) {
-        match self.draft.trim {
+        self.trims_of(&self.draft)
+    }
+
+    fn trims_of(&self, cart: &Cart) -> (f64, f64) {
+        match cart.trim {
             Some(t) => (
                 t.in_frames as f64 / self.rate,
                 // Past the file's end (an imported trim, say), playback stops at the end.
@@ -832,6 +863,7 @@ impl Setup {
     /// the draft follows its file, trims and label (unless the label was edited here).
     fn follow(&mut self, cart: &Cart) {
         if cart.asset != self.base.asset {
+            self.replaced = true;
             self.draft.asset = cart.asset;
             self.draft.trim = cart.trim;
             self.base.asset = cart.asset;

@@ -134,6 +134,8 @@ export component MainWindow inherits Window {
     in property <bool> qe-arrow-left: true;
     // The cell quick edit or Cart Setup belongs to, ringed while it is open.
     in property <int> ring-cell: -1;
+    in property <bool> blocked;
+    callback blocked-click();
     in property <[PopupRow]> popup-rows;
     in property <string> popup-sub-title;
     in property <[PopupRow]> popup-sub;
@@ -805,6 +807,7 @@ export component MainWindow inherits Window {
             property <length> bottom: wall-top + wall-h;
             y: root.pixel(clamp(root.qe-point-y - self.height / 2, self.top, max(self.top, self.bottom - self.height)));
             arrow-left: root.qe-arrow-left;
+            scale: root.scale;
             arrow-y: root.qe-point-y - self.y;
             qe: root.qe;
             label(t) => {
@@ -825,6 +828,14 @@ export component MainWindow inherits Window {
             action(a) => {
                 root.qe-action(a);
             }
+        }
+    }
+
+    // Cart Setup is open: it needs OK or Cancel before anything else here. (Windows also
+    // disables the whole window, so this is what other systems get.)
+    if root.blocked: TouchArea {
+        clicked => {
+            root.blocked-click();
         }
     }
 

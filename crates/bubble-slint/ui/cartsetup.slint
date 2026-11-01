@@ -429,6 +429,11 @@ export component CartSetupWindow inherits Window {
         TextCommand.seq += 1;
     }
 
+    // Back to the window's own keys, when a kept window opens for another cart.
+    public function reset-focus() {
+        keys.focus();
+    }
+
     keys := FocusScope {
         key-pressed(e) => {
             if e.repeat && e.text != Key.LeftArrow && e.text != Key.RightArrow {

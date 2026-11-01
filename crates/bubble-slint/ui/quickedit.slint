@@ -397,30 +397,38 @@ export component QuickEditPanel inherits Panel {
     // Clicks inside the panel must not reach the backdrop (which closes it).
     TouchArea { }
 
-    // The arrow pointing at the cart: its centre at the cart's, at least 24 px from the
-    // panel's corners, its tip rounded and stopping short of the cart. Only its outer
-    // edges are stroked; its fill reaches over the panel's edge, opening it at the join.
-    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 10px;
+    // The arrow pointing at the cart: its centre at the cart's, clear of the panel's
+    // corners, with a rounded tip that stops just short of the cart. Its stroke leaves
+    // the middle of the panel's edge and curves away, so they read as one outline; its
+    // fill reaches over that edge, opening it. Drawn from a whole-pixel origin (the
+    // panel's edge is a whole number of device pixels, which the line must match).
+    in property <float> scale: 1;
+    property <float> edge: max(1, round(root.scale)) / root.scale;
+    property <float> line: root.arrow-left ? 12 + root.edge / 2 : 4 - root.edge / 2;
+    property <string> outline: root.arrow-left
+        ? "M" + root.line + " 0q0 5 -3.6 8.6l-5.2 5.2q-1.2 1.2 0 2.4l5.2 5.2q3.6 3.6 3.6 8.6"
+        : "M" + root.line + " 0q0 5 3.6 8.6l5.2 5.2q1.2 1.2 0 2.4l-5.2 5.2q-3.6 3.6 -3.6 8.6";
+    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 15px;
     Path {
-        x: root.arrow-left ? -10px : root.width - 2px;
+        x: root.arrow-left ? -12px : root.width - 4px;
         y: root.arrow-top;
-        width: 12px;
-        height: 20px;
-        viewbox-width: 12;
-        viewbox-height: 20;
-        commands: root.arrow-left ? "M12 0H10L1.2 8.8Q0 10 1.2 11.2L10 20H12Z" : "M0 0H2L10.8 8.8Q12 10 10.8 11.2L2 20H0Z";
+        width: 16px;
+        height: 30px;
+        viewbox-width: 16;
+        viewbox-height: 30;
+        commands: root.outline + (root.arrow-left ? "H16V0Z" : "H0V0Z");
         fill: Theme.popover;
     }
     Path {
-        x: root.arrow-left ? -10px : root.width - 2px;
+        x: root.arrow-left ? -12px : root.width - 4px;
         y: root.arrow-top;
-        width: 12px;
-        height: 20px;
-        viewbox-width: 12;
-        viewbox-height: 20;
-        commands: root.arrow-left ? "M10 0L1.2 8.8Q0 10 1.2 11.2L10 20" : "M2 0L10.8 8.8Q12 10 10.8 11.2L2 20";
+        width: 16px;
+        height: 30px;
+        viewbox-width: 16;
+        viewbox-height: 30;
+        commands: root.outline;
         stroke: Theme.popover-edge;
-        stroke-width: 1px;
+        stroke-width: root.edge * 1px;
         stroke-line-join: round;
     }
 

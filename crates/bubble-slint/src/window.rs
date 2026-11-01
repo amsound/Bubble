@@ -938,3 +938,71 @@ pub fn keep_above(child: &slint::Window, parent: &slint::Window) {
     #[cfg(not(any(target_os = "macos", windows)))]
     let _ = (child, parent, raw);
 }
+
+thread_local! {
+    /// The next window to be created opens without taking the keyboard.
+    static QUIET: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The window created next (Cart Setup, made ready at start-up) does not take the
+/// keyboard from the main window.
+pub fn open_quietly() {
+    QUIET.set(true);
+}
+
+/// Every new window's attributes, from the backend.
+pub fn attributes(a: winit::window::WindowAttributes) -> winit::window::WindowAttributes {
+    if QUIET.take() { a.with_active(false) } else { a }
+}
+
+/// Windows: keeps a window in being, drawing, but unseen (not on screen or in Alt+Tab).
+/// False when it does not exist yet.
+pub fn set_cloaked(w: &slint::Window, on: bool) -> bool {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
+        let handle = w.window_handle();
+        let Ok(RawWindowHandle::Win32(h)) = handle.window_handle().map(|h| h.as_raw()) else {
+            return false;
+        };
+        let value: i32 = on.into();
+        // SAFETY: the window's own handle and a BOOL, as the attribute takes.
+        unsafe {
+            DwmSetWindowAttribute(
+                h.hwnd.get() as _,
+                DWMWA_CLOAK as u32,
+                &value as *const _ as *const std::ffi::c_void,
+                std::mem::size_of_val(&value) as u32,
+            );
+        }
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (w, on);
+        true
+    }
+}
+
+/// Windows: turns all input to a window on or off, as a modal dialog does for its owner
+/// (a click on it then brings the dialog forward).
+pub fn set_enabled(w: &slint::Window, on: bool) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+        let handle = w.window_handle();
+        if let Ok(RawWindowHandle::Win32(h)) = handle.window_handle().map(|h| h.as_raw()) {
+            // SAFETY: the window's own handle.
+            unsafe { EnableWindow(h.hwnd.get() as _, on.into()) };
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (w, on);
+}
+
+/// Gives a window the keyboard.
+pub fn focus(w: &slint::Window) {
+    w.with_winit_window(|w| w.focus_window());
+}
