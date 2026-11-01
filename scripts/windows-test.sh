@@ -24,7 +24,9 @@ send() {
 }
 # A task, because a program started over SSH alone would not reach the desktop.
 run() {
-    "${SSH[@]}" "schtasks /create /f /tn BubbleTest /sc once /st 23:59 /it /rl limited /tr $DIR\\Bubble.exe >nul && schtasks /run /tn BubbleTest"
+    "${SSH[@]}" "schtasks /create /f /tn BubbleTest /sc once /st 23:59 /it /rl limited /tr $DIR\\Bubble.exe >nul"
+    # Otherwise a laptop on battery leaves the task queued and Bubble never starts.
+    "${SSH[@]}" 'powershell -NoProfile -Command "$s=(Get-ScheduledTask BubbleTest).Settings; $s.DisallowStartIfOnBatteries=$false; $s.StopIfGoingOnBatteries=$false; Set-ScheduledTask -TaskName BubbleTest -Settings $s | Out-Null; Start-ScheduledTask BubbleTest"'
 }
 log() { "${SSH[@]}" "powershell -NoProfile -Command \"Get-Content \$env:APPDATA\\Bubble\\Bubble\\data\\Logs\\bubble.log -Tail ${1:-40}\""; }
 
