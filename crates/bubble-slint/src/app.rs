@@ -2680,9 +2680,9 @@ impl App {
             .width;
         let (x, w) = (ui.invoke_cell_x(idx), ui.invoke_cell_w());
         let panel = 392.0;
-        let right = x + w + 10.0;
+        let right = x + w + 12.0;
         let fits_right = right + panel <= width - 8.0;
-        ui.set_qe_x(if fits_right { right } else { x - panel - 10.0 });
+        ui.set_qe_x(if fits_right { right } else { x - panel - 12.0 });
         ui.set_qe_arrow_left(fits_right);
         let y = ui.invoke_cell_y(idx);
         ui.set_qe_y(y);

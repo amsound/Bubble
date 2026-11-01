@@ -774,34 +774,34 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        // The double ring: above the neighbouring carts, which it may overlap slightly.
+        // The double ring, inside the cart's own edge: it never touches a neighbour.
         Rectangle {
-            property <length> left: root.cell-x(root.qe-cell);
-            property <length> top: root.cell-y(root.qe-cell);
-            x: self.left - 6px;
-            y: self.top - 6px;
-            width: root.pixel(pad + mod(root.qe-cell, max(cols, 1)) * (tile-w + gap) + tile-w) - self.left + 12px;
-            height: root.pixel(wall-top + floor(root.qe-cell / max(cols, 1)) * (tile-h + gap) + tile-h) - self.top + 12px;
-            border-radius: 14px;
-            border-width: 4px;
+            property <length> outer: root.pixel(3px);
+            property <length> inner: root.pixel(2px);
+            x: root.cell-x(root.qe-cell);
+            y: root.cell-y(root.qe-cell);
+            width: root.pixel(pad + mod(root.qe-cell, max(cols, 1)) * (tile-w + gap) + tile-w) - self.x;
+            height: root.pixel(wall-top + floor(root.qe-cell / max(cols, 1)) * (tile-h + gap) + tile-h) - self.y;
+            border-radius: 8px;
+            border-width: self.outer;
             border-color: Theme.ring-outer;
             Rectangle {
-                x: 4px;
-                y: 4px;
-                width: parent.width - 8px;
-                height: parent.height - 8px;
-                border-radius: 10px;
-                border-width: 2px;
+                x: parent.outer;
+                y: parent.outer;
+                width: parent.width - 2 * parent.outer;
+                height: parent.height - 2 * parent.outer;
+                border-radius: 8px - parent.outer;
+                border-width: parent.inner;
                 border-color: Theme.ring-inner;
             }
         }
         QuickEditPanel {
             // On whole device pixels: half a pixel off blurs every edge and word inside.
             x: root.pixel(clamp(root.qe-x, 8px, max(8px, root.width - self.width - 8px)));
-            // Never over the page bar, at the bottom of the window or the top.
-            property <length> top: root.bar-top ? root.bar-height + 8px : 8px;
-            property <length> bottom: root.bar-top ? root.height - 8px : root.height - root.bar-height - 8px;
-            y: root.pixel(clamp(root.qe-y, self.top, max(self.top, self.bottom - self.height)));
+            // Centred on the cart; near the top or bottom, level with the wall's edge.
+            property <length> top: wall-top;
+            property <length> bottom: wall-top + wall-h;
+            y: root.pixel(clamp(root.qe-point-y - self.height / 2, self.top, max(self.top, self.bottom - self.height)));
             arrow-left: root.qe-arrow-left;
             arrow-y: root.qe-point-y - self.y;
             qe: root.qe;

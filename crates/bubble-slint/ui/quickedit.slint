@@ -398,27 +398,29 @@ export component QuickEditPanel inherits Panel {
     TouchArea { }
 
     // The arrow pointing at the cart: its centre at the cart's, at least 24 px from the
-    // panel's corners. Only its two outer edges are stroked.
-    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 10px;
+    // panel's corners, stopping short of the cart. Only its two outer edges are stroked.
+    property <length> arrow-top: clamp(root.arrow-y, 24px, max(24px, root.height - 24px)) - 8px;
+    // Its fill reaches over the panel's edge, opening it where the arrow joins.
     Path {
-        x: root.arrow-left ? -10px : root.width;
+        x: root.arrow-left ? -8px : root.width - 2px;
         y: root.arrow-top;
         width: 10px;
-        height: 20px;
+        height: 16px;
         viewbox-width: 10;
-        viewbox-height: 20;
-        commands: root.arrow-left ? "M10 0L0 10L10 20" : "M0 0L10 10L0 20";
+        viewbox-height: 16;
+        commands: root.arrow-left ? "M0 8L8 0L10 0L10 16L8 16Z" : "M10 8L2 0L0 0L0 16L2 16Z";
         fill: Theme.popover;
+    }
+    Path {
+        x: root.arrow-left ? -8px : root.width - 2px;
+        y: root.arrow-top;
+        width: 10px;
+        height: 16px;
+        viewbox-width: 10;
+        viewbox-height: 16;
+        commands: root.arrow-left ? "M8 0L0 8L8 16" : "M2 0L10 8L2 16";
         stroke: Theme.popover-edge;
         stroke-width: 1px;
-    }
-    // Opens the panel's edge where the arrow joins it.
-    Rectangle {
-        x: root.arrow-left ? 0px : root.width - 1px;
-        y: root.arrow-top + 1px;
-        width: 1px;
-        height: 18px;
-        background: Theme.popover;
     }
 
     layout := VerticalLayout {
