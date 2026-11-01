@@ -49,6 +49,8 @@ export struct LoadInfo {
     done: int,
     total: int,
     cancelling: bool,
+    // There is something to cancel yet (not while Bubble itself is starting).
+    can-cancel: bool,
     // The last input was by touch: a larger button.
     touch: bool,
 }
@@ -673,11 +675,11 @@ export component MainWindow inherits Window {
                         overflow: elide;
                     }
                 }
-                Rectangle {
+                if root.load.can-cancel: Rectangle {
                     height: 1px;
                     background: Theme.card-border;
                 }
-                HorizontalLayout {
+                if root.load.can-cancel: HorizontalLayout {
                     padding-left: 20px;
                     padding-right: 20px;
                     padding-top: 12px;

@@ -329,13 +329,13 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
                 b();
             }
         });
-        if notified.is_err() {
-            // A renderer without the notifier: just after the window opens.
-            let a = app.clone();
-            slint::Timer::single_shot(Duration::from_millis(150), move || {
-                with(&a, |app| app.begin());
-            });
-        }
+        // A renderer may accept the notifier and never call it (Skia on Direct3D or Metal):
+        // don't wait for it for long. Only the first of these starts anything.
+        let wait = if notified.is_err() { 150 } else { 500 };
+        let a = app.clone();
+        slint::Timer::single_shot(Duration::from_millis(wait), move || {
+            with(&a, |app| app.begin());
+        });
     }
     let result = slint::run_event_loop();
     if let Ok(mut a) = app.try_borrow_mut() {
@@ -1702,6 +1702,7 @@ impl App {
                 progress: 35.0 / 136.0,
                 done: 35,
                 total: 136,
+                can_cancel: true,
                 ..Default::default()
             };
         }
@@ -1722,6 +1723,7 @@ impl App {
             progress: -1.0,
             touch: LAST_PRESS.get().is_some_and(|(_, by)| by == "touch"),
             cancelling: self.core.reverting,
+            can_cancel: self.started,
             ..Default::default()
         };
         if let Some(j) = self.core.job.as_ref().filter(|j| j.control.in_bytes) {
