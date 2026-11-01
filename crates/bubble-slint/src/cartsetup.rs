@@ -215,7 +215,8 @@ impl Setup {
         match self.draft.trim {
             Some(t) => (
                 t.in_frames as f64 / self.rate,
-                t.out_frames as f64 / self.rate,
+                // Past the file's end (an imported trim, say), playback stops at the end.
+                (t.out_frames as f64 / self.rate).min(self.dur),
             ),
             None => (0.0, self.dur),
         }

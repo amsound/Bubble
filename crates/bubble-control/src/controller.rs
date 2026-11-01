@@ -645,7 +645,11 @@ impl Controller {
                         let full = audio.duration_secs() as f32;
                         let src = source.sample_rate.max(1) as f32;
                         let len = match c.trim {
-                            Some(t) => (t.out_frames.saturating_sub(t.in_frames)) as f32 / src,
+                            // An Out point past the file's end (a session imported without
+                            // the file, say) plays only to the end, so counts only to it.
+                            Some(t) => ((t.out_frames as f32 / src).min(full)
+                                - t.in_frames as f32 / src)
+                                .max(0.0),
                             None => full,
                         };
                         rt.duration_s = len / c.speed.max(0.01);
