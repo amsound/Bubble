@@ -12,7 +12,7 @@ pub const FINE_FRAMES: u64 = 16;
 /// Most buckets in the fine envelope (4 MB): a longer file gets wider fine buckets.
 pub const MAX_FINE: u64 = 1 << 20;
 /// Level that counts as audio for [`Overview::audio_bounds`] ("Top and tail").
-pub const AUDIO_THRESHOLD_DB: f32 = -40.0;
+pub const AUDIO_THRESHOLD_DB: f32 = -20.0;
 
 /// Min/max envelope of the signal in fixed-size buckets (the channel with the largest
 /// excursion, so stereo content is never hidden).

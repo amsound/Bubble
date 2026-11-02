@@ -3181,7 +3181,7 @@ impl BubbleApp {
                                     matches!(ready, Some((_, Some(_), _))),
                                     egui::Button::new("Top and tail"),
                                 )
-                                .on_hover_text("Trim silence below −40 dBFS")
+                                .on_hover_text("Trim silence below −20 dBFS")
                                 .clicked();
                         });
                     });

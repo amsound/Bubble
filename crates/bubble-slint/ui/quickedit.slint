@@ -191,7 +191,8 @@ export component FieldRow inherits HorizontalLayout {
     padding-bottom: Theme.mac && grouped ? 6px : Theme.mac ? 0px : 4px;
     Text {
         text: root.label;
-        width: root.label-width;
+        // Never cut short: a label longer than the column widens its row.
+        width: max(root.label-width, self.preferred-width);
         vertical-alignment: center;
         color: Theme.mac ? Theme.text.transparentize(22%) : Theme.weak-text;
     }

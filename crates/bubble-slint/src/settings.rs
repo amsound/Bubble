@@ -570,15 +570,15 @@ fn warning_text(s: f32) -> String {
 
 fn duplicates_text(d: DuplicatePolicy) -> String {
     match d {
-        DuplicatePolicy::Ganged => name("All Play Together", "All play together"),
-        DuplicatePolicy::Overlapped => name("Next Free One Plays", "Next free one plays"),
+        DuplicatePolicy::Ganged => "Ganged".into(),
+        DuplicatePolicy::Overlapped => "Overlapped".into(),
     }
 }
 
 fn scope_text(s: Scope) -> String {
     match s {
-        Scope::Global => name("All Pages", "All pages"),
-        Scope::CurrentPage => name("Current Page Only", "Current page only"),
+        Scope::Global => "Global".into(),
+        Scope::CurrentPage => name("Current Page", "Current page"),
     }
 }
 

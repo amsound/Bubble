@@ -50,7 +50,9 @@ fn main() {
         .skip(1)
         .map(std::path::PathBuf::from)
         .find(|p| p.is_file());
-    if let instance::Role::Handed = instance::claim(launch_file.as_deref()) {
+    // A test snapshot runs beside a copy that is open, rather than handing off to it.
+    let snapshot = std::env::var_os("BUBBLE_SNAPSHOT").is_some();
+    if !snapshot && let instance::Role::Handed = instance::claim(launch_file.as_deref()) {
         log::info(&format!(
             "another copy is running; asked it to show itself{}",
             launch_file.map_or(String::new(), |p| format!(" and open {}", p.display()))

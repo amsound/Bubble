@@ -5,11 +5,11 @@
 //
 //   Settings:          [ General | Audio | MIDI ]
 //     General: Appearance, Page Bar Size, Mouse, New Sessions In
-//     Audio:   Output Level, Safety Limiter; Outputs (A, B, …); Sample Rate, Buffer Size
+//     Audio:   Outputs (A, B, …); Mixer Rate, Buffer Size; Output Attenuation, Safety Limiter
 //     MIDI:    MIDI Input, the ports
 //   Session Settings:  [ General | Tiles | Groups | Pages ]
 //     General: Name, Audio Files; Default Fade-Out, Default On Retrigger, Ending
-//              Warning; Same Hotkey on Several Carts, Hotkeys Act On
+//              Warning; Trigger Scope, Trigger Action
 //     Tiles:   Typeface, Label Size, Small Text Size, Horizontal, Vertical
 //     Groups:  G1, G2, … with names and how many carts each has
 //     Pages:   each page's name, grid and cart numbers
@@ -222,7 +222,7 @@ export component SettingsWindow inherits Window {
     // The size Windows 11 and macOS draw their own controls' text at; otherwise Slint
     // uses the system message font (12 px on Windows), smaller than our buttons.
     default-font-size: Theme.mac ? 13px : 14px;
-    property <length> label-width: Theme.mac ? 132px : 148px;
+    property <length> label-width: Theme.mac ? 150px : 168px;
 
     in-out property <int> section;
     // General
@@ -386,67 +386,29 @@ export component SettingsWindow inherits Window {
                 if root.section == 1: VerticalLayout {
                     spacing: 8px;
                     Group {
-                        FieldRow {
-                            label-width: root.label-width;
-                            label: Theme.mac ? "Output Attenuation" : "Output attenuation";
-                            SetupSlider {
-                                minimum: -40;
-                                maximum: 0;
-                                value <=> root.level;
-                                changed(v) => {
-                                    root.level-changed(v);
-                                }
-                                reset => {
-                                    root.level-reset();
-                                }
+                        HorizontalLayout {
+                            padding-left: Theme.mac ? 10px : 0px;
+                            padding-right: Theme.mac ? 10px : 0px;
+                            padding-top: Theme.mac ? 8px : 0px;
+                            padding-bottom: Theme.mac ? 6px : 4px;
+                            Heading {
+                                text: "Outputs";
+                                vertical-alignment: center;
                             }
                             Text {
-                                width: 64px;
-                                text: root.level-text;
-                                color: Theme.text;
-                                horizontal-alignment: right;
+                                text: root.scanning ? "  Looking for audio devices…" : "";
+                                color: Theme.weak-text;
                                 vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            SysButton {
+                                text: Theme.mac ? "Rescan Devices" : "Rescan devices";
+                                clicked => {
+                                    root.action("rescan", 0);
+                                }
                             }
                         }
                         if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: root.label-width;
-                            label: Theme.mac ? "Safety Limiter" : "Safety limiter";
-                            // In by half the slider's knob, so it lines up with the track.
-                            HorizontalLayout {
-                                alignment: start;
-                                padding-left: Theme.mac ? 9px : 10px;
-                                Switch {
-                                    y: (parent.height - self.height) / 2;
-                                    on: root.limiter;
-                                    toggled => {
-                                        root.toggle("limiter", 0);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        padding-top: 8px;
-                        Heading {
-                            text: "Outputs";
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: root.scanning ? "  Looking for audio devices…" : "";
-                            color: Theme.weak-text;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
-                        SysButton {
-                            text: Theme.mac ? "Rescan Devices" : "Rescan devices";
-                            clicked => {
-                                root.action("rescan", 0);
-                            }
-                        }
-                    }
-                    Group {
                         for o[i] in root.outputs: VerticalLayout {
                             if i > 0 && Theme.mac: Rule { }
                             HorizontalLayout {
@@ -471,13 +433,16 @@ export component SettingsWindow inherits Window {
                                         }
                                     }
                                 }
-                                LabelField {
-                                    width: 100px;
-                                    single-line: true;
-                                    placeholder: "Name";
-                                    text: o.alias;
-                                    edited(t) => {
-                                        root.alias-edited(i, t);
+                                VerticalLayout {
+                                    alignment: center;
+                                    LabelField {
+                                        width: 100px;
+                                        single-line: true;
+                                        placeholder: "Name";
+                                        text: o.alias;
+                                        edited(t) => {
+                                            root.alias-edited(i, t);
+                                        }
                                     }
                                 }
                                 Choice {
@@ -522,18 +487,22 @@ export component SettingsWindow inherits Window {
                             color: Theme.weak-text;
                             vertical-alignment: center;
                         }
-                    }
-                    HorizontalLayout {
-                        alignment: start;
-                        SysButton {
-                            text: Theme.mac ? "Add Output" : "Add output";
-                            enabled: root.can-add-output;
-                            clicked => {
-                                root.action("add-output", 0);
+                        if Theme.mac: Rule { }
+                        HorizontalLayout {
+                            alignment: start;
+                            padding-left: Theme.mac ? 10px : 0px;
+                            padding-top: Theme.mac ? 6px : 4px;
+                            padding-bottom: Theme.mac ? 8px : 0px;
+                            SysButton {
+                                text: Theme.mac ? "Add Output" : "Add output";
+                                enabled: root.can-add-output;
+                                clicked => {
+                                    root.action("add-output", 0);
+                                }
                             }
                         }
-                    }
 
+                    }
                     Group {
                         FieldRow {
                             label-width: root.label-width;
@@ -556,6 +525,7 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
+                        if Theme.mac: Rule { }
                         FieldRow {
                             label-width: root.label-width;
                             label: "Dropouts";
@@ -563,6 +533,47 @@ export component SettingsWindow inherits Window {
                                 text: root.dropouts + " this run";
                                 color: Theme.text;
                                 vertical-alignment: center;
+                            }
+                        }
+                    }
+                    Group {
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Output Attenuation" : "Output attenuation";
+                            SetupSlider {
+                                minimum: -40;
+                                maximum: 0;
+                                value <=> root.level;
+                                changed(v) => {
+                                    root.level-changed(v);
+                                }
+                                reset => {
+                                    root.level-reset();
+                                }
+                            }
+                            Text {
+                                width: 64px;
+                                text: root.level-text;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Safety Limiter" : "Safety limiter";
+                            // In by half the slider's knob, so it lines up with the track.
+                            HorizontalLayout {
+                                alignment: start;
+                                padding-left: Theme.mac ? 9px : 10px;
+                                Switch {
+                                    y: (parent.height - self.height) / 2;
+                                    on: root.limiter;
+                                    toggled => {
+                                        root.toggle("limiter", 0);
+                                    }
+                                }
                             }
                         }
                     }
@@ -886,21 +897,14 @@ export component SessionSettingsWindow inherits Window {
                             }
                         }
                     }
-                    if Theme.mac: Rule { }
+                }
+                Heading {
+                    text: "Triggers";
+                }
+                Group {
                     FieldRow {
                         label-width: root.label-width;
-                        label: Theme.mac ? "Same Hotkey on Several" : "Same hotkey on several";
-                        Choice {
-                            value: root.duplicates;
-                            open(x, y) => {
-                                root.choice-menu("duplicates", 0, x, y);
-                            }
-                        }
-                    }
-                    if Theme.mac: Rule { }
-                    FieldRow {
-                        label-width: root.label-width;
-                        label: Theme.mac ? "Hotkeys Act On" : "Hotkeys act on";
+                        label: Theme.mac ? "Trigger Scope" : "Trigger scope";
                         Choice {
                             value: root.scope;
                             open(x, y) => {
@@ -908,6 +912,20 @@ export component SessionSettingsWindow inherits Window {
                             }
                         }
                     }
+                    if Theme.mac: Rule { }
+                    FieldRow {
+                        label-width: root.label-width;
+                        label: Theme.mac ? "Trigger Action" : "Trigger action";
+                        Choice {
+                            value: root.duplicates;
+                            open(x, y) => {
+                                root.choice-menu("duplicates", 0, x, y);
+                            }
+                        }
+                    }
+                }
+                Note {
+                    text: "For hotkeys and MIDI. Global: a trigger plays its carts on any page. Current page: only those on the page shown.\nWhen several carts share a trigger, Ganged plays them all together. Overlapped plays one per press, in cart order: the next one not playing, or, if all are playing, the one nearest its end.";
                 }
             }
 

@@ -140,7 +140,7 @@ Done (main window):
       cancels Cart Setup while it is in front. Dragging the playhead scrubs: moving
       plays from there, holding still goes quiet after 120 ms, letting go carries on
       (or stays paused). Top and Tail trims to the first and last sample at or above
-      −40 dBFS on any channel.
+      −20 dBFS on any channel.
       A paused voice (speed 0) fades to silence below 5% speed in the engine, rather
       than holding one sample (a DC offset).
 - [x] Start: Bubble reopens the last session. With nothing to reopen (a first launch,
