@@ -31,6 +31,8 @@ component Tab inherits Rectangle {
     // From the size table: tab text size, the red dot's diameter.
     in property <length> text-size;
     in property <length> dot;
+    // How far the tab reaches past the bar's edge toward the carts.
+    in property <length> overshoot;
     callback select();
     callback rename();
     callback menu(length, length);
@@ -65,15 +67,22 @@ component Tab inherits Rectangle {
     // carts pushed 2 px out of view, so no part of it shows at any display scale (at
     // 150% one pixel is 1.5 device pixels, and half a row used to show as a hairline).
     // The accent bar covers the outer edge.
+    // The tab reaches `overshoot` past the bar, over the join with the carts; the
+    // outline stops at the bar's edge, so it does not show on the cart panel.
     if root.current: Rectangle {
-        y: root.at-top ? 0 : -2px;
-        height: parent.height + 2px;
-        border-width: 1px;
-        border-color: Theme.tab-off-border;
-        border-top-left-radius: root.at-top ? root.r : 0;
-        border-top-right-radius: root.at-top ? root.r : 0;
-        border-bottom-left-radius: root.at-top ? 0 : root.r;
-        border-bottom-right-radius: root.at-top ? 0 : root.r;
+        y: root.at-top ? 0 : root.overshoot;
+        height: parent.height - root.overshoot;
+        clip: true;
+        Rectangle {
+            y: root.at-top ? 0 : -2px;
+            height: parent.height + 2px;
+            border-width: 1px;
+            border-color: Theme.tab-off-border;
+            border-top-left-radius: root.at-top ? root.r : 0;
+            border-top-right-radius: root.at-top ? root.r : 0;
+            border-bottom-left-radius: root.at-top ? 0 : root.r;
+            border-bottom-right-radius: root.at-top ? 0 : root.r;
+        }
     }
     // The active tab's accent: 3 px along its outer edge.
     if root.current: Rectangle {
@@ -232,6 +241,14 @@ export component BottomBar inherits Rectangle {
     // The page being renamed (-1: none) and its name when the rename began.
     in property <int> renaming: -1;
     in property <string> rename-text;
+    // Counted up from Rust to end the rename (a press outside the field): it keeps
+    // what has been typed.
+    in property <int> end-rename;
+    // Where the rename field is, in the window, so a press can be told apart.
+    out property <length> rename-x;
+    out property <length> rename-y;
+    out property <length> rename-w;
+    out property <length> rename-h;
     // Missing files are listed in the status: clicking it opens Relink.
     in property <bool> status-clickable;
     // 0 small, 1 medium, 2 large (Settings ▸ General ▸ Page Bar Size).
@@ -329,6 +346,8 @@ export component BottomBar inherits Rectangle {
         if i != root.renaming: Tab {
             page: p;
             current: i == root.current;
+            overshoot: i != root.current ? 0px
+                : root.at-top ? max(0px, parent.y + parent.height - root.height) : max(0px, -parent.y);
             at-top: root.at-top;
             text-size: root.tab-text;
             dot: root.dot;
@@ -363,9 +382,19 @@ export component BottomBar inherits Rectangle {
             text: root.rename-text;
             font-size: root.tab-text;
             min-width: 0;
+            property <int> ends: root.end-rename;
             init => {
                 self.focus();
                 self.select-all();
+                root.rename-x = self.absolute-position.x;
+                root.rename-y = self.absolute-position.y;
+                root.rename-w = self.width;
+                root.rename-h = self.height;
+            }
+            changed ends => {
+                if root.renaming == i {
+                    root.renamed(i, self.text);
+                }
             }
             accepted(t) => {
                 root.renamed(i, t);

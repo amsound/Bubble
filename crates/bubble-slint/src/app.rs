@@ -307,6 +307,21 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
     }
 
     ui.show()?;
+    // Test aid: how long the event loop takes to answer another thread.
+    if std::env::var_os("BUBBLE_PROBE").is_some() {
+        std::thread::spawn(|| {
+            loop {
+                std::thread::sleep(Duration::from_millis(100));
+                let sent = Instant::now();
+                let _ = slint::invoke_from_event_loop(move || {
+                    let d = sent.elapsed();
+                    if d > Duration::from_millis(150) {
+                        log_info(&format!("probe: answered after {} ms", d.as_millis()));
+                    }
+                });
+            }
+        });
+    }
     // The first tick runs at once (the window's place).
     WAKE.with(|w| {
         if let Some(f) = w.borrow().as_ref() {
@@ -1132,6 +1147,18 @@ thread_local! {
     static LAST_PRESS: Cell<Option<(Instant, &'static str)>> = const { Cell::new(None) };
 }
 
+/// A press anywhere but the page name being typed ends the rename, keeping the name.
+fn end_rename_outside(ui: &MainWindow, x: f32, y: f32) {
+    if ui.get_renaming() < 0 {
+        return;
+    }
+    let (rx, ry) = (ui.get_rename_x(), ui.get_rename_y());
+    let inside = x >= rx && x < rx + ui.get_rename_w() && y >= ry && y < ry + ui.get_rename_h();
+    if !inside {
+        ui.set_end_rename(ui.get_end_rename().wrapping_add(1));
+    }
+}
+
 /// Window events Slint does not report: physical keys (hot keys), modifiers, focus,
 /// the window's place, OS file drops, theme and scale changes.
 fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
@@ -1148,12 +1175,19 @@ fn hook_window_events(ui: &MainWindow, app: &Rc<RefCell<App>>) {
                 LAST_PRESS.set(Some((Instant::now(), "mouse")));
                 if let Some(ui) = ui_for_press.upgrade() {
                     window::sync_pointer(&ui);
+                    if let Some((x, y)) = window::pointer_in_window(&ui) {
+                        end_rename_outside(&ui, x, y);
+                    }
                 }
             }
             WindowEvent::Touch(t)
                 if t.phase == slint::winit_030::winit::event::TouchPhase::Started =>
             {
-                LAST_PRESS.set(Some((Instant::now(), "touch")))
+                LAST_PRESS.set(Some((Instant::now(), "touch")));
+                if let Some(ui) = ui_for_press.upgrade() {
+                    let s = ui.window().scale_factor() as f64;
+                    end_rename_outside(&ui, (t.location.x / s) as f32, (t.location.y / s) as f32);
+                }
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 // While Learn waits, the key is the trigger: it must not also type into
@@ -2090,8 +2124,17 @@ impl App {
             true,
         ));
         let Some(ui) = self.ui.upgrade() else { return };
-        // At the pointer (or the press-and-hold point).
-        let (x, y) = (ui.get_press_x(), ui.get_press_y());
+        // At the pointer, or by touch where the finger is held.
+        let (mut x, mut y) = (ui.get_press_x(), ui.get_press_y());
+        let by_mouse = LAST_PRESS.get().is_none_or(|(_, by)| by == "mouse");
+        if by_mouse && let Some((px, py)) = window::pointer_in_window(&ui) {
+            if (px - x).abs() > 4.0 || (py - y).abs() > 4.0 {
+                log_info(&format!(
+                    "cell menu: pressed at {x:.0},{y:.0} but the pointer is at {px:.0},{py:.0}"
+                ));
+            }
+            (x, y) = (px, py);
+        }
         let sub_title = name("Add Control Button", "Add control button");
         self.show_popup(head, Some((sub_title, sub)), Vec::new(), x, y);
     }
@@ -2163,6 +2206,10 @@ impl App {
         y: f32,
     ) {
         let Some(ui) = self.ui.upgrade() else { return };
+        // A menu replaces quick edit.
+        if self.quick_edit.is_some() {
+            self.close_quick_edit();
+        }
         self.popup.clear();
         let rows = |items: Vec<PopupItem>, all: &mut Vec<Popup>| {
             let rows: Vec<PopupRow> = items

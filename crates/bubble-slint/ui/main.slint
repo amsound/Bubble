@@ -101,6 +101,11 @@ export component MainWindow inherits Window {
     in property <bool> status-clickable;
     in property <int> renaming: -1;
     in property <string> rename-text;
+    in property <int> end-rename;
+    out property <length> rename-x;
+    out property <length> rename-y;
+    out property <length> rename-w;
+    out property <length> rename-h;
     in property <length> bar-height: 56px;
     // Page bar size (0 small, 1 medium, 2 large) and the + button's dashed outline.
     in property <int> bar-size;
@@ -575,6 +580,11 @@ export component MainWindow inherits Window {
         status-clickable: root.status-clickable;
         renaming: root.renaming;
         rename-text: root.rename-text;
+        end-rename: root.end-rename;
+        changed rename-x => { root.rename-x = self.rename-x; }
+        changed rename-y => { root.rename-y = self.rename-y; }
+        changed rename-w => { root.rename-w = self.rename-w; }
+        changed rename-h => { root.rename-h = self.rename-h; }
         toggle-mode => {
             root.toggle-mode();
         }

@@ -10,15 +10,50 @@ use midir::{Ignore, MidiInput, MidiInputConnection};
 
 pub struct MidiInputs {
     connections: Vec<(String, MidiInputConnection<()>)>,
-    /// Milliseconds since `epoch` of the last received message (0 = never).
-    pub last_activity_ms: Arc<AtomicU64>,
+    /// Per open port: milliseconds since `epoch` of its last message (0 = never).
+    activity: Vec<(String, Arc<AtomicU64>)>,
     /// Longest time a callback waited for the controller lock (µs) — monitors decision D-06.
     pub max_lock_wait_us: Arc<AtomicU64>,
     pub epoch: Instant,
     pub errors: Vec<String>,
 }
 
+/// CoreMIDI keeps the process's list of ports up to date on the run loop of the thread
+/// that made the first client. Made on a helper thread that then ends, the list stays
+/// as it was at start-up, so a device plugged in later never shows. So the first
+/// client is made on a thread that lives as long as Bubble and runs its run loop.
+#[cfg(target_os = "macos")]
+fn keep_port_list_current() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        #[link(name = "CoreFoundation", kind = "framework")]
+        unsafe extern "C" {
+            fn CFRunLoopRun();
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("bubble-midi-list".into())
+            .spawn(move || {
+                let client = MidiInput::new("Bubble (ports)");
+                let _ = tx.send(());
+                if client.is_ok() {
+                    // SAFETY: runs this thread's own run loop; it returns only if the
+                    // loop has nothing to watch, and then the thread just ends.
+                    unsafe { CFRunLoopRun() };
+                }
+                drop(client);
+            });
+        if spawned.is_ok() {
+            let _ = rx.recv();
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keep_port_list_current() {}
+
 pub fn available_ports() -> Vec<String> {
+    keep_port_list_current();
     let Ok(m) = MidiInput::new("Bubble (scan)") else {
         return vec![];
     };
@@ -32,7 +67,7 @@ impl MidiInputs {
     pub fn empty() -> Self {
         MidiInputs {
             connections: Vec::new(),
-            last_activity_ms: Arc::new(AtomicU64::new(0)),
+            activity: Vec::new(),
             max_lock_wait_us: Arc::new(AtomicU64::new(0)),
             epoch: Instant::now(),
             errors: Vec::new(),
@@ -67,7 +102,8 @@ impl MidiInputs {
                 continue;
             };
             let ctrl = ctrl.clone();
-            let activity = me.last_activity_ms.clone();
+            let activity = Arc::new(AtomicU64::new(0));
+            me.activity.push((name.clone(), activity.clone()));
             let lock_wait = me.max_lock_wait_us.clone();
             let epoch = me.epoch;
             let port_name = name.clone();
@@ -100,8 +136,20 @@ impl MidiInputs {
         self.connections.iter().map(|(n, _)| n.as_str()).collect()
     }
 
+    /// Whether any port had a message in the last `ms`.
     pub fn active_recently(&self, ms: u64) -> bool {
-        let last = self.last_activity_ms.load(Relaxed);
+        self.activity.iter().any(|(_, a)| self.recent(a, ms))
+    }
+
+    /// Whether port `name` had a message in the last `ms`.
+    pub fn port_active_recently(&self, name: &str, ms: u64) -> bool {
+        self.activity
+            .iter()
+            .any(|(n, a)| n == name && self.recent(a, ms))
+    }
+
+    fn recent(&self, at: &AtomicU64, ms: u64) -> bool {
+        let last = at.load(Relaxed);
         last != 0 && (self.epoch.elapsed().as_millis() as u64).saturating_sub(last) < ms
     }
 }

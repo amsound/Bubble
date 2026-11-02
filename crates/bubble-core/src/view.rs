@@ -306,9 +306,6 @@ impl Core {
         {
             out.push(item(p.clone(), Level::Error));
         }
-        if self.midi.active_recently(150) {
-            out.push(item("● MIDI".into(), Level::Error));
-        }
         out
     }
 

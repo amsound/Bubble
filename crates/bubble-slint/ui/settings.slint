@@ -31,6 +31,8 @@ export struct OutputRow {
 export struct PortRow {
     name: string,
     on: bool,
+    // A message came in on it just now.
+    active: bool,
 }
 
 export struct GroupRow {
@@ -634,6 +636,23 @@ export component SettingsWindow inherits Window {
                                         toggled => {
                                             root.toggle("port", i);
                                         }
+                                    }
+                                }
+                                // Lights while messages come in on this port.
+                                HorizontalLayout {
+                                    alignment: end;
+                                    spacing: 6px;
+                                    Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: p.active ? Theme.show-mode : Theme.empty-tile;
+                                    }
+                                    Text {
+                                        text: "MIDI in";
+                                        vertical-alignment: center;
+                                        color: p.active ? Theme.text : Theme.weak-text;
                                     }
                                 }
                             }

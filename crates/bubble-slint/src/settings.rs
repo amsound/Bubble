@@ -286,6 +286,7 @@ impl Settings {
             .map(|n| PortRow {
                 name: n.clone().into(),
                 on: p.midi_inputs.is_empty() || p.midi_inputs.contains(n),
+                active: core.midi.port_active_recently(n, 150),
             })
             .collect();
         refresh(&mut self.shown_ports, ports, |m| w.set_ports(m));
