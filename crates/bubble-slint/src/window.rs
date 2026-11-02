@@ -56,6 +56,8 @@ pub fn restore_place(ui: &MainWindow, place: Option<WindowPlace>) {
     }
     w.set_size(slint::LogicalSize::new(p.w, p.h));
     w.set_position(slint::LogicalPosition::new(p.x, p.y));
+    #[cfg(windows)]
+    RESIZE_LATER.with(|r| r.set(Some((p.w, p.h))));
     if p.maximized {
         w.set_maximized(true);
     }
@@ -65,6 +67,9 @@ pub fn restore_place(ui: &MainWindow, place: Option<WindowPlace>) {
 thread_local! {
     /// The place to maximise into after the first frame (see `restore_place`).
     static MAXIMISE_LATER: std::cell::Cell<Option<WindowPlace>> = const { std::cell::Cell::new(None) };
+    /// The saved size of the drawing area, applied again after the first frame (see
+    /// `finish_restore`).
+    static RESIZE_LATER: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
 }
 
 /// Windows: the window still has to be maximised (its place is not worth saving yet).
@@ -116,6 +121,14 @@ pub fn finish_restore(ui: &MainWindow) {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetWindowPlacement, SW_SHOWMAXIMIZED, SetWindowPlacement, WINDOWPLACEMENT,
         };
+        // The menu bar is added once the window exists, and takes its height from the
+        // drawing area: the window opened a menu bar's height short of its saved size,
+        // and on some graphics drivers its surface kept the old height (a black band
+        // at the top until the window was resized). Asking for the saved size again,
+        // now that the menu bar is there, is a real resize that puts both right.
+        if let Some((width, height)) = RESIZE_LATER.with(|r| r.take()) {
+            ui.window().set_size(slint::LogicalSize::new(width, height));
+        }
         let Some(p) = MAXIMISE_LATER.with(|m| m.take()) else {
             return;
         };
@@ -983,4 +996,70 @@ pub fn focus(w: &slint::Window) {
     }
     #[cfg(not(windows))]
     w.with_winit_window(|w| w.focus_window());
+}
+
+
+/// Windows: the menu bar must never take the keyboard or stop the window updating.
+/// Alt or F10 alone puts a window's menu bar in menu mode, where keys go to the menu
+/// (hot keys did nothing) and the menu's own message loop runs no Slint timers (the
+/// window stopped updating until Esc). So Alt and F10 alone are ignored; Alt with a
+/// menu's letter still opens it. While a menu is open, by mouse or letter, a timer
+/// keeps Slint's timers, and so the window, going.
+pub fn keep_menus_out_of_the_way(ui: &MainWindow) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+        use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            KillTimer, SC_KEYMENU, SetTimer, WM_ENTERMENULOOP, WM_EXITMENULOOP, WM_SYSCOMMAND,
+            WM_TIMER,
+        };
+
+        /// The timer's id on the window (any number other timers there do not use).
+        const MENU_TIMER: usize = 0xB0B1;
+
+        unsafe extern "system" fn proc(
+            hwnd: HWND,
+            msg: u32,
+            wparam: WPARAM,
+            lparam: LPARAM,
+            _id: usize,
+            _data: usize,
+        ) -> LRESULT {
+            match msg {
+                // A menu letter comes in lparam; Alt or F10 alone has none.
+                WM_SYSCOMMAND if wparam & 0xFFF0 == SC_KEYMENU as usize && lparam == 0 => {
+                    return 0;
+                }
+                WM_ENTERMENULOOP => {
+                    // SAFETY: this window; the timer is killed when the menu closes.
+                    unsafe { SetTimer(hwnd, MENU_TIMER, 16, None) };
+                }
+                WM_EXITMENULOOP => {
+                    // SAFETY: this window's own timer.
+                    unsafe { KillTimer(hwnd, MENU_TIMER) };
+                }
+                WM_TIMER if wparam == MENU_TIMER => {
+                    slint::platform::update_timers_and_animations();
+                    return 0;
+                }
+                _ => {}
+            }
+            // SAFETY: passes the message on, as a subclass must.
+            unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+        }
+
+        if let Ok(RawWindowHandle::Win32(h)) = ui
+            .window()
+            .window_handle()
+            .window_handle()
+            .map(|h| h.as_raw())
+        {
+            // SAFETY: the main window, and a function valid for the whole run.
+            unsafe { SetWindowSubclass(h.hwnd.get() as HWND, Some(proc), 2, 0) };
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = ui;
 }

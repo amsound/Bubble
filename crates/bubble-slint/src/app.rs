@@ -1393,6 +1393,7 @@ impl App {
                 self.core.saver_for_session_end(),
                 self.core.holder_for_session_end(),
             );
+            window::keep_menus_out_of_the_way(&ui);
             window::round_corners(ui.window());
             window::set_icon(ui.window());
         }
