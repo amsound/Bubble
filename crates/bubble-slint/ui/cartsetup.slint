@@ -386,10 +386,11 @@ component TrimBox inherits Rectangle {
             }
             // Clear, as plain text: the quietest of the four.
             Rectangle {
-                width: clear-text.preferred-width + 16px;
+                width: clear-text.preferred-width + 6px;
                 clear-text := Text {
                     text: "Clear";
                     color: clear-ta.has-hover ? Theme.text : Theme.weak-text;
+                    horizontal-alignment: center;
                     vertical-alignment: center;
                 }
                 clear-ta := TouchArea {
