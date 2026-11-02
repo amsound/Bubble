@@ -365,6 +365,7 @@ fn maps_non_default_cart_settings() {
     c3.index = 2;
     c3.stop_all_on_play = false;
     c3.stop_page_on_play = true;
+    c3.comment = "none".into(); // SpotOn's empty comment
     c3.play_group = 0;
     c3.midi_play_in = MidiMsg([1, 0, 0, 0, 0, 0x80, 0, 0]);
     c3.midi_stop_in = c3.midi_play_in;
@@ -405,6 +406,8 @@ fn maps_non_default_cart_settings() {
     let cart = project.cart(r2.new_cart_id).unwrap();
     assert_eq!(cart.label, "Intro");
     assert_eq!(cart.notes, "first\r\nsecond");
+    let r3 = report.carts.iter().find(|r| r.ref_button == 3).unwrap();
+    assert_eq!(project.cart(r3.new_cart_id).unwrap().notes, "", "no \"none\"");
     assert_eq!(cart.color.as_deref(), Some("#FF0000"));
     assert_eq!((cart.gain_db, cart.pan), (4.0, -0.5));
     assert!(cart.looping && cart.hold_to_play);

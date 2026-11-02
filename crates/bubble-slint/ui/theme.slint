@@ -275,8 +275,10 @@ export component Clock inherits HorizontalLayout {
         // and wider.
         width: (c == ":" || c == ".") ? root.size * 0.3 : (c == "−" || c == "-") ? root.size * 0.48 : c == "∞" ? root.size * 1.85 : root.size * 0.62;
         font-size: c == "∞" ? root.size * 1.8 : root.size;
-        // Without making the line taller than the figures'.
-        height: c == "∞" ? fig.preferred-height : self.preferred-height;
+        // Without making the line taller than the figures' (and the figures still
+        // centred in whatever height the clock is given).
+        min-height: c == "∞" ? 0px : fig.preferred-height;
+        max-height: c == "∞" ? fig.preferred-height : 100000px;
         // Light: drawn this large, the figures' weight looks heavy.
         font-weight: c == "∞" ? 300 : root.weight;
         color: root.colour;

@@ -561,7 +561,11 @@ impl Converter<'_> {
                 action: "dropped (Windows system colour)".into(),
             }),
         }
-        cart.notes = clean_text(&rc.comment, bubble_project::validate::MAX_TEXT);
+        // SpotOn fills an empty comment with "none".
+        let notes = clean_text(&rc.comment, bubble_project::validate::MAX_TEXT);
+        if !notes.trim().eq_ignore_ascii_case("none") {
+            cart.notes = notes;
+        }
 
         // Level.
         let gain = rc.preset_gain_db as f32;

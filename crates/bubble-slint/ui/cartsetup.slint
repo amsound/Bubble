@@ -283,6 +283,36 @@ component IconButton inherits Rectangle {
     }
 }
 
+// A − or + nudge: a SysButton's look with the sign drawn, so it sits in the middle.
+component NudgeButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    callback clicked;
+    width: 28px;
+    height: Theme.mac ? 24px : 32px;
+    border-radius: Theme.mac ? 6px : 4px;
+    border-width: Theme.mac ? 0px : 1px;
+    border-color: Theme.control-border;
+    background: Theme.mac ? Theme.text.transparentize(ta.pressed ? 76% : ta.has-hover ? 82% : 87%)
+        : ta.has-hover ? Theme.button-hover : Theme.control;
+    accessible-role: button;
+    accessible-label: root.label;
+    Path {
+        width: 12px;
+        height: 12px;
+        viewbox-width: 12;
+        viewbox-height: 12;
+        commands: root.icon;
+        stroke: Theme.text;
+        stroke-width: 1.4px;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 // Trim In / Trim Out (they mirror each other): the title over the time, then − and +
 // nudges, Set (at the cursor or playhead) and Clear (back to the file's start or end).
 // Trim Out sits against the right edge.
@@ -291,8 +321,8 @@ component TrimBox inherits Rectangle {
     in property <[string]> time;
     in property <string> set-text;
     in property <bool> mirrored;
-    // With Sections on, the section's colour: a tint, a bar on the outer edge and
-    // the title in it.
+    // With Sections on, the section's colour: a tint and the title in it. The box
+    // keeps its size and place either way.
     in property <color> tint;
     callback nudge(float);
     callback set();
@@ -300,17 +330,11 @@ component TrimBox inherits Rectangle {
     horizontal-stretch: 1;
     border-radius: 6px;
     background: root.tint.alpha > 0 ? root.tint.transparentize(88%) : transparent;
-    if root.tint.alpha > 0: Rectangle {
-        x: root.mirrored ? parent.width - 3px : 0;
-        width: 3px;
-        border-radius: 1.5px;
-        background: root.tint;
-    }
     HorizontalLayout {
-    padding-left: root.tint.alpha > 0 ? 9px : 0px;
-    padding-right: root.tint.alpha > 0 ? 9px : 0px;
-    padding-top: root.tint.alpha > 0 ? 6px : 0px;
-    padding-bottom: root.tint.alpha > 0 ? 6px : 0px;
+    padding-left: 9px;
+    padding-right: 9px;
+    padding-top: 6px;
+    padding-bottom: 6px;
     alignment: root.mirrored ? end : start;
     VerticalLayout {
         spacing: 6px;
@@ -332,8 +356,7 @@ component TrimBox inherits Rectangle {
                 border-width: 1px;
                 border-color: Theme.control-border;
                 HorizontalLayout {
-                    padding-left: 8px;
-                    alignment: start;
+                    alignment: center;
                     Clock {
                         chars: root.time;
                         size: 15px;
@@ -341,20 +364,16 @@ component TrimBox inherits Rectangle {
                 }
             }
             // The nudges are narrow: trims are mostly typed or set at the cursor.
-            SysButton {
-                text: "−";
-                pad: 0px;
-                min-width: 28px;
-                max-width: 28px;
+            NudgeButton {
+                label: "Earlier";
+                icon: "M2 6h8";
                 clicked => {
                     root.nudge(-0.01);
                 }
             }
-            SysButton {
-                text: "+";
-                pad: 0px;
-                min-width: 28px;
-                max-width: 28px;
+            NudgeButton {
+                label: "Later";
+                icon: "M2 6h8M6 2v8";
                 clicked => {
                     root.nudge(0.01);
                 }
@@ -1034,7 +1053,6 @@ export component CartSetupWindow inherits Window {
             if info.sections: HorizontalLayout {
                 vertical-stretch: 0;
                 spacing: 10px;
-                padding-right: 50px;
                 PartChip {
                     text: info.intro-text;
                     add-text: "Intro";
@@ -1515,7 +1533,7 @@ export component CartSetupWindow inherits Window {
                                     }
                                 }
                                 if !info.learning && info.hotkey == "" && info.midi == "": Text {
-                                    text: "None";
+                                    text: "–";
                                     color: Theme.weak-text;
                                     vertical-alignment: center;
                                 }
@@ -1670,7 +1688,7 @@ export component CartSetupWindow inherits Window {
                         }
                     }
                     if !info.outro-learning && info.outro-key == "": Text {
-                        text: "None";
+                        text: "–";
                         color: Theme.weak-text;
                         vertical-alignment: center;
                     }

@@ -131,6 +131,25 @@ impl Rig {
         out
     }
 
+    /// Renders `frames` against the clock, `speedup` times faster than real time,
+    /// without waiting for the reader: what a device does, so a reader that is late
+    /// shows as underruns.
+    fn render_paced(&mut self, frames: usize, speedup: f64) -> Vec<f32> {
+        let block = 512;
+        let per_block = Duration::from_secs_f64(block as f64 / SR as f64 / speedup);
+        let start = std::time::Instant::now();
+        let mut out = vec![0.0; frames * 2];
+        for (i, chunk) in out.chunks_mut(block * 2).enumerate() {
+            let due = start + per_block * i as u32;
+            if let Some(wait) = due.checked_duration_since(std::time::Instant::now()) {
+                std::thread::sleep(wait);
+            }
+            assert_no_alloc(|| self.m.process(chunk));
+        }
+        self.h.collect_garbage();
+        out
+    }
+
     fn underruns(&self) -> (u64, u64) {
         let d = self.h.status().diagnostics();
         (d.stream_underruns, d.stream_underrun_frames)
@@ -227,6 +246,134 @@ fn a_loop_longer_than_the_head_wraps_without_an_underrun() {
     });
     assert_eq!(out[290_000 * 2], 10_000.0, "wrapped to In");
     assert_eq!(out[300_000 * 2], 20_000.0, "past In's head, from the disk");
+}
+
+#[test]
+fn a_loop_stays_sample_exact_pass_after_pass() {
+    // A 1 s loop in a long file, 25 times round: each wrap leaves the reader 4 s past
+    // Out, to be dropped while In's head plays.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ramp.wav");
+    ramp_wav(&path, SR as usize * 20, SR);
+    let out = same_as_resident(&path, &[100_000], |r, a| {
+        r.play(
+            1,
+            a,
+            PlayParams {
+                start_frame: 100_000,
+                end_frame: Some(148_000),
+                looping: true,
+                ..Default::default()
+            },
+        );
+        r.render(48_000 * 25)
+    });
+    for pass in [1usize, 12, 24] {
+        assert_eq!(out[(pass * 48_000 + 7) * 2], 100_007.0, "pass {pass}");
+    }
+}
+
+#[test]
+fn a_loop_at_another_speed_wraps_on_the_stream_as_in_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ramp.wav");
+    ramp_wav(&path, SR as usize * 20, SR);
+    same_as_resident(&path, &[100_000], |r, a| {
+        r.play(
+            1,
+            a,
+            PlayParams {
+                start_frame: 100_000,
+                end_frame: Some(148_000),
+                looping: true,
+                speed: 1.37,
+                ..Default::default()
+            },
+        );
+        r.render(48_000 * 8)
+    });
+}
+
+#[test]
+fn sections_of_a_44_1_khz_file_match_memory_through_many_passes() {
+    // Converted to 48 kHz as it is read: the joins and each of Main's passes must land
+    // on the same samples as the whole file converted in memory.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tone44.wav");
+    tone_wav(&path, 44_100 * 20, 44_100);
+    let eng = |src: u64| (src as f64 * 48_000.0 / 44_100.0).round() as usize;
+    let (intro, main, outro) = ((0u64, 33_333u64), (33_333u64, 77_777u64), (500_000u64, 540_000u64));
+    same_as_resident(&path, &[main.0, outro.0], |r, a| {
+        r.play(
+            1,
+            a,
+            PlayParams {
+                start_frame: eng(intro.0),
+                end_frame: Some(eng(intro.1)),
+                sections: Some(SectionPlan {
+                    intro: true,
+                    main: (eng(main.0), eng(main.1)),
+                    outro: Some((eng(outro.0), eng(outro.1))),
+                }),
+                ..Default::default()
+            },
+        );
+        let mut out = r.render(48_000 * 12);
+        r.send(EngineCommand::Outro {
+            cart: CartKey(1),
+            instantly: false,
+        });
+        out.extend(r.render(48_000 * 3));
+        out
+    });
+}
+
+#[test]
+fn loops_and_sections_keep_up_with_the_clock() {
+    // Played against the clock (4 × real time), not waiting for the reader: no gap at
+    // any wrap or join. Heads as Bubble keeps them (2 s).
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ramp.wav");
+    ramp_wav(&path, SR as usize * 30, SR);
+    let opts = PrepareOptions {
+        stream_min_secs: 0.0,
+        head_secs: 2.0,
+    };
+    let starts = [480_000u64, 960_000];
+    let (a, _) = prepare(&path, SR, &starts, opts, u64::MAX).unwrap();
+    let mut r = Rig::new();
+    // A 3 s loop, and a cart in sections (Intro 2 s, Main 3 s, Outro 2 s).
+    r.play(
+        1,
+        &a,
+        PlayParams {
+            start_frame: 480_000,
+            end_frame: Some(624_000),
+            looping: true,
+            ..Default::default()
+        },
+    );
+    r.play(
+        2,
+        &a,
+        PlayParams {
+            start_frame: 0,
+            end_frame: Some(96_000),
+            sections: Some(SectionPlan {
+                intro: true,
+                main: (480_000, 624_000),
+                outro: Some((960_000, 1_056_000)),
+            }),
+            ..Default::default()
+        },
+    );
+    r.render_paced(48_000 * 20, 4.0);
+    r.send(EngineCommand::Outro {
+        cart: CartKey(2),
+        instantly: false,
+    });
+    r.render_paced(48_000 * 6, 4.0);
+    assert_eq!(r.underruns(), (0, 0), "no gaps");
 }
 
 #[test]
