@@ -999,6 +999,23 @@ pub fn focus(w: &slint::Window) {
 }
 
 
+/// Windows: a menu (the menu bar's or a context menu) is open on the main window.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub static MENU_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The main window's HWND (Windows; 0 elsewhere or before it exists).
+pub fn hwnd(w: &slint::Window) -> isize {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().window_handle().map(|h| h.as_raw()) {
+            return h.hwnd.get();
+        }
+    }
+    let _ = w;
+    0
+}
+
 /// Windows: the menu bar must never take the keyboard or stop the window updating.
 /// Alt or F10 alone puts a window's menu bar in menu mode, where keys go to the menu
 /// (hot keys did nothing) and the menu's own message loop runs no Slint timers (the
@@ -1033,10 +1050,12 @@ pub fn keep_menus_out_of_the_way(ui: &MainWindow) {
                     return 0;
                 }
                 WM_ENTERMENULOOP => {
+                    MENU_OPEN.store(true, std::sync::atomic::Ordering::Relaxed);
                     // SAFETY: this window; the timer is killed when the menu closes.
                     unsafe { SetTimer(hwnd, MENU_TIMER, 16, None) };
                 }
                 WM_EXITMENULOOP => {
+                    MENU_OPEN.store(false, std::sync::atomic::Ordering::Relaxed);
                     // SAFETY: this window's own timer.
                     unsafe { KillTimer(hwnd, MENU_TIMER) };
                 }

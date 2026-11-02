@@ -213,6 +213,15 @@ impl Shortcuts {
         Shortcuts { list }
     }
 
+    /// The shortcuts without the command key or Alt: (Shift, key).
+    pub fn plain(&self) -> Vec<(bool, slint::winit_030::winit::keyboard::KeyCode)> {
+        self.list
+            .iter()
+            .filter(|(c, _, a, _, _)| !c && !a)
+            .map(|(_, s, _, k, _)| (*s, *k))
+            .collect()
+    }
+
     /// The command for a key press with these modifiers, if any.
     pub fn find(
         &self,

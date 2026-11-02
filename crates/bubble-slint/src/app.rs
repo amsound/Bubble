@@ -33,7 +33,7 @@ use crate::{
     BusyRow, LoadInfo, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys,
     menu, window,
 };
-use crate::{cartsetup, colour, savepanel, settings};
+use crate::{cartsetup, colour, hotkeys, savepanel, settings};
 
 /// How often the window refreshes while carts play (the clock and progress bars).
 const PLAYING: Duration = Duration::from_millis(33);
@@ -141,6 +141,8 @@ pub struct App {
     /// After Cart Setup closes, the main window ignores presses until then: Windows turns
     /// a tap into a mouse click as the finger lifts, which would land on what was under OK.
     setup_guard: Option<Instant>,
+    /// What the keyboard is wanted for, for the hot key thread (see `hotkeys`).
+    key_gate: Arc<hotkeys::KeyGate>,
     /// The Settings (this computer) and Session Settings windows, while open.
     settings: Option<settings::Settings>,
     session_settings: Option<settings::SessionSettings>,
@@ -321,6 +323,16 @@ pub fn run(renderer: &str, ui_font: &str) -> Result<(), slint::PlatformError> {
                 });
             }
         });
+    }
+    // Test aid: the interface thread stops for 3 s every 8 s (hot keys must not care).
+    if std::env::var_os("BUBBLE_PROBE_FREEZE").is_some() {
+        let t = slint::Timer::default();
+        t.start(slint::TimerMode::Repeated, Duration::from_secs(8), || {
+            log_info("probe: interface frozen for 3 s");
+            std::thread::sleep(Duration::from_secs(3));
+            log_info("probe: interface free");
+        });
+        std::mem::forget(t);
     }
     // The first tick runs at once (the window's place).
     WAKE.with(|w| {
@@ -1307,6 +1319,7 @@ impl App {
             setup: None,
             setup_close_ask: false,
             setup_guard: None,
+            key_gate: Arc::default(),
             settings: None,
             session_settings: None,
             me: std::rc::Weak::new(),
@@ -1394,6 +1407,14 @@ impl App {
                 self.core.holder_for_session_end(),
             );
             window::keep_menus_out_of_the_way(&ui);
+            self.key_gate
+                .window
+                .store(window::hwnd(ui.window()), std::sync::atomic::Ordering::Relaxed);
+            hotkeys::start(
+                self.key_gate.clone(),
+                self.core.ctrl.clone(),
+                self.core.repaint.clone(),
+            );
             window::round_corners(ui.window());
             window::set_icon(ui.window());
         }
@@ -1548,6 +1569,7 @@ impl App {
         }
 
         self.show(&ui, &snap);
+        self.publish_key_gate(&ui, &snap);
 
         let playing = snap
             .runtime
@@ -1583,6 +1605,39 @@ impl App {
         }
         if let Some(t) = self.timer.upgrade() {
             t.restart_with(self.interval);
+        }
+    }
+
+    /// Tells the hot key thread what the keyboard is wanted for now.
+    fn publish_key_gate(&self, ui: &MainWindow, snap: &Snapshot) {
+        let g = &self.key_gate;
+        let typing = ui.global::<TextCommand>().get_typing();
+        let live = self.started
+            && !self.core.session_loading()
+            && !typing
+            && self.lock().learning().is_none()
+            && self.quick_edit.is_none()
+            && self.renaming.is_none()
+            && self.dialog.is_none()
+            && !self.confirm_close
+            && self.setup.is_none();
+        g.live.store(live, Ordering::Relaxed);
+        g.edit_mode.store(self.edit_mode, Ordering::Relaxed);
+        g.set_bound(
+            snap.project
+                .bindings
+                .iter()
+                .filter_map(|b| match &b.source {
+                    bubble_project::BindingSource::Key { key, .. } => Some(key.clone()),
+                    _ => None,
+                })
+                .collect(),
+        );
+        let plain = self.shortcuts.plain();
+        if let Ok(mut s) = g.shortcuts.lock()
+            && *s != plain
+        {
+            *s = plain;
         }
     }
 

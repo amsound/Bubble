@@ -16,6 +16,7 @@ mod app;
 mod cartsetup;
 mod colour;
 mod fonts;
+mod hotkeys;
 mod keys;
 mod menu;
 mod model;
