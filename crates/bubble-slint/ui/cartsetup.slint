@@ -570,6 +570,8 @@ export component CartSetupWindow inherits Window {
     in-out property <bool> menu-open;
     property <length> menu-x;
     property <length> menu-y;
+    // The point the panel's beak points at (the middle of Main's chip).
+    property <length> menu-anchor;
     // Off screen: a tab pinned to that edge (drag it to bring the handle in).
     in property <bool> in-tab;
     in property <bool> out-tab;
@@ -641,8 +643,9 @@ export component CartSetupWindow inherits Window {
     // Main's options, opened (or closed) under the point given: the middle of the
     // bottom of Main's chip (a test aid opens them too).
     public function open-main-menu(x: length, y: length) {
+        root.menu-anchor = x;
         root.menu-x = max(16px, x - 180px);
-        root.menu-y = y + 6px;
+        root.menu-y = y + 9px;
         root.menu-open = !root.menu-open;
     }
     // Edit menu commands for the text field being typed in.
@@ -1599,6 +1602,29 @@ export component CartSetupWindow inherits Window {
         drop-shadow-color: #00000060;
         // Swallows presses on the panel itself.
         TouchArea { }
+        // The beak, pointing up at Main's chip: the panel's colour over its top
+        // border, then the border's two sides.
+        Path {
+            x: clamp(root.menu-anchor - parent.x - 9px, 12px, parent.width - 30px);
+            y: -8px;
+            width: 18px;
+            height: 10px;
+            viewbox-width: 18;
+            viewbox-height: 10;
+            commands: "M0 9.5L9 0.5L18 9.5V10H0Z";
+            fill: Theme.card;
+        }
+        Path {
+            x: clamp(root.menu-anchor - parent.x - 9px, 12px, parent.width - 30px);
+            y: -8px;
+            width: 18px;
+            height: 10px;
+            viewbox-width: 18;
+            viewbox-height: 10;
+            commands: "M0 9.5L9 0.5L18 9.5";
+            stroke: Theme.card-border;
+            stroke-width: 1px;
+        }
         menu := VerticalLayout {
             padding: 14px;
             spacing: 10px;
