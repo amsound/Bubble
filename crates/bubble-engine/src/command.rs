@@ -73,6 +73,17 @@ pub enum StopOthers {
     Page,
 }
 
+/// A cart in sections (buffer frames). The voice starts in the Intro when
+/// `intro` is set (`start_frame`..`end_frame` are then the Intro), else in Main.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SectionPlan {
+    pub intro: bool,
+    /// Main's In and Out: it repeats until the voice stops or its Outro starts.
+    pub main: (usize, usize),
+    /// The Outro's In and Out, played once to its end.
+    pub outro: Option<(usize, usize)>,
+}
+
 /// Everything the mixer needs to start a cart.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlayParams {
@@ -85,6 +96,8 @@ pub struct PlayParams {
     /// One past the last frame (Out point); `None` = end of buffer.
     pub end_frame: Option<usize>,
     pub looping: bool,
+    /// Intro, Main and Outro; `None` plays `start_frame`..`end_frame` as usual.
+    pub sections: Option<SectionPlan>,
     pub fade_in: Fade,
     /// Fade used when the voice is stopped without an explicit fade.
     pub fade_out: Fade,
@@ -113,6 +126,7 @@ impl Default for PlayParams {
             start_frame: 0,
             end_frame: None,
             looping: false,
+            sections: None,
             fade_in: Fade::NONE,
             fade_out: Fade::NONE,
             retrigger: Retrigger::Restart,
@@ -166,6 +180,9 @@ pub enum EngineCommand {
         speed: f32,
         ramp_frames: u32,
     },
+    /// Starts the Outro of a cart's voices that are in Main: at once (crossfading
+    /// as a seek does), or when Main next reaches its Out point.
+    Outro { cart: CartKey, instantly: bool },
     /// Turn looping on/off for playing voices (REF "Loop+").
     SetLoop { cart: CartKey, looping: bool },
     /// Move a cart's playing voice to `frame` (buffer frames, kept within its In and
@@ -227,6 +244,10 @@ impl EngineCommand {
                 cart: *cart,
                 speed: *speed,
                 ramp_frames: *ramp_frames,
+            },
+            Outro { cart, instantly } => Outro {
+                cart: *cart,
+                instantly: *instantly,
             },
             SetLoop { cart, looping } => SetLoop {
                 cart: *cart,

@@ -13,4 +13,5 @@ pub use controller::{
     LogEntry, LogKind, Machine, MouseButton, PageClip, ReassignScope, Route, asset_files_of,
     display_label,
 };
+pub use bubble_engine::VoiceSection;
 pub use input::{InputEvent, MidiEvent, TriggerSource, describe};

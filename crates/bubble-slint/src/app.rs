@@ -626,6 +626,14 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
                 }
                 "clear-key" => i.push(Intent::ClearBindings(id, Some(true))),
                 "clear-midi" => i.push(Intent::ClearBindings(id, Some(false))),
+                "learn-outro" => {
+                    if snap.learning.is_some_and(|l| l.cart == id) {
+                        i.push(Intent::CancelLearn);
+                    } else {
+                        i.push(Intent::LearnOutro(id));
+                    }
+                }
+                "clear-outro" => i.push(Intent::ClearOutroTrigger(id)),
                 "replace" => {
                     if let Some((page, row, col)) = snap.project.cart_position(id) {
                         a.core.files.request(Purpose::Assign {
@@ -1795,6 +1803,31 @@ impl App {
                                 slint::Timer::single_shot(Duration::from_millis(500), move || {
                                     act(&app, move |a, _| a.open_setup(id));
                                 });
+                            });
+                        }
+                        // `cartsetup:a,b`: Cart Setup, then its buttons a and b
+                        // ("menu" opens Main's options).
+                        _ if scene.starts_with("cartsetup:") => {
+                            a.open_setup(id);
+                            let steps: Vec<String> =
+                                scene[10..].split(',').map(str::to_string).collect();
+                            let me = me.clone();
+                            slint::Timer::single_shot(Duration::from_millis(300), move || {
+                                let Some(app) = me.upgrade() else { return };
+                                let Some(win) = app.borrow().setup.as_ref().map(|s| s.win.clone_strong())
+                                else {
+                                    return;
+                                };
+                                for step in steps {
+                                    if step == "menu" {
+                                        // Under Main's chip, as near as the layout allows.
+                                        let w = win.window().size().to_logical(win.window().scale_factor());
+                                        let y = 16.0 + 32.0 + 12.0 + 24.0 + win.get_wave_height() + 12.0 + 32.0;
+                                        win.invoke_open_main_menu(w.width / 2.0 - 25.0, y);
+                                    } else {
+                                        win.invoke_action(step.into());
+                                    }
+                                }
                             });
                         }
                         _ => {}

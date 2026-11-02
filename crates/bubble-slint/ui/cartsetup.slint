@@ -4,8 +4,9 @@
 // for the visible part; every press, drag, scroll and key goes to Rust, which owns the
 // view, the handles and the audition (src/cartsetup.rs).
 //
-//   Morning News · file · 48 kHz · stereo · 0:41.20        [Top and Tail] [Zoom to Fit]
+//   Morning News · file · 48 kHz · stereo · 0:41.20  [Top and Tail] [Zoom to Fit] [Sections]
 //   [ ruler / waveform with IN, OUT, fades, cursor, playhead ]                  [meter]
+//   [ Intro · 0:19 ] [ Main ∞ · 0:25  v ] [ Outro · 0:14 ]     (with Sections on)
 //   [Trim In  0:03.12 − + Set] [0:12.08 −0:22.10  ⏮ ⟲ ▶ ■] [Trim Out 0:37.18 − + Set]
 //   Sound: Output, Gain, Pan, Speed, Speed Bar, Fades, Playback, On Retrigger
 //   Cart:  Label, Colour, When It Starts, When It Ends, Group, Hotkey, MIDI, Audio File,
@@ -19,6 +20,17 @@ import { LabelField, FieldRow, Card, Toggle, KeyChip } from "quickedit.slint";
 export struct WaveMark {
     x: length,
     text: string,
+}
+
+// A section on the waveform, in pixels of the wave area: tinted in its colour, or
+// hatched (the path) while switched off.
+export struct WaveRegion {
+    x: length,
+    w: length,
+    colour: color,
+    on: bool,
+    selected: bool,
+    hatch: string,
 }
 
 export struct SetupInfo {
@@ -59,6 +71,182 @@ export struct SetupInfo {
     show-midi: bool,
     learning: bool,
     missing: bool,
+    // Sections: on, the section edited (0 Intro, 1 Main, 2 Outro) and its colour, the
+    // In and Out boxes' titles, the Intro and Outro (0 none, 1 off, 2 on), the chips'
+    // words, and the Outro's options and trigger.
+    sections: bool,
+    part: int,
+    part-colour: color,
+    in-title: string,
+    out-title: string,
+    intro: int,
+    outro: int,
+    intro-text: string,
+    main-text: string,
+    outro-text: string,
+    outro-own: bool,
+    outro-instant: bool,
+    outro-key: string,
+    outro-learning: bool,
+    // The transport's loop: the cart's Loop, or with Sections on the audition's.
+    transport-loop: bool,
+}
+
+// Section colours: Intro, Main, Outro (as in cartsetup.rs).
+global Parts {
+    out property <[color]> colours: [#bf5af2, #30d158, #ff9f0a];
+}
+
+// A dashed outline (a section not added yet, or switched off).
+component Dashed inherits Rectangle {
+    in property <color> colour;
+    for i in floor(root.width / 8px): Rectangle {
+        x: i * 8px + 2px;
+        y: 0;
+        width: 4px;
+        height: 1px;
+        background: root.colour;
+    }
+    for i in floor(root.width / 8px): Rectangle {
+        x: i * 8px + 2px;
+        y: root.height - 1px;
+        width: 4px;
+        height: 1px;
+        background: root.colour;
+    }
+    for i in floor(root.height / 8px): Rectangle {
+        x: 0;
+        y: i * 8px + 2px;
+        width: 1px;
+        height: 4px;
+        background: root.colour;
+    }
+    for i in floor(root.height / 8px): Rectangle {
+        x: root.width - 1px;
+        y: i * 8px + 2px;
+        width: 1px;
+        height: 4px;
+        background: root.colour;
+    }
+}
+
+// A small on/off switch inside a chip.
+component ChipSwitch inherits Rectangle {
+    in property <bool> on;
+    in property <color> colour;
+    in property <string> label;
+    callback toggled();
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+    background: on ? colour : Theme.text.transparentize(75%);
+    accessible-role: switch;
+    accessible-checked: on;
+    accessible-label: label;
+    Rectangle {
+        x: root.on ? parent.width - self.width - 2px : 2px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: #ffffff;
+        animate x { duration: 120ms; }
+    }
+    TouchArea {
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+// A section under the waveform: Intro and Outro with a switch, Main with its loop
+// mark and a chevron for its options; "+ Intro" before there is one. The section
+// being edited has a ring in its colour.
+component PartChip inherits Rectangle {
+    in property <string> text;
+    in property <string> add-text;
+    in property <color> colour;
+    // 0 not added, 1 switched off, 2 on.
+    in property <int> state;
+    in property <bool> selected;
+    in property <bool> main;
+    callback chosen();
+    callback switched();
+    callback open-menu();
+    height: 32px;
+    horizontal-stretch: 1;
+    min-width: 0;
+    preferred-width: 0;
+    border-radius: 6px;
+    background: root.state == 2 ? root.colour.transparentize(84%) : ta.has-hover ? Theme.text.transparentize(94%) : transparent;
+    border-width: root.selected ? 2px : root.state == 2 ? 1px : 0px;
+    border-color: root.selected ? root.colour : root.colour.transparentize(50%);
+    accessible-role: button;
+    accessible-label: root.state == 0 ? root.add-text : root.text;
+    if root.state < 2 && !root.selected: Dashed {
+        width: parent.width;
+        height: parent.height;
+        colour: Theme.weak-text.transparentize(40%);
+    }
+    ta := TouchArea {
+        clicked => {
+            root.chosen();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 8px;
+        if root.state > 0 && !root.main: ChipSwitch {
+            y: (parent.height - self.height) / 2;
+            on: root.state == 2;
+            colour: root.colour;
+            label: root.text;
+            toggled => {
+                root.switched();
+            }
+        }
+        if root.main: Path {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+            stroke: Theme.text;
+            stroke-width: 1.5px;
+            fill: transparent;
+        }
+        Text {
+            text: root.state == 0 ? "+  " + root.add-text : root.text;
+            color: root.state == 2 ? Theme.text : Theme.weak-text;
+            font-weight: root.state == 2 ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if root.main: Rectangle {
+            width: 28px;
+            accessible-role: button;
+            accessible-label: "Main options";
+            border-radius: 4px;
+            background: menu-ta.has-hover ? Theme.text.transparentize(88%) : transparent;
+            Path {
+                width: 12px;
+                height: 12px;
+                viewbox-width: 12;
+                viewbox-height: 12;
+                commands: "M2.5 4.5L6 8L9.5 4.5";
+                stroke: Theme.text;
+                stroke-width: 1.6px;
+                fill: transparent;
+            }
+            menu-ta := TouchArea {
+                clicked => {
+                    root.open-menu();
+                }
+            }
+        }
+    }
 }
 
 // A small transport button with an icon: a control, the accent when on (Loop) or
@@ -98,15 +286,31 @@ component IconButton inherits Rectangle {
 // Trim In / Trim Out (they mirror each other): the title over the time, then − and +
 // nudges, Set (at the cursor or playhead) and Clear (back to the file's start or end).
 // Trim Out sits against the right edge.
-component TrimBox inherits HorizontalLayout {
+component TrimBox inherits Rectangle {
     in property <string> title;
     in property <[string]> time;
     in property <string> set-text;
     in property <bool> mirrored;
+    // With Sections on, the section's colour: a tint, a bar on the outer edge and
+    // the title in it.
+    in property <color> tint;
     callback nudge(float);
     callback set();
     callback clear();
     horizontal-stretch: 1;
+    border-radius: 6px;
+    background: root.tint.alpha > 0 ? root.tint.transparentize(88%) : transparent;
+    if root.tint.alpha > 0: Rectangle {
+        x: root.mirrored ? parent.width - 3px : 0;
+        width: 3px;
+        border-radius: 1.5px;
+        background: root.tint;
+    }
+    HorizontalLayout {
+    padding-left: root.tint.alpha > 0 ? 9px : 0px;
+    padding-right: root.tint.alpha > 0 ? 9px : 0px;
+    padding-top: root.tint.alpha > 0 ? 6px : 0px;
+    padding-bottom: root.tint.alpha > 0 ? 6px : 0px;
     alignment: root.mirrored ? end : start;
     VerticalLayout {
         spacing: 6px;
@@ -116,7 +320,7 @@ component TrimBox inherits HorizontalLayout {
             font-size: 12px;
             font-weight: 600;
             letter-spacing: 1px;
-            color: Theme.weak-text;
+            color: root.tint.alpha > 0 ? root.tint : Theme.weak-text;
         }
         HorizontalLayout {
             spacing: 4px;
@@ -176,6 +380,7 @@ component TrimBox inherits HorizontalLayout {
                 }
             }
         }
+    }
     }
 }
 
@@ -357,6 +562,14 @@ export component CartSetupWindow inherits Window {
     in property <[WaveMark]> ruler;
     in property <length> in-x: -100px;
     in property <length> out-x: -100px;
+    // The darker shade outside these (In and Out, or all the sections).
+    in property <length> shade-in-x: -100px;
+    in property <length> shade-out-x: -100px;
+    in property <[WaveRegion]> regions;
+    // Main's options, open under its chip.
+    in-out property <bool> menu-open;
+    property <length> menu-x;
+    property <length> menu-y;
     // Off screen: a tab pinned to that edge (drag it to bring the handle in).
     in property <bool> in-tab;
     in property <bool> out-tab;
@@ -405,7 +618,9 @@ export component CartSetupWindow inherits Window {
     callback pick-colour();
     // "learn", "clear-key", "clear-midi", "replace", "locate", "top-and-tail",
     // "zoom-fit", "to-in", "loop", "play", "stop", "in-set", "out-set", "in-clear",
-    // "out-clear".
+    // "out-clear"; with Sections: "sections", "part-intro", "part-main", "part-outro",
+    // "switch-intro", "switch-outro", "outro-this", "outro-new", "outro-end",
+    // "outro-instant", "learn-outro", "clear-outro".
     callback action(string);
     callback nudge(string, float);
     // The waveform: press (x, y, touch), move, release, double-click, scroll
@@ -422,6 +637,13 @@ export component CartSetupWindow inherits Window {
 
     public function open-popup() {
         ctx.show({ x: root.popup-x, y: root.popup-y });
+    }
+    // Main's options, opened (or closed) under the point given: the middle of the
+    // bottom of Main's chip (a test aid opens them too).
+    public function open-main-menu(x: length, y: length) {
+        root.menu-x = max(16px, x - 180px);
+        root.menu-y = y + 6px;
+        root.menu-open = !root.menu-open;
     }
     // Edit menu commands for the text field being typed in.
     public function text-command(name: string) {
@@ -473,6 +695,10 @@ export component CartSetupWindow inherits Window {
             }
             if e.text == Key.RightArrow {
                 root.key("right", e.modifiers.shift);
+                return accept;
+            }
+            if e.text == Key.Escape && root.menu-open {
+                root.menu-open = false;
                 return accept;
             }
             if e.text == Key.Escape {
@@ -536,6 +762,15 @@ export component CartSetupWindow inherits Window {
                     enabled: info.has-audio;
                     clicked => {
                         root.action("zoom-fit");
+                    }
+                }
+                SysButton {
+                    text: "Sections";
+                    on: info.sections;
+                    enabled: info.has-audio;
+                    clicked => {
+                        root.menu-open = false;
+                        root.action("sections");
                     }
                 }
             }
@@ -603,13 +838,35 @@ export component CartSetupWindow inherits Window {
                             // background over it, so the shade follows any accent).
                             Rectangle {
                                 x: 0;
-                                width: clamp(root.in-x, 0, parent.width);
+                                width: clamp(root.shade-in-x, 0, parent.width);
                                 background: Theme.wave-bg.transparentize(Theme.dark ? 45% : 40%);
                             }
                             Rectangle {
-                                x: clamp(root.out-x, 0, parent.width);
+                                x: clamp(root.shade-out-x, 0, parent.width);
                                 width: parent.width - self.x;
                                 background: Theme.wave-bg.transparentize(Theme.dark ? 45% : 40%);
+                            }
+                            // Sections: a tint each (stronger for the one edited), and a
+                            // hatch over one switched off.
+                            for r in root.regions: Rectangle {
+                                x: r.x;
+                                width: r.w;
+                                clip: true;
+                                background: r.colour.transparentize(r.on ? (r.selected ? 82% : 88%) : 94%);
+                                Rectangle {
+                                    y: 0;
+                                    height: 3px;
+                                    background: r.colour.transparentize(r.on ? 0% : 50%);
+                                }
+                                if r.hatch != "": Path {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    viewbox-width: parent.width / 1px;
+                                    viewbox-height: parent.height / 1px;
+                                    commands: r.hatch;
+                                    stroke: r.colour.transparentize(55%);
+                                    stroke-width: 1px;
+                                }
                             }
                             Path {
                                 width: parent.width;
@@ -770,6 +1027,52 @@ export component CartSetupWindow inherits Window {
                 }
             }
 
+            // ---- sections: Intro, Main, Outro ----
+            if info.sections: HorizontalLayout {
+                vertical-stretch: 0;
+                spacing: 10px;
+                padding-right: 50px;
+                PartChip {
+                    text: info.intro-text;
+                    add-text: "Intro";
+                    colour: Parts.colours[0];
+                    state: info.intro;
+                    selected: info.part == 0;
+                    chosen => {
+                        root.action("part-intro");
+                    }
+                    switched => {
+                        root.action("switch-intro");
+                    }
+                }
+                main-chip := PartChip {
+                    text: info.main-text;
+                    colour: Parts.colours[1];
+                    state: 2;
+                    main: true;
+                    selected: info.part == 1;
+                    chosen => {
+                        root.action("part-main");
+                    }
+                    open-menu => {
+                        root.open-main-menu(self.absolute-position.x + self.width / 2, self.absolute-position.y + self.height);
+                    }
+                }
+                PartChip {
+                    text: info.outro-text;
+                    add-text: "Outro";
+                    colour: Parts.colours[2];
+                    state: info.outro;
+                    selected: info.part == 2;
+                    chosen => {
+                        root.action("part-outro");
+                    }
+                    switched => {
+                        root.action("switch-outro");
+                    }
+                }
+            }
+
             // ---- trim in · transport · trim out, one card ----
             Rectangle {
                 vertical-stretch: 0;
@@ -783,7 +1086,8 @@ export component CartSetupWindow inherits Window {
                     padding-bottom: 12px;
                     spacing: 12px;
                     TrimBox {
-                        title: "TRIM IN";
+                        title: info.in-title;
+                        tint: info.part-colour;
                         time: root.in-chars;
                         set-text: "Set (I)";
                         nudge(d) => {
@@ -842,7 +1146,7 @@ export component CartSetupWindow inherits Window {
                             }
                             IconButton {
                                 label: "Loop";
-                                on: info.looping;
+                                on: info.transport-loop;
                                 icon: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
                                 clicked => {
                                     root.action("loop");
@@ -872,7 +1176,8 @@ export component CartSetupWindow inherits Window {
                         background: Theme.card-border;
                     }
                     TrimBox {
-                        title: "TRIM OUT";
+                        title: info.out-title;
+                        tint: info.part-colour;
                         mirrored: true;
                         time: root.out-chars;
                         set-text: "Set (O)";
@@ -1125,12 +1430,15 @@ export component CartSetupWindow inherits Window {
                             label: "Playback";
                             HorizontalLayout {
                                 spacing: 6px;
+                                // With Sections on, Main loops: the cart's Loop is
+                                // dimmed and locked.
                                 Toggle {
                                     text: "Loop";
                                     horizontal-stretch: 1;
                                     min-width: 0;
                                     preferred-width: 0;
-                                    on: info.looping;
+                                    on: info.looping && !info.sections;
+                                    opacity: info.sections ? 0.4 : 1;
                                     toggled(on) => {
                                         root.toggle("loop");
                                     }
@@ -1265,6 +1573,106 @@ export component CartSetupWindow inherits Window {
                     min-width: 96px;
                     clicked => {
                         root.cancel();
+                    }
+                }
+            }
+        }
+    }
+
+    // Main's options, under its chip; a press anywhere else closes them.
+    if root.menu-open && info.sections: TouchArea {
+        clicked => {
+            root.menu-open = false;
+        }
+    }
+    if root.menu-open && info.sections: Rectangle {
+        x: min(root.menu-x, root.width - self.width - 16px);
+        y: root.menu-y;
+        width: 360px;
+        height: menu.preferred-height;
+        border-radius: 8px;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.card-border;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: #00000060;
+        // Swallows presses on the panel itself.
+        TouchArea { }
+        menu := VerticalLayout {
+            padding: 14px;
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    width: 100px;
+                    text: Theme.mac ? "Outro Trigger" : "Outro trigger";
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Segments {
+                    labels: [Theme.mac ? "This Cart" : "This cart", Theme.mac ? "New Trigger" : "New trigger"];
+                    current: info.outro-own ? 1 : 0;
+                    chose(i) => {
+                        root.action(i == 1 ? "outro-new" : "outro-this");
+                    }
+                }
+            }
+            if info.outro-own: HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    width: 100px;
+                    text: "Trigger";
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    if info.outro-learning: Text {
+                        text: info.show-midi ? "Press a key or MIDI…" : "Press a key…";
+                        color: Theme.accent;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        min-width: 0;
+                        horizontal-stretch: 1;
+                    }
+                    if !info.outro-learning && info.outro-key != "": KeyChip {
+                        text: info.outro-key;
+                        clear-label: "Clear the Outro trigger";
+                        clear => {
+                            root.action("clear-outro");
+                        }
+                    }
+                    if !info.outro-learning && info.outro-key == "": Text {
+                        text: "None";
+                        color: Theme.weak-text;
+                        vertical-alignment: center;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    SysButton {
+                        y: (parent.height - self.height) / 2;
+                        text: info.outro-learning ? "Cancel" : "Learn";
+                        clicked => {
+                            root.action("learn-outro");
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    width: 100px;
+                    text: Theme.mac ? "Outro Starts" : "Outro starts";
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Segments {
+                    labels: [Theme.mac ? "End of Main" : "End of main", "Instantly"];
+                    current: info.outro-instant ? 1 : 0;
+                    chose(i) => {
+                        root.action(i == 1 ? "outro-instant" : "outro-end");
                     }
                 }
             }

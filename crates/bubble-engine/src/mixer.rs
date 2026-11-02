@@ -27,7 +27,7 @@ use crate::command::{
 };
 use crate::engine::Garbage;
 use crate::playable::{MAX_CHANNELS, Playable};
-use crate::status::{EngineStatus, VoicePhase};
+use crate::status::{EngineStatus, VoicePhase, VoiceSection};
 use crate::stream::{Fetch, VoiceStream};
 
 /// Highest playback speed (4 × normal, as in the reference).
@@ -221,6 +221,11 @@ struct Voice {
     start: usize,
     end: usize,
     looping: bool,
+    /// The part of a cart in sections being played (`start`..`end` are its In and
+    /// Out), and the parts to come.
+    section: VoiceSection,
+    main: (usize, usize),
+    outro: Option<(usize, usize)>,
     gain: Ramp,
     pan_l: Ramp,
     pan_r: Ramp,
@@ -253,6 +258,9 @@ impl Voice {
             start: 0,
             end: 0,
             looping: false,
+            section: VoiceSection::Whole,
+            main: (0, 0),
+            outro: None,
             gain: Ramp::new(0.0),
             pan_l: Ramp::new(0.0),
             pan_r: Ramp::new(0.0),
@@ -289,6 +297,9 @@ impl Voice {
             start: self.start,
             end: self.end,
             looping: self.looping,
+            section: self.section,
+            main: self.main,
+            outro: self.outro,
             gain: self.gain,
             pan_l: self.pan_l,
             pan_r: self.pan_r,
@@ -301,6 +312,48 @@ impl Voice {
             out_off: self.out_off,
             out_w: self.out_w,
         }
+    }
+
+    /// Where play continues after the Out point: the next section, or (looping) the
+    /// In point. `None` when the voice ends there.
+    fn after_out(&self) -> Option<usize> {
+        match self.section {
+            VoiceSection::Intro => Some(self.main.0),
+            VoiceSection::MainThenOutro => self.outro.map(|o| o.0),
+            _ => self.looping.then_some(self.start),
+        }
+    }
+
+    /// At or past the Out point: moves on to the next section or loops, carrying the
+    /// overshoot so the join is sample for sample. False when the voice ends here:
+    /// nothing follows, or a plain loop is fading out (it plays to its Out). A cart
+    /// in sections fades out across the joins, so a fade is never cut short.
+    /// `audio` is the voice's own, held apart while it renders.
+    fn pass_out(&mut self, audio: &Playable) -> bool {
+        if self.env.stopping() && self.section == VoiceSection::Whole {
+            return false;
+        }
+        let over = self.pos.saturating_sub(self.end);
+        let (start, end, looping, section) = match self.section {
+            VoiceSection::Intro => (self.main.0, self.main.1, true, VoiceSection::Main),
+            VoiceSection::MainThenOutro => match self.outro {
+                Some((s, e)) => (s, e, false, VoiceSection::Outro),
+                None => (self.start, self.end, true, VoiceSection::Main),
+            },
+            _ if self.looping => (self.start, self.end, true, self.section),
+            _ => return false,
+        };
+        let len = end.saturating_sub(start).max(1);
+        self.start = start;
+        self.end = end;
+        self.looping = looping;
+        self.section = section;
+        self.pos = start + over % len;
+        if let Some(s) = self.stream.as_mut() {
+            let from = audio.stream_from(self.pos);
+            s.request(from, from > self.pos);
+        }
+        true
     }
 
     /// Asks the disk for data to follow a jump to `self.pos` (loop, seek, trim).
@@ -533,10 +586,14 @@ impl Mixer {
                     .iter_mut()
                     .filter(|v| v.active && v.cart == cart)
                 {
-                    v.looping = looping;
+                    // Sections loop Main and nothing else.
+                    if v.section == VoiceSection::Whole {
+                        v.looping = looping;
+                    }
                 }
             }
             EngineCommand::Seek { cart, frame } => self.seek(cart, frame),
+            EngineCommand::Outro { cart, instantly } => self.outro(cart, instantly),
             EngineCommand::SetRegion { cart, start, end } => {
                 for v in self
                     .voices
@@ -546,6 +603,14 @@ impl Mixer {
                     let frames = v.audio.as_ref().map_or(0, |b| b.frames());
                     let end = end.min(frames);
                     if start < end {
+                        // The part playing now takes the new points.
+                        match v.section {
+                            VoiceSection::Main | VoiceSection::MainThenOutro => {
+                                v.main = (start, end)
+                            }
+                            VoiceSection::Outro => v.outro = Some((start, end)),
+                            _ => {}
+                        }
                         v.start = start;
                         v.end = end;
                         // Before the new In, or (looping) past the new Out: go to In.
@@ -685,6 +750,22 @@ impl Mixer {
         v.start = start;
         v.end = end;
         v.looping = p.looping;
+        v.section = VoiceSection::Whole;
+        v.outro = None;
+        if let Some(plan) = p.sections {
+            let fit = |(s, e): (usize, usize)| {
+                let e = e.min(frames);
+                (s < e).then_some((s, e))
+            };
+            v.main = fit(plan.main).unwrap_or((start, end));
+            v.outro = plan.outro.and_then(fit);
+            v.section = if plan.intro {
+                VoiceSection::Intro
+            } else {
+                VoiceSection::Main
+            };
+            v.looping = !plan.intro;
+        }
         v.gain = Ramp::new(p.gain.max(0.0));
         v.pan_l = Ramp::new(pl);
         v.pan_r = Ramp::new(pr);
@@ -716,8 +797,36 @@ impl Mixer {
         self.emit(EngineEvent::VoiceStarted { cart, voice: id });
     }
 
+    /// See [`EngineCommand::Outro`].
+    fn outro(&mut self, cart: CartKey, instantly: bool) {
+        let mut jump = None;
+        for v in self
+            .voices
+            .iter_mut()
+            .filter(|v| v.active && v.cart == cart && !v.stopping())
+        {
+            if v.section != VoiceSection::Main {
+                continue;
+            }
+            match v.outro {
+                Some(o) if instantly => jump = Some(o),
+                Some(_) => v.section = VoiceSection::MainThenOutro,
+                None => {}
+            }
+        }
+        if let Some((s, e)) = jump {
+            self.jump(cart, s, Some((s, e, VoiceSection::Outro)));
+        }
+    }
+
     /// See [`EngineCommand::Seek`].
     fn seek(&mut self, cart: CartKey, frame: usize) {
+        self.jump(cart, frame, None);
+    }
+
+    /// Moves a cart's newest voice to `frame`, crossfading (see [`EngineCommand::Seek`]);
+    /// with `region`, into that part (its In, Out and section) as well.
+    fn jump(&mut self, cart: CartKey, frame: usize, region: Option<(usize, usize, VoiceSection)>) {
         let Some(old) = self
             .voices
             .iter()
@@ -730,9 +839,14 @@ impl Mixer {
         };
         let ramp = self.declick.max(self.kill_ramp);
         let kill = self.kill_ramp;
-        let target = {
+        let (start, end, section) = {
             let v = &self.voices[old];
-            frame.clamp(v.start, v.end.saturating_sub(1).max(v.start))
+            region.unwrap_or((v.start, v.end, v.section))
+        };
+        let target = frame.clamp(start, end.saturating_sub(1).max(start));
+        let looping = match region {
+            Some(_) => section == VoiceSection::Main,
+            None => self.voices[old].looping,
         };
         // A slot for the copy; never the old voice, which still owns the stream.
         let slot = match self.voices.iter().position(|v| !v.active) {
@@ -742,6 +856,7 @@ impl Mixer {
                 None => {
                     // A pool of one voice: jump in place.
                     let v = &mut self.voices[old];
+                    (v.start, v.end, v.section, v.looping) = (start, end, section, looping);
                     v.pos = target;
                     v.frac = 0.0;
                     v.env = Envelope::start(Fade {
@@ -761,6 +876,7 @@ impl Mixer {
         self.next_voice_id += 1;
         self.seq += 1;
         copy.id = id;
+        (copy.start, copy.end, copy.section, copy.looping) = (start, end, section, looping);
         copy.pos = target;
         copy.frac = 0.0;
         copy.peak_l = 0.0;
@@ -857,14 +973,12 @@ impl Mixer {
                         Fetch::End => {
                             // The file ends early (shorter than stated, or unreadable):
                             // as at the Out point.
-                            if v.looping && !v.stopping() && v.pos > v.start {
-                                v.pos = v.start;
+                            if v.pos > v.start {
+                                v.pos = v.end;
                                 v.frac = 0.0;
-                                if let Some(s) = v.stream.as_mut() {
-                                    let from = audio.stream_from(v.pos);
-                                    s.request(from, from > v.pos);
+                                if v.pass_out(&audio) {
+                                    continue;
                                 }
-                                continue;
                             }
                             finished = Some(if v.stopping() {
                                 v.pending_reason
@@ -879,10 +993,8 @@ impl Mixer {
                     if f > 0.0 {
                         let next = if v.pos + 1 < v.end {
                             v.pos + 1
-                        } else if v.looping {
-                            v.start
                         } else {
-                            v.pos
+                            v.after_out().unwrap_or(v.pos)
                         };
                         if next == v.pos
                             || fetch(&audio, &mut v.stream, heir, next, &mut b, false) != Fetch::Ok
@@ -938,14 +1050,7 @@ impl Mixer {
                     v.pos += step;
                     if v.pos >= v.end {
                         // A loop that is fading out plays to its Out point and ends.
-                        if v.looping && !v.env.stopping() {
-                            let len = (v.end - v.start).max(1);
-                            v.pos = v.start + (v.pos - v.end) % len;
-                            if let Some(s) = v.stream.as_mut() {
-                                let from = audio.stream_from(v.pos);
-                                s.request(from, from > v.pos);
-                            }
-                        } else {
+                        if !v.pass_out(&audio) {
                             finished = Some(if v.env.stopping() {
                                 v.pending_reason
                             } else {
@@ -1106,6 +1211,7 @@ impl Mixer {
                     (v.pos - v.start) as u64,
                     (v.end - v.start) as u64,
                     v.looping,
+                    v.section,
                 );
                 self.status
                     .publish_voice_meter(i, v.peak_l, v.peak_r, v.rate.cur);

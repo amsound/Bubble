@@ -225,3 +225,13 @@ The settings grew one at a time, in menus and two windows. They are now in two p
 - **Cart numbers count on across pages** (page 2 of a 4 × 6 session starts at 25), always; the unused per-page/continuous setting is gone. Reassign's button range uses the same numbers.
 - **Menus hold commands, not settings.** Settings… (Bubble menu on a Mac, File elsewhere), Session Settings… (⌘, / Ctrl+,), Audio ▸ Output Level ▸ (kept for quick use in a show), Outputs… (Settings ▸ Audio). Pages are together in the Session menu (Add, Copy, Paste, Grid Size, Delete Page…, which asks).
 - **Applying audio waits for Apply.** Changing outputs, sample rate or buffer size restarts audio and stops what plays, so in Settings they are a draft with Apply and Revert; everything else takes effect at once. Before, a click in the Sample Rate or Buffer Size menu restarted audio straight away.
+
+## D-43 Sections: Intro, Main and Outro — Accepted (app)
+
+A cart can play in three parts instead of one In–Out: an optional Intro played once, Main repeated, and an optional Outro played once to its end. It covers the WAV play lists seen in SpotOn sessions (an intro and a loop) plus an Outro; more parts, repeats on the Intro or Outro, counted repeats of Main and jumping between parts are left out.
+
+- **Points.** Each part has its own In and Out (`Cart.sections`); none are shared. While Sections is on, the cart's own trim and Loop are not used; switched off, the points are kept.
+- **Joins.** The mixer moves from one part to the next sample for sample, carrying the overshoot as a loop does, and keeps a pre-roll head at each part's In so a streamed file never waits at a join. A fade-out carries on across the joins.
+- **Presses.** A touch, click, hotkey or MIDI press does what it always does (a click stops; a key or note follows On Retrigger), except during Main when the Outro follows the cart's own trigger: then it starts the Outro. With "New trigger" the Outro has a binding of its own (`Action::Outro`) and the cart's trigger is left as it is. The Outro starts at the end of Main's pass or at once (a short crossfade, as a seek). A press while the Outro is waiting for Main's end counts as a press during the Outro.
+- **From files.** A WAV's `cue ` and `plst` chunks put a cart in sections when its file is added, replaced or first loaded (a cart that has never had Sections; one switched off stays off). Any repeat count above 1 (SpotOn's files use 999, up to 9999) is Main, repeated until stopped.
+- **Cart Setup.** The Sections button shows chips under the waveform; the chip chosen points the In and Out boxes at that part, in its colour. Play auditions only that part, and the transport's loop loops it. Main's chevron opens its Outro options.

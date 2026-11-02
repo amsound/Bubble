@@ -16,6 +16,7 @@ pub mod device;
 mod device_rate;
 pub mod engine;
 pub mod loader;
+pub mod markers;
 pub mod mixer;
 pub mod overview;
 pub mod playable;
@@ -25,13 +26,13 @@ pub mod stream;
 pub use buffer::SampleBuffer;
 pub use command::{
     CartKey, EndReason, EngineCommand, EngineEvent, Fade, FadeCurve, PlayParams, Retrigger,
-    StopOthers, StopTarget, VoiceId,
+    SectionPlan, StopOthers, StopTarget, VoiceId,
 };
 pub use engine::{CommandQueueFull, Engine, EngineConfig, EngineHandle};
 pub use mixer::{MAX_BLOCK, Mixer};
 pub use overview::Overview;
 pub use playable::Playable;
-pub use status::{Diagnostics, EngineStatus, VoicePhase, VoiceView};
+pub use status::{Diagnostics, EngineStatus, VoicePhase, VoiceSection, VoiceView};
 pub use stream::{Streamer, VoiceStream};
 
 /// Converts decibels to linear gain (−inf for very low values).

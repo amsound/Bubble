@@ -143,6 +143,8 @@ pub mod icon {
     pub const MIDI: &str = "M8 2a6 6 0 1 0 0.01 0zM5 8h1.2M7.4 5.5h1.2M9.8 8h1.2M6 10.6h1M9 10.6h1";
     pub const CHANGED: &str = "M8 2.5l6 11H2zM8 6.5v3M8 11.2v.8";
     pub const PAUSE: &str = "M5.5 3.5v9M10.5 3.5v9";
+    /// Sections: a list with a play mark.
+    pub const SECTIONS: &str = "M2 4h8M2 8h8M2 12h4.5M9.5 10.5v4l3.5-2z";
 }
 
 /// A time as one string per character, for `Clock`; one shared model per distinct
@@ -198,21 +200,25 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         .project
         .bindings
         .iter()
-        .filter(|b| b.targets.contains(&cart.id))
+        .filter(|b| b.targets.contains(&cart.id) && b.action != bubble_project::Action::Outro)
         .partition(|b| matches!(b.source, bubble_project::BindingSource::Midi { .. }));
     let keys: Vec<String> = keys
         .iter()
         .map(|b| bubble_control::describe(&b.source))
         .collect();
     let mut icons: Vec<SharedString> = Vec::new();
+    // With Sections on, the cart's own In, Out and Loop are not used: the sections
+    // mark stands for them.
+    let sections = cart.sections.is_some_and(|s| s.on);
     if !control {
         match bubble_core::view::trim_flags(cart, &snap.project) {
+            _ if sections => icons.push(icon::SECTIONS.into()),
             (true, true) => icons.push(icon::IN_OUT.into()),
             (true, false) => icons.push(icon::IN.into()),
             (false, true) => icons.push(icon::OUT.into()),
             _ => {}
         }
-        if cart.looping {
+        if cart.looping && !sections {
             icons.push(icon::LOOP.into());
         }
         if cart.on_play.stop != StopScope::None {
@@ -276,7 +282,10 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         .into(),
         // Quantised, so a tile is redrawn only when its bar visibly moves.
         progress: (rt.progress * 1000.0).round() / 1000.0,
-        ending: !rt.looping && rt.remaining_s < snap.project.settings.ending_warning_s,
+        // The end coming: of the cart, not of its Intro.
+        ending: !rt.looping
+            && rt.section != bubble_control::VoiceSection::Intro
+            && rt.remaining_s < snap.project.settings.ending_warning_s,
         state: match rt.state {
             Cs::Empty => CartState::Empty,
             Cs::Loading => CartState::Loading,

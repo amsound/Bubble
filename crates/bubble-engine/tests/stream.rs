@@ -12,7 +12,7 @@ use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use bubble_engine::loader::{PrepareOptions, load_for_engine, prepare};
 use bubble_engine::{
     CartKey, Engine, EngineCommand, EngineConfig, EngineHandle, Mixer, PlayParams, Playable,
-    Retrigger, Streamer,
+    Retrigger, SectionPlan, Streamer,
 };
 
 #[global_allocator]
@@ -201,6 +201,44 @@ fn loops_from_out_back_to_in_across_the_stream() {
     assert_eq!(out[19_999 * 2], 29_999.0);
     assert_eq!(out[20_000 * 2], 10_000.0, "wrapped to In");
     assert_eq!(out[45_000 * 2], 15_000.0, "third pass, from the disk");
+}
+
+#[test]
+fn sections_join_across_the_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ramp.wav");
+    ramp_wav(&path, SR as usize * 3, SR);
+    // Intro 0–20 000, Main 20 000–40 000 (twice), Outro 100 000–110 000: each part
+    // leaves its head for the disk, and the Outro starts from a head of its own.
+    let out = same_as_resident(&path, &[20_000, 100_000], |r, a| {
+        r.play(
+            1,
+            a,
+            PlayParams {
+                start_frame: 0,
+                end_frame: Some(20_000),
+                sections: Some(SectionPlan {
+                    intro: true,
+                    main: (20_000, 40_000),
+                    outro: Some((100_000, 110_000)),
+                }),
+                ..Default::default()
+            },
+        );
+        let mut out = r.render(50_000);
+        r.send(EngineCommand::Outro {
+            cart: CartKey(1),
+            instantly: false,
+        });
+        out.extend(r.render(25_000));
+        out
+    });
+    assert_eq!(out[19_999 * 2], 19_999.0);
+    assert_eq!(out[20_000 * 2], 20_000.0, "into Main");
+    assert_eq!(out[40_000 * 2], 20_000.0, "Main again");
+    assert_eq!(out[60_000 * 2], 100_000.0, "into the Outro");
+    assert_eq!(out[69_999 * 2], 109_999.0);
+    assert_eq!(out[70_000 * 2], 0.0, "ended");
 }
 
 #[test]

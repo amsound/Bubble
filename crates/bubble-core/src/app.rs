@@ -64,6 +64,10 @@ pub enum Intent {
     ReleaseHolds,
     /// Learn a trigger with the default action for the current mouse mode.
     LearnDefault(Uuid),
+    /// Learn the trigger that starts a cart's Outro.
+    LearnOutro(Uuid),
+    /// Remove the triggers of a cart's Outro.
+    ClearOutroTrigger(Uuid),
     Settings(ProjectSettings),
     RenameProject(String),
     AddPage,
@@ -944,6 +948,14 @@ impl Core {
                     c.start_learn(id, a);
                     Ok(())
                 }
+                Intent::LearnOutro(id) => {
+                    c.start_learn(id, bubble_project::Action::Outro);
+                    Ok(())
+                }
+                Intent::ClearOutroTrigger(id) => {
+                    c.clear_bindings(id, None, true);
+                    Ok(())
+                }
                 Intent::Settings(s) => {
                     let wav_on = s.convert_to_wav && !c.project().settings.convert_to_wav;
                     c.edit_settings(|x| *x = s);
@@ -1007,7 +1019,7 @@ impl Core {
                     Ok(())
                 }
                 Intent::ClearBindings(id, k) => {
-                    c.clear_bindings(id, k);
+                    c.clear_bindings(id, k, false);
                     Ok(())
                 }
                 Intent::Relink(a, p) => {

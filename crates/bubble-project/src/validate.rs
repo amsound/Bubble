@@ -230,6 +230,20 @@ impl Validator {
         {
             self.err(format!("{path}.trim"), "in must be before out");
         }
+        if let Some(sec) = c.sections {
+            let parts = [
+                ("intro", sec.intro.map(|s| s.trim())),
+                ("main", Some(sec.main)),
+                ("outro", sec.outro.map(|s| s.trim())),
+            ];
+            for (name, t) in parts {
+                if let Some(t) = t
+                    && t.in_frames >= t.out_frames
+                {
+                    self.err(format!("{path}.sections.{name}"), "in must be before out");
+                }
+            }
+        }
     }
 }
 

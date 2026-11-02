@@ -62,7 +62,7 @@ pub fn trigger_names(cart: &Cart, project: &Project) -> Vec<String> {
     project
         .bindings
         .iter()
-        .filter(|b| b.targets.contains(&cart.id))
+        .filter(|b| b.targets.contains(&cart.id) && b.action != bubble_project::Action::Outro)
         .map(|b| describe(&b.source))
         .collect()
 }
@@ -101,13 +101,17 @@ pub fn tile_text(cart: &Cart, project: &Project, rt: &CartRuntime) -> TileText {
     let playing = matches!(rt.state, CartState::Playing | CartState::Stopping);
     let mut flags: Vec<String> = Vec::new();
     match trim_flags(cart, project) {
+        _ if cart.sections.is_some_and(|s| s.on) => {}
         // In and Out both trimmed.
         (true, true) => flags.push("X".into()),
         (true, false) => flags.push(">".into()),
         (false, true) => flags.push("<".into()),
         _ => {}
     }
-    if cart.looping {
+    let sections = cart.sections.is_some_and(|s| s.on);
+    if sections {
+        flags.push("≡".into());
+    } else if cart.looping {
         flags.push("⟲".into());
     }
     let shown_speed = if playing { rt.speed } else { cart.speed };
@@ -133,6 +137,8 @@ pub fn tile_text(cart: &Cart, project: &Project, rt: &CartRuntime) -> TileText {
         flags.push("⚠".into());
     }
     let time = match rt.state {
+        // Main repeats until it is stopped or its Outro starts.
+        CartState::Playing if rt.section == bubble_control::VoiceSection::Main => "∞".into(),
         CartState::Playing | CartState::Stopping => {
             format!("-{}", fmt_clock(rt.remaining_s, true))
         }

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
 use bubble_engine::loader::{PrepareOptions, SourceInfo, engine_frame, prepare, scan_overview};
+use bubble_engine::markers::{self, FileSections};
 use bubble_engine::{Overview, Playable};
 use bubble_project::fingerprint::Match;
 use bubble_project::{Project, Resolution, Resolver};
@@ -76,6 +77,8 @@ struct Done {
     generation: u64,
     changed: bool,
     result: Result<(Arc<Playable>, SourceInfo), String>,
+    /// Sections marked in the file.
+    markers: Option<FileSections>,
 }
 
 struct OverviewDone {
@@ -117,12 +120,17 @@ const WORKERS: usize = 2;
 fn cart_starts(project: &Project) -> HashMap<Uuid, Vec<u64>> {
     let mut m: HashMap<Uuid, Vec<u64>> = HashMap::new();
     for (_, cell) in project.carts() {
-        if let (Some(a), Some(t)) = (cell.cart.asset, cell.cart.trim)
-            && t.in_frames > 0
-        {
+        let c = &cell.cart;
+        let Some(a) = c.asset else { continue };
+        // The In point, and each section's: Main's In comes round on every loop and
+        // the Outro may start at any moment.
+        let sections = c.sections.into_iter().flat_map(|s| {
+            [s.intro.map(|x| x.in_frames), Some(s.main.in_frames), s.outro.map(|x| x.in_frames)]
+        });
+        for at in c.trim.map(|t| t.in_frames).into_iter().chain(sections.flatten()) {
             let v = m.entry(a).or_default();
-            if !v.contains(&t.in_frames) {
-                v.push(t.in_frames);
+            if at > 0 && !v.contains(&at) {
+                v.push(at);
             }
         }
     }
@@ -162,6 +170,9 @@ impl AssetCache {
                             .map_err(|e| e.to_string())
                         })
                         .unwrap_or_else(|_| Err("the file could not be decoded".to_string()));
+                        let markers = std::panic::catch_unwind(|| markers::read(&job.path))
+                            .ok()
+                            .flatten();
                         if dtx
                             .send(Done {
                                 asset: job.asset,
@@ -169,6 +180,7 @@ impl AssetCache {
                                 generation: job.generation,
                                 changed: job.changed,
                                 result,
+                                markers,
                             })
                             .is_err()
                         {
@@ -424,8 +436,9 @@ impl AssetCache {
         }
     }
 
-    /// Applies finished loads. Returns ids whose state changed.
-    pub fn poll(&mut self) -> Vec<(Uuid, Option<SourceInfo>)> {
+    /// Applies finished loads. Returns ids whose state changed, with the file's
+    /// details and the sections marked in it.
+    pub fn poll(&mut self) -> Vec<(Uuid, Option<SourceInfo>, Option<FileSections>)> {
         let mut changed = Vec::new();
         while let Ok(d) = self.done.try_recv() {
             if d.generation != self.generation {
@@ -444,7 +457,7 @@ impl AssetCache {
             }
             let state = match d.result {
                 Ok((audio, source)) => {
-                    changed.push((d.asset, Some(source)));
+                    changed.push((d.asset, Some(source), d.markers));
                     AssetState::Ready {
                         path: d.path,
                         audio,
@@ -453,7 +466,7 @@ impl AssetCache {
                     }
                 }
                 Err(message) => {
-                    changed.push((d.asset, None));
+                    changed.push((d.asset, None, None));
                     AssetState::Error {
                         path: d.path,
                         message,

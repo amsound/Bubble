@@ -43,6 +43,40 @@ impl VoicePhase {
     }
 }
 
+/// Which part of a cart in sections a voice is playing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum VoiceSection {
+    /// Not in sections.
+    #[default]
+    Whole,
+    Intro,
+    Main,
+    /// In Main, with the Outro to follow at Main's Out point.
+    MainThenOutro,
+    Outro,
+}
+
+impl VoiceSection {
+    pub(crate) fn to_u32(self) -> u32 {
+        match self {
+            VoiceSection::Whole => 0,
+            VoiceSection::Intro => 1,
+            VoiceSection::Main => 2,
+            VoiceSection::MainThenOutro => 3,
+            VoiceSection::Outro => 4,
+        }
+    }
+    fn from_u32(v: u32) -> Self {
+        match v {
+            1 => VoiceSection::Intro,
+            2 => VoiceSection::Main,
+            3 => VoiceSection::MainThenOutro,
+            4 => VoiceSection::Outro,
+            _ => VoiceSection::Whole,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct VoiceSlotStatus {
     cart: AtomicU32,
@@ -52,6 +86,7 @@ pub(crate) struct VoiceSlotStatus {
     /// Frames between In and Out.
     length: AtomicU64,
     looping: AtomicBool,
+    section: AtomicU32,
     /// Output peaks since the UI last took them (f32 bits; fetch_max works for ≥ 0).
     peak_l: AtomicU32,
     peak_r: AtomicU32,
@@ -67,6 +102,7 @@ pub struct VoiceView {
     pub position_frames: u64,
     pub length_frames: u64,
     pub looping: bool,
+    pub section: VoiceSection,
     /// Current playback speed (1 = normal).
     pub speed: f32,
 }
@@ -185,8 +221,10 @@ impl EngineStatus {
         pos: u64,
         len: u64,
         looping: bool,
+        section: VoiceSection,
     ) {
         let s = &self.voices[slot];
+        s.section.store(section.to_u32(), Relaxed);
         s.cart.store(cart.0, Relaxed);
         s.phase.store(phase.to_u32(), Relaxed);
         s.position.store(pos, Relaxed);
@@ -236,6 +274,7 @@ impl EngineStatus {
                 position_frames: s.position.load(Relaxed),
                 length_frames: s.length.load(Relaxed),
                 looping: s.looping.load(Relaxed),
+                section: VoiceSection::from_u32(s.section.load(Relaxed)),
                 speed: f32::from_bits(s.speed.load(Relaxed)),
             });
         }

@@ -11,17 +11,20 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bubble_control::{AssetState, CartState as Cs, describe};
+use bubble_control::{AssetState, CartState as Cs, VoiceSection, describe};
 use bubble_core::app::Core;
 use bubble_core::meter::{Ppm, scale_pos, zone};
 use bubble_core::{Intent, Snapshot};
 use bubble_engine::Overview;
-use bubble_project::{BindingSource, Cart, FadeSpec, Retrigger, StopScope, Trim};
+use bubble_project::{
+    Action, BindingSource, Cart, FadeSpec, OutroStart, Retrigger, Section, Sections, StopScope,
+    Trim,
+};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use uuid::Uuid;
 
 use crate::model;
-use crate::{PopupRow, SetupInfo, WaveMark};
+use crate::{PopupRow, SetupInfo, WaveMark, WaveRegion};
 
 /// Pixels either side of a handle (or the playhead) that grab it.
 const GRAB: f32 = 12.0;
@@ -32,6 +35,45 @@ const FLAG_W: f32 = 34.0;
 const EDGE: f32 = 32.0;
 /// Shortest In–Out (seconds).
 const MIN_LEN: f64 = 0.001;
+
+/// The section whose In and Out the editor shows, with Sections on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Part {
+    Intro,
+    Main,
+    Outro,
+}
+
+impl Part {
+    fn index(self) -> i32 {
+        match self {
+            Part::Intro => 0,
+            Part::Main => 1,
+            Part::Outro => 2,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Part::Intro => "INTRO",
+            Part::Main => "MAIN",
+            Part::Outro => "OUTRO",
+        }
+    }
+
+    /// The part a voice in sections is playing.
+    fn of(s: VoiceSection) -> Option<Part> {
+        match s {
+            VoiceSection::Intro => Some(Part::Intro),
+            VoiceSection::Main | VoiceSection::MainThenOutro => Some(Part::Main),
+            VoiceSection::Outro => Some(Part::Outro),
+            VoiceSection::Whole => None,
+        }
+    }
+}
+
+/// Section colours: Intro, Main, Outro.
+const PART_RGB: [[u8; 3]; 3] = [[0xBF, 0x5A, 0xF2], [0x30, 0xD1, 0x58], [0xFF, 0x9F, 0x0A]];
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Handle {
@@ -99,6 +141,10 @@ pub struct Setup {
     pinch: Option<f64>,
     /// The playhead was grabbed while playing: it carries on when let go.
     resume: bool,
+    /// With Sections on: the section being edited and auditioned, and whether the
+    /// audition loops it (the transport's loop; the cart's own Loop is not used).
+    part: Part,
+    audition_loop: bool,
     /// Scrubbing: when the held playhead last moved, and whether it is sounding.
     scrub_at: Option<Instant>,
     sounding: bool,
@@ -195,6 +241,8 @@ impl Setup {
             touches: Vec::new(),
             pinch: None,
             resume: false,
+            part: Part::Main,
+            audition_loop: false,
             scrub_at: None,
             sounding: false,
         }
@@ -215,10 +263,49 @@ impl Setup {
         if d.looping != b.looping {
             intents.push(Intent::LiveLoop(self.id, b.looping));
         }
-        if d.trim != b.trim {
+        if self.trims_of(d) != self.trims_of(b) {
             let (start, end) = self.trims_of(b);
             intents.push(Intent::LiveTrim(self.id, start, end));
         }
+    }
+
+    /// Sections, while they are switched on.
+    fn sections(&self) -> Option<&Sections> {
+        self.draft.sections.as_ref().filter(|s| s.on)
+    }
+
+    /// The selected part's In and Out (source frames), if it exists.
+    fn part_trim(&self, cart: &Cart, part: Part) -> Option<Trim> {
+        let s = cart.sections.as_ref().filter(|s| s.on)?;
+        match part {
+            Part::Intro => s.intro.map(Section::trim),
+            Part::Main => Some(s.main),
+            Part::Outro => s.outro.map(Section::trim),
+        }
+    }
+
+    /// What Play auditions: the cart, or with Sections on only the selected section
+    /// (looped by the transport's loop).
+    fn audition(&self) -> Cart {
+        let mut c = self.draft.clone();
+        if let Some(t) = self.part_trim(&self.draft, self.part) {
+            c.sections = None;
+            c.trim = Some(t);
+            c.looping = self.audition_loop;
+        }
+        c
+    }
+
+    /// The part a playing voice of this cart is in: the audition's own (`None`), or
+    /// a section when the cart plays in sections.
+    fn playing_part(&self, snap: &Snapshot) -> Option<Part> {
+        snap.runtime.get(&self.id).and_then(|r| Part::of(r.section))
+    }
+
+    /// Whether a change to the selected part's points is heard now: the audition, or
+    /// the cart playing that very section.
+    fn hears_part(&self, snap: &Snapshot) -> bool {
+        self.playing(snap) && self.playing_part(snap).is_none_or(|p| p == self.part)
     }
 
     pub fn changed(&self) -> bool {
@@ -243,7 +330,15 @@ impl Setup {
     }
 
     fn trims_of(&self, cart: &Cart) -> (f64, f64) {
-        match cart.trim {
+        self.trims_of_part(cart, self.part)
+    }
+
+    fn trims_of_part(&self, cart: &Cart, part: Part) -> (f64, f64) {
+        let t = match cart.sections.filter(|s| s.on) {
+            Some(_) => self.part_trim(cart, part),
+            None => cart.trim,
+        };
+        match t {
             Some(t) => (
                 t.in_frames as f64 / self.rate,
                 // Past the file's end (an imported trim, say), playback stops at the end.
@@ -261,17 +356,104 @@ impl Setup {
         let out_s = out_s.clamp(in_s + MIN_LEN, self.dur);
         let in_f = (in_s * self.rate).round() as u64;
         let out_f = ((out_s * self.rate).round() as u64).min(self.frames);
-        self.draft.trim = if in_f == 0 && out_f >= self.frames {
-            None
-        } else {
-            Some(Trim {
-                in_frames: in_f,
-                out_frames: out_f.max(in_f + 1),
-            })
+        let t = Trim {
+            in_frames: in_f,
+            out_frames: out_f.max(in_f + 1),
         };
+        let part = self.part;
+        match self.draft.sections.as_mut().filter(|s| s.on) {
+            Some(s) => match part {
+                Part::Main => s.main = t,
+                Part::Intro => {
+                    if let Some(x) = s.intro.as_mut() {
+                        (x.in_frames, x.out_frames) = (t.in_frames, t.out_frames);
+                    }
+                }
+                Part::Outro => {
+                    if let Some(x) = s.outro.as_mut() {
+                        (x.in_frames, x.out_frames) = (t.in_frames, t.out_frames);
+                    }
+                }
+            },
+            None => {
+                self.draft.trim = (in_f != 0 || out_f < self.frames).then_some(t);
+            }
+        }
         // Heard straight away while auditioning.
-        if self.playing(snap) {
+        if self.hears_part(snap) {
             intents.push(Intent::LiveTrim(self.id, in_s, out_s));
+        }
+    }
+
+    /// The Sections button: on (Main from the cart's In and Out the first time), or off
+    /// (the points are kept).
+    fn toggle_sections(&mut self) {
+        match self.draft.sections.as_mut() {
+            Some(s) => s.on = !s.on,
+            None => {
+                let main = self.draft.trim.unwrap_or(Trim {
+                    in_frames: 0,
+                    out_frames: self.frames.max(1),
+                });
+                self.draft.sections = Some(Sections {
+                    on: true,
+                    intro: None,
+                    main,
+                    outro: None,
+                    outro_starts: OutroStart::EndOfMain,
+                    outro_trigger: false,
+                });
+            }
+        }
+        self.part = Part::Main;
+    }
+
+    /// A chip: selects its section, adding the Intro or Outro the first time (from the
+    /// file's start to Main, or from Main to the end, where there is room).
+    fn choose_part(&mut self, part: Part) {
+        let (frames, rate) = (self.frames.max(1), self.rate);
+        let room = (0.1 * rate) as u64;
+        let few = ((5.0 * rate) as u64).min(frames);
+        let Some(s) = self.draft.sections.as_mut().filter(|s| s.on) else {
+            return;
+        };
+        let m = s.main;
+        let make = |a: u64, b: u64| Section {
+            in_frames: a,
+            out_frames: b.max(a + 1),
+            on: true,
+        };
+        match part {
+            Part::Intro if s.intro.is_none() => {
+                s.intro = Some(if m.in_frames >= room {
+                    make(0, m.in_frames)
+                } else {
+                    make(0, few)
+                });
+            }
+            Part::Outro if s.outro.is_none() => {
+                s.outro = Some(if frames.saturating_sub(m.out_frames) >= room {
+                    make(m.out_frames, frames)
+                } else {
+                    make(frames - few, frames)
+                });
+            }
+            _ => {}
+        }
+        self.part = part;
+    }
+
+    /// The Intro's or Outro's switch.
+    fn switch_part(&mut self, part: Part) {
+        if let Some(s) = self.draft.sections.as_mut() {
+            let x = match part {
+                Part::Intro => s.intro.as_mut(),
+                Part::Outro => s.outro.as_mut(),
+                Part::Main => None,
+            };
+            if let Some(x) = x {
+                x.on = !x.on;
+            }
         }
     }
 
@@ -570,6 +752,8 @@ impl Setup {
     pub fn toggle(&mut self, what: &str, snap: &Snapshot, intents: &mut Vec<Intent>) {
         let playing = self.playing(snap);
         match what {
+            // With Sections on, Main loops and the cart's Loop is not used.
+            "loop" if self.sections().is_some() => {}
             "loop" => {
                 self.draft.looping = !self.draft.looping;
                 if playing {
@@ -632,7 +816,11 @@ impl Setup {
         if !matches!(rt.state, Cs::Playing | Cs::Stopping) {
             return None;
         }
-        let (a, b) = self.trims();
+        // The cart playing in sections: within the section it is in.
+        let (a, b) = match Part::of(rt.section) {
+            Some(p) => self.trims_of_part(&self.draft, p),
+            None => self.trims(),
+        };
         Some(a + rt.progress as f64 * (b - a))
     }
 
@@ -645,7 +833,7 @@ impl Setup {
                 intents.push(Intent::LiveSpeedRamp(self.id, self.draft.speed, 5));
             }
         } else {
-            intents.push(Intent::PreviewAt(self.draft.clone(), t));
+            intents.push(Intent::PreviewAt(self.audition(), t));
         }
     }
 
@@ -657,7 +845,7 @@ impl Setup {
         } else if let Some(t) = self.cursor {
             self.play_from(t, snap, intents);
         } else {
-            intents.push(Intent::Preview(self.draft.clone()));
+            intents.push(Intent::Preview(self.audition()));
         }
     }
 
@@ -695,7 +883,44 @@ impl Setup {
                 self.set_trims(a, self.dur, snap, intents);
                 self.last = Handle::Out;
             }
+            // The transport's loop: the cart's Loop, or with Sections on the audition's.
+            "loop" if self.sections().is_some() => {
+                self.audition_loop = !self.audition_loop;
+                if self.playing(snap) && self.playing_part(snap).is_none() {
+                    intents.push(Intent::LiveLoop(self.id, self.audition_loop));
+                }
+            }
             "loop" => self.toggle("loop", snap, intents),
+            "sections" => {
+                // A different set of points from here on: the audition stops.
+                if self.playing(snap) && self.playing_part(snap).is_none() {
+                    intents.push(Intent::KillCart(self.id));
+                }
+                self.toggle_sections();
+            }
+            "part-intro" | "part-main" | "part-outro" => {
+                let p = match what {
+                    "part-intro" => Part::Intro,
+                    "part-main" => Part::Main,
+                    _ => Part::Outro,
+                };
+                if p != self.part && self.playing(snap) && self.playing_part(snap).is_none() {
+                    intents.push(Intent::KillCart(self.id));
+                }
+                self.choose_part(p);
+            }
+            "switch-intro" => self.switch_part(Part::Intro),
+            "switch-outro" => self.switch_part(Part::Outro),
+            "outro-this" | "outro-new" | "outro-end" | "outro-instant" => {
+                if let Some(s) = self.draft.sections.as_mut() {
+                    match what {
+                        "outro-this" => s.outro_trigger = false,
+                        "outro-new" => s.outro_trigger = true,
+                        "outro-end" => s.outro_starts = OutroStart::EndOfMain,
+                        _ => s.outro_starts = OutroStart::Instantly,
+                    }
+                }
+            }
             "play" | "space" => self.play_pause(snap, intents),
             "in-set" | "i" => {
                 if let Some(t) = self.here(snap) {
@@ -877,6 +1102,12 @@ impl Setup {
             self.dur = 0.0;
             self.cursor = None;
         }
+        // Sections found in a new file arrive once it has loaded.
+        if cart.sections != self.base.sections && self.draft.sections == self.base.sections {
+            self.draft.sections = cart.sections;
+            self.base.sections = cart.sections;
+            self.part = Part::Main;
+        }
         // Bindings live in the session, not the cart: nothing else to follow.
     }
 
@@ -968,6 +1199,50 @@ impl Setup {
             }
         }
         win.set_fade_path(fade.into());
+        // Sections: each in its colour (hatched while switched off); the darker
+        // shade goes outside all of them.
+        let mut regions = Vec::new();
+        let (mut shade_a, mut shade_b) = (in_x, out_x);
+        if has_audio && let Some(sec) = self.sections() {
+            let parts = [
+                (Part::Intro, sec.intro.map(|x| (x.trim(), x.on))),
+                (Part::Main, Some((sec.main, true))),
+                (Part::Outro, sec.outro.map(|x| (x.trim(), x.on))),
+            ];
+            (shade_a, shade_b) = (f32::MAX, f32::MIN);
+            for (p, t) in parts {
+                let Some((t, on)) = t else { continue };
+                let a = t.in_frames as f64 / self.rate;
+                let b = (t.out_frames as f64 / self.rate).min(self.dur);
+                let (x0, x1) = (self.x_of(a), self.x_of(b));
+                (shade_a, shade_b) = (shade_a.min(x0), shade_b.max(x1));
+                let (x0, x1) = (x0.max(-2.0), x1.min(w + 2.0));
+                if x1 <= x0 {
+                    continue;
+                }
+                let rw = x1 - x0;
+                let mut hatch = String::new();
+                if !on {
+                    let mut x = -h;
+                    while x < rw {
+                        hatch += &format!("M{x:.1} {h:.1}L{:.1} 0", x + h);
+                        x += 7.0;
+                    }
+                }
+                let [r, g, b] = PART_RGB[p.index() as usize];
+                regions.push(WaveRegion {
+                    x: x0,
+                    w: rw,
+                    colour: Color::from_rgb_u8(r, g, b),
+                    on,
+                    selected: p == self.part,
+                    hatch: hatch.into(),
+                });
+            }
+        }
+        win.set_regions(ModelRc::new(VecModel::from(regions)));
+        win.set_shade_in_x(if has_audio { shade_a } else { -100.0 });
+        win.set_shade_out_x(if has_audio { shade_b } else { -100.0 });
         win.set_in_x(if has_audio { in_x } else { -100.0 });
         win.set_out_x(if has_audio { out_x } else { -100.0 });
         win.set_in_tab(has_audio && in_x < 0.0);
@@ -1034,15 +1309,23 @@ impl Setup {
             .project
             .bindings
             .iter()
-            .filter(|b| b.targets.contains(&self.id))
+            .filter(|b| b.targets.contains(&self.id) && b.action != Action::Outro)
             .filter(|b| matches!(b.source, BindingSource::Key { .. }))
             .map(|b| describe(&b.source))
             .collect();
+        let outro_keys: Vec<String> = snap
+            .project
+            .bindings
+            .iter()
+            .filter(|b| b.targets.contains(&self.id) && b.action == Action::Outro)
+            .map(|b| describe(&b.source))
+            .collect();
+        let learn = snap.learning.filter(|l| l.cart == self.id);
         let midi: Vec<String> = snap
             .project
             .bindings
             .iter()
-            .filter(|b| b.targets.contains(&self.id))
+            .filter(|b| b.targets.contains(&self.id) && b.action != Action::Outro)
             .filter(|b| matches!(b.source, BindingSource::Midi { .. }))
             .map(|b| describe(&b.source))
             .collect();
@@ -1056,7 +1339,51 @@ impl Setup {
             .project
             .cart_position(c.id)
             .map_or(0, |(p, r, col)| snap.project.cell_number(p, r, col));
+        // The chips: "Intro · 0:19", "Main ∞ · 0:25", "Outro · 0:14".
+        let sec = self.sections().copied();
+        let span = |p: Part| {
+            let (a, b) = self.trims_of_part(c, p);
+            let t = (b - a).max(0.0).round() as u64;
+            format!("{}:{:02}", t / 60, t % 60)
+        };
+        // 0 none, 1 switched off, 2 on.
+        let state = |x: Option<Section>| x.map_or(0, |x| if x.on { 2 } else { 1 });
+        let sec_on = sec.is_some();
+        let [pr, pg, pb] = PART_RGB[self.part.index() as usize];
         let info = SetupInfo {
+            sections: sec_on,
+            part: self.part.index(),
+            part_colour: if sec_on {
+                Color::from_rgb_u8(pr, pg, pb)
+            } else {
+                Color::from_argb_u8(0, 0, 0, 0)
+            },
+            in_title: if sec_on {
+                format!("{} IN", self.part.name())
+            } else {
+                "TRIM IN".into()
+            }
+            .into(),
+            out_title: if sec_on {
+                format!("{} OUT", self.part.name())
+            } else {
+                "TRIM OUT".into()
+            }
+            .into(),
+            intro: state(sec.and_then(|s| s.intro)),
+            outro: state(sec.and_then(|s| s.outro)),
+            intro_text: format!("Intro · {}", span(Part::Intro)).into(),
+            main_text: format!("Main ∞ · {}", span(Part::Main)).into(),
+            outro_text: format!("Outro · {}", span(Part::Outro)).into(),
+            outro_own: sec.is_some_and(|s| s.outro_trigger),
+            outro_instant: sec.is_some_and(|s| s.outro_starts == OutroStart::Instantly),
+            outro_key: outro_keys.join(", ").into(),
+            outro_learning: learn.is_some_and(|l| l.action == Action::Outro),
+            transport_loop: if sec_on {
+                self.audition_loop
+            } else {
+                c.looping
+            },
             name: format!("Button {button}").into(),
             details: details.into(),
             has_audio,
@@ -1095,7 +1422,7 @@ impl Setup {
             cart_color: Color::from_rgb_u8(rgb[0], rgb[1], rgb[2]),
             midi: midi.join(", ").into(),
             show_midi: !core.prefs.midi_disabled || !midi.is_empty(),
-            learning: snap.learning.is_some_and(|l| l.cart == self.id),
+            learning: learn.is_some_and(|l| l.action != Action::Outro),
             missing: c.asset.is_some_and(|a| snap.missing.contains(&a)),
         };
         if win.get_info() != info {

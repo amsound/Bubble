@@ -282,14 +282,16 @@ export component SysButton inherits Rectangle {
     in property <string> icon;
     // Space either side of the words (none for the narrow − and + of the trims).
     in property <length> pad: Theme.mac ? 11px : 12px;
+    // A button that stays down (Sections): outlined and worded in the accent.
+    in property <bool> on;
     callback clicked;
     height: Theme.mac ? 24px : 32px;
     // Never narrower than its words: button text does not wrap.
     min-width: row.preferred-width;
     horizontal-stretch: 0;
     border-radius: Theme.mac ? 6px : 4px;
-    border-width: primary || (Theme.mac && !destructive) ? 0px : 1px;
-    border-color: destructive ? Theme.danger-border : Theme.control-border;
+    border-width: on ? 1.5px : primary || (Theme.mac && !destructive) ? 0px : 1px;
+    border-color: on ? Theme.accent : destructive ? Theme.danger-border : Theme.control-border;
     background: destructive ? Theme.danger-text.transparentize(ta.has-hover ? 80% : 88%)
         : primary ? Theme.accent.darker(ta.pressed ? 15% : 0%)
         : Theme.mac ? Theme.text.transparentize(ta.pressed ? 76% : ta.has-hover ? 82% : 87%)
@@ -314,8 +316,8 @@ export component SysButton inherits Rectangle {
         Text {
             text: root.text;
             font-size: Theme.mac ? 13px : 14px;
-            font-weight: root.primary || root.destructive ? 600 : 400;
-            color: root.destructive ? Theme.danger-text : root.primary ? Theme.on-accent : Theme.text;
+            font-weight: root.primary || root.destructive || root.on ? 600 : 400;
+            color: root.destructive ? Theme.danger-text : root.primary ? Theme.on-accent : root.on ? Theme.accent : Theme.text;
             horizontal-alignment: center;
             vertical-alignment: center;
         }

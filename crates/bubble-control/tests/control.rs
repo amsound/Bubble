@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 
 use bubble_control::*;
 use bubble_engine::{Engine, EngineConfig, Mixer};
-use bubble_project::{Action, BindingSource, MidiChannel, MidiMessage, Retrigger, StopScope, Trim};
+use bubble_project::{
+    Action, BindingSource, MidiChannel, MidiMessage, OutroStart, Retrigger, Section, Sections,
+    StopScope, Trim,
+};
 use uuid::Uuid;
 
 const SR: u32 = 48_000;
@@ -1183,4 +1186,179 @@ fn a_save_in_the_background_keeps_later_edits_and_failures_unsaved() {
     assert!(!c.is_dirty());
     c.save_finished(&path, false);
     assert!(c.is_dirty());
+}
+
+/// A cart of a quiet 1 s tone in sections: Intro 0–0.1 s, Main 0.1–0.2 s, Outro
+/// 0.5–0.6 s, restarting on a repeated hotkey (KeyR).
+fn sections_cart(dir: &Path, own_trigger: bool) -> (Controller, Mixer, Uuid) {
+    let p = dir.join("tone.wav");
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SR,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(&p, spec).unwrap();
+    for n in 0..SR {
+        w.write_sample(((n as f32 * 0.06).sin() * 3000.0) as i16).unwrap();
+    }
+    w.finalize().unwrap();
+    let (mut c, m) = setup();
+    let cart = c.assign_file(0, 0, 0, &p).unwrap();
+    let part = |a: u32, b: u32| Section {
+        in_frames: a as u64,
+        out_frames: b as u64,
+        on: true,
+    };
+    c.edit_cart(cart, |x| {
+        x.retrigger = Some(Retrigger::Restart);
+        x.sections = Some(Sections {
+            on: true,
+            intro: Some(part(0, 4_800)),
+            main: Trim {
+                in_frames: 4_800,
+                out_frames: 9_600,
+            },
+            outro: Some(part(24_000, 28_800)),
+            outro_starts: OutroStart::EndOfMain,
+            outro_trigger: own_trigger,
+        });
+    });
+    wait_ready(&mut c);
+    c.start_learn(cart, Action::Play);
+    c.handle_input(&key("KeyR", true, false));
+    c.handle_input(&key("KeyR", false, false));
+    (c, m, cart)
+}
+
+fn section(c: &Controller, cart: Uuid) -> VoiceSection {
+    c.runtime()[&cart].section
+}
+
+fn press(c: &mut Controller, code: &str) {
+    c.handle_input(&key(code, true, false));
+    c.handle_input(&key(code, false, false));
+}
+
+#[test]
+fn sections_play_intro_then_main_and_a_press_in_main_starts_the_outro() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut c, mut m, cart) = sections_cart(dir.path(), false);
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 480);
+    assert_eq!(section(&c, cart), VoiceSection::Intro);
+    // A press during the Intro follows On retrigger (Restart): the Intro again.
+    run(&mut c, &mut m, 3_000);
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 480);
+    assert_eq!(section(&c, cart), VoiceSection::Intro);
+    // Into Main, which repeats.
+    run(&mut c, &mut m, 15_000);
+    assert_eq!(section(&c, cart), VoiceSection::Main);
+    assert_eq!(state(&c, cart), CartState::Playing);
+    // A press during Main: the Outro follows at Main's end, then the cart stops.
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 256);
+    assert_eq!(section(&c, cart), VoiceSection::MainThenOutro);
+    run(&mut c, &mut m, 5_000);
+    assert_eq!(section(&c, cart), VoiceSection::Outro);
+    run(&mut c, &mut m, 5_000);
+    assert_ne!(state(&c, cart), CartState::Playing);
+}
+
+#[test]
+fn a_click_stops_a_cart_in_sections_except_in_main() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut c, mut m, cart) = sections_cart(dir.path(), false);
+    c.pointer_down(cart, MouseButton::Primary);
+    run(&mut c, &mut m, 480);
+    assert_eq!(section(&c, cart), VoiceSection::Intro);
+    // During the Intro a click stops it (with its fade).
+    c.pointer_down(cart, MouseButton::Primary);
+    run(&mut c, &mut m, 480);
+    assert_ne!(state(&c, cart), CartState::Playing);
+    // During Main a click starts the Outro instead.
+    run(&mut c, &mut m, SR as usize * 4);
+    c.pointer_down(cart, MouseButton::Primary);
+    run(&mut c, &mut m, 15_000);
+    assert_eq!(section(&c, cart), VoiceSection::Main);
+    c.pointer_down(cart, MouseButton::Primary);
+    run(&mut c, &mut m, 256);
+    assert_eq!(section(&c, cart), VoiceSection::MainThenOutro);
+}
+
+#[test]
+fn an_outro_with_its_own_trigger_leaves_the_carts_trigger_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut c, mut m, cart) = sections_cart(dir.path(), true);
+    c.edit_cart(cart, |x| {
+        if let Some(s) = x.sections.as_mut() {
+            s.outro_starts = OutroStart::Instantly;
+        }
+    });
+    c.start_learn(cart, Action::Outro);
+    press(&mut c, "KeyO");
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 15_000);
+    assert_eq!(section(&c, cart), VoiceSection::Main);
+    // In Main the Outro's own key starts the Outro at once.
+    press(&mut c, "KeyO");
+    run(&mut c, &mut m, 480);
+    assert_eq!(section(&c, cart), VoiceSection::Outro);
+    // After the Outro the cart has stopped, and its key plays it again.
+    run(&mut c, &mut m, 15_000);
+    assert_ne!(state(&c, cart), CartState::Playing);
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 15_000);
+    // In Main the cart's key follows On retrigger (Restart), not the Outro.
+    assert_eq!(section(&c, cart), VoiceSection::Main);
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 480);
+    assert_eq!(section(&c, cart), VoiceSection::Intro);
+}
+
+#[test]
+fn a_file_with_marked_sections_puts_its_cart_in_sections() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("marked.wav");
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SR,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(&p, spec).unwrap();
+    for _ in 0..9_600 {
+        w.write_sample(0i16).unwrap();
+    }
+    w.finalize().unwrap();
+    // Append a cue list and a play list (Intro once, Main 999 times), as an editor does.
+    let mut bytes = std::fs::read(&p).unwrap();
+    let mut add = |id: &[u8; 4], words: &[u32]| {
+        bytes.extend(id);
+        bytes.extend(((words.len() * 4) as u32).to_le_bytes());
+        for x in words {
+            bytes.extend(x.to_le_bytes());
+        }
+    };
+    let data = u32::from_le_bytes(*b"data");
+    add(b"cue ", &[2, 1, 0, data, 0, 0, 0, 2, 4_800, data, 0, 0, 4_800]);
+    add(b"plst", &[2, 1, 4_800, 1, 2, 4_800, 999]);
+    let riff = (bytes.len() - 8) as u32;
+    bytes[4..8].copy_from_slice(&riff.to_le_bytes());
+    std::fs::write(&p, bytes).unwrap();
+
+    let (mut c, _m) = setup();
+    let cart = c.assign_file(0, 0, 0, &p).unwrap();
+    wait_ready(&mut c);
+    let s = c.project().cart(cart).unwrap().sections.unwrap();
+    assert!(s.on);
+    assert_eq!(s.intro.map(|x| (x.in_frames, x.out_frames)), Some((0, 4_800)));
+    assert_eq!((s.main.in_frames, s.main.out_frames), (4_800, 9_600));
+    assert!(s.outro.is_none());
+    // Switched off, they stay off when the file loads again.
+    c.edit_cart(cart, |x| x.sections.as_mut().unwrap().on = false);
+    c.refresh_assets();
+    wait_ready(&mut c);
+    assert!(!c.project().cart(cart).unwrap().sections.unwrap().on);
 }

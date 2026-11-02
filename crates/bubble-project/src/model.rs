@@ -407,6 +407,72 @@ pub struct Trim {
     pub out_frames: u64,
 }
 
+/// A cart in three parts: the Intro plays once, Main repeats until the cart is
+/// stopped or its Outro starts, and the Outro plays once to its end. Points are in
+/// source frames; each section has its own In and Out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sections {
+    /// Off keeps the points but plays the cart as usual (its trim and loop).
+    #[serde(default = "yes")]
+    pub on: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intro: Option<Section>,
+    pub main: Trim,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outro: Option<Section>,
+    /// When a press starts the Outro.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub outro_starts: OutroStart,
+    /// The Outro has a trigger of its own (an `outro` binding); the cart's own
+    /// trigger then plays and stops it as usual.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub outro_trigger: bool,
+}
+
+impl Sections {
+    /// The Intro, if it is switched on.
+    pub fn intro_on(&self) -> Option<Trim> {
+        self.intro.filter(|s| s.on).map(Section::trim)
+    }
+
+    /// The Outro, if it is switched on.
+    pub fn outro_on(&self) -> Option<Trim> {
+        self.outro.filter(|s| s.on).map(Section::trim)
+    }
+}
+
+/// The Intro or Outro: its In and Out, and whether it plays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Section {
+    pub in_frames: u64,
+    pub out_frames: u64,
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub on: bool,
+}
+
+impl Section {
+    pub fn trim(self) -> Trim {
+        Trim {
+            in_frames: self.in_frames,
+            out_frames: self.out_frames,
+        }
+    }
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutroStart {
+    /// When Main reaches its Out point.
+    #[default]
+    EndOfMain,
+    /// At once (a short crossfade).
+    Instantly,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StopScope {
@@ -465,6 +531,9 @@ pub struct Cart {
     pub fade_out_at_end: bool,
     #[serde(rename = "loop", default, skip_serializing_if = "is_default")]
     pub looping: bool,
+    /// Intro, Main and Outro. While on, they replace `trim` and `looping`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Sections>,
     /// `None` = project default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrigger: Option<Retrigger>,
@@ -567,6 +636,7 @@ impl Cart {
             fade_out: None,
             fade_out_at_end: false,
             looping: false,
+            sections: None,
             retrigger: None,
             on_play: OnPlay::default(),
             play_next: None,
@@ -739,6 +809,8 @@ pub enum Action {
     NextPage,
     PrevPage,
     GotoPage,
+    /// Starts the target carts' Outros.
+    Outro,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

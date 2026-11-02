@@ -6,7 +6,8 @@ use std::sync::Arc;
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
 use bubble_engine::{
     CartKey, EndReason, Engine, EngineCommand, EngineConfig, EngineEvent, EngineHandle, Fade,
-    FadeCurve, Mixer, PlayParams, Playable, Retrigger, SampleBuffer, StopOthers, StopTarget,
+    FadeCurve, Mixer, PlayParams, Playable, Retrigger, SampleBuffer, SectionPlan, StopOthers,
+    StopTarget, VoiceSection,
 };
 
 #[global_allocator]
@@ -1041,4 +1042,137 @@ fn live_region_change_applies_to_the_playing_voice() {
     assert_eq!(out[0], 2_000.0, "jumped to the new In");
     assert_eq!(out[1_999 * 2], 3_999.0, "plays to the new Out");
     assert_eq!(out[2_000 * 2], 2_000.0, "and loops to the new In");
+}
+
+fn left(out: &[f32]) -> Vec<f32> {
+    out.iter().step_by(2).copied().collect()
+}
+
+fn section(h: &EngineHandle) -> Option<VoiceSection> {
+    let mut s = None;
+    h.status().for_each_voice(|v| s = Some(v.section));
+    s
+}
+
+/// Intro 0–10, Main 10–20, Outro 30–40 of a ramp.
+fn sections(intro: bool) -> PlayParams {
+    PlayParams {
+        start_frame: if intro { 0 } else { 10 },
+        end_frame: Some(if intro { 10 } else { 20 }),
+        sections: Some(SectionPlan {
+            intro,
+            main: (10, 20),
+            outro: Some((30, 40)),
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn sections_join_intro_to_main_and_main_to_outro_sample_for_sample() {
+    let (mut h, mut m) = engine(4);
+    no_limiter(&mut h);
+    let buf = ramp(100);
+    play(&mut h, 1, &buf, sections(true));
+    let out = left(&render(&mut m, 35));
+    let want: Vec<f32> = (0..10).chain((0..25).map(|i| 10 + i % 10)).map(|x| x as f32).collect();
+    assert_eq!(out, want, "Intro once, then Main repeats");
+    assert_eq!(section(&h), Some(VoiceSection::Main));
+
+    // At the end of Main: the rest of this pass, then the Outro, then the end.
+    h.send(EngineCommand::Outro {
+        cart: CartKey(1),
+        instantly: false,
+    })
+    .unwrap();
+    let out = left(&render(&mut m, 20));
+    let want: Vec<f32> = (15..20).chain(30..40).map(|x| x as f32).chain([0.0; 5]).collect();
+    assert_eq!(out, want);
+    assert_eq!(h.status().active_voices(), 0);
+    assert!(events(&mut h).iter().any(|e| matches!(
+        e,
+        EngineEvent::VoiceEnded {
+            reason: EndReason::Completed,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn sections_without_an_intro_start_in_main_and_an_outro_waits_for_main() {
+    let (mut h, mut m) = engine(4);
+    no_limiter(&mut h);
+    let buf = ramp(100);
+    play(&mut h, 1, &buf, sections(false));
+    assert_eq!(left(&render(&mut m, 12)), (10..20).chain(10..12).map(|x| x as f32).collect::<Vec<_>>());
+    // During the Intro an Outro does nothing (the controller decides what a press does).
+    play(&mut h, 2, &buf, sections(true));
+    render(&mut m, 1);
+    h.send(EngineCommand::Outro {
+        cart: CartKey(2),
+        instantly: true,
+    })
+    .unwrap();
+    render(&mut m, 1);
+    let mut intro = false;
+    h.status().for_each_voice(|v| intro |= v.cart == CartKey(2) && v.section == VoiceSection::Intro);
+    assert!(intro, "still in the Intro");
+}
+
+#[test]
+fn an_instant_outro_crossfades_into_the_outro() {
+    let (mut h, mut m) = engine(4);
+    no_limiter(&mut h);
+    let buf = ramp(20_000);
+    play(
+        &mut h,
+        1,
+        &buf,
+        PlayParams {
+            start_frame: 1_000,
+            end_frame: Some(5_000),
+            sections: Some(SectionPlan {
+                intro: false,
+                main: (1_000, 5_000),
+                outro: Some((10_000, 12_000)),
+            }),
+            ..Default::default()
+        },
+    );
+    render(&mut m, 100);
+    h.send(EngineCommand::Outro {
+        cart: CartKey(1),
+        instantly: true,
+    })
+    .unwrap();
+    let out = left(&render(&mut m, 400));
+    // After the ~2 ms crossfade only the Outro sounds, from its In.
+    assert!((out[300] - 10_300.0).abs() < 2.0, "{}", out[300]);
+    assert_eq!(section(&h), Some(VoiceSection::Outro));
+    // It plays once to its Out and ends.
+    render(&mut m, 2_000);
+    assert_eq!(h.status().active_voices(), 0);
+}
+
+#[test]
+fn a_fade_out_carries_on_across_the_joins() {
+    let (mut h, mut m) = engine(4);
+    no_limiter(&mut h);
+    let buf = ramp(100);
+    play(&mut h, 1, &buf, sections(true));
+    render(&mut m, 5);
+    h.send(EngineCommand::Stop {
+        target: StopTarget::Cart(CartKey(1)),
+        fade: Some(Fade {
+            frames: 1_000,
+            curve: FadeCurve::Linear,
+        }),
+    })
+    .unwrap();
+    // The fade outlasts the Intro: it goes on into Main, and ends with the fade.
+    let out = left(&render(&mut m, 20));
+    assert!(out[10] > 0.0, "still sounding in Main");
+    assert_eq!(section(&h), Some(VoiceSection::Main));
+    render(&mut m, 1_000);
+    assert_eq!(h.status().active_voices(), 0);
 }

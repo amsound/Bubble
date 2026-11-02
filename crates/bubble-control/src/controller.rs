@@ -10,14 +10,16 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use bubble_engine::loader::SourceInfo;
+use bubble_engine::markers::FileSections;
 use bubble_engine::{
     CartKey, EndReason, EngineCommand, EngineEvent, EngineHandle, Fade, FadeCurve, Overview,
-    PlayParams, StopOthers, StopTarget, Streamer, VoicePhase, VoiceView, db_to_gain,
+    PlayParams, SectionPlan, StopOthers, StopTarget, Streamer, VoicePhase, VoiceSection,
+    VoiceView, db_to_gain,
 };
 use bubble_project::{
     Action, AssetMeta, Binding, BindingSource, Cart, Control, Curve, DuplicatePolicy,
-    ExclusiveGroup, Extra, FadeSpec, MouseMode, Page, Project, Retrigger, Scope, StopScope,
-    io as pio, make_asset_ref, output_index, relink,
+    ExclusiveGroup, Extra, FadeSpec, MouseMode, OutroStart, Page, Project, Retrigger, Scope,
+    Section, Sections, StopScope, Trim, io as pio, make_asset_ref, output_index, relink,
 };
 use uuid::Uuid;
 
@@ -88,6 +90,8 @@ pub struct CartRuntime {
     pub speed: f32,
     /// The speed bar's `x0` is slowing or has halted this cart.
     pub slowed: bool,
+    /// The part of a cart in sections the most recent voice plays.
+    pub section: VoiceSection,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -543,16 +547,53 @@ impl Controller {
     /// processes engine events (logging, play-next), releases retired buffers.
     pub fn tick(&mut self) {
         self.assets.refresh_heads(&self.project);
-        for (asset, info) in self.assets.poll() {
+        for (asset, info, marked) in self.assets.poll() {
             if let (Some(info), Some(a)) = (info, self.project.asset_mut(asset)) {
                 let meta = a.meta.get_or_insert_with(AssetMeta::default);
                 meta.sample_rate = info.sample_rate;
                 meta.channels = info.channels;
                 meta.frames = info.frames;
             }
+            if let Some(m) = marked {
+                self.use_marked_sections(asset, m);
+            }
         }
         self.end_halted();
         self.pump_events();
+    }
+
+    /// A file with sections marked in it puts its carts in sections: those that have
+    /// never had any (a file just added or replaced, or a session imported before).
+    /// A cart whose Sections were switched off keeps its own choice.
+    fn use_marked_sections(&mut self, asset: Uuid, m: FileSections) {
+        let part = |(a, b): (u64, u64)| Section {
+            in_frames: a,
+            out_frames: b,
+            on: true,
+        };
+        let mut any = false;
+        for page in &mut self.project.pages {
+            for cell in &mut page.cells {
+                let c = &mut cell.cart;
+                if c.asset == Some(asset) && c.sections.is_none() && c.control.is_none() {
+                    c.sections = Some(Sections {
+                        on: true,
+                        intro: m.intro.map(part),
+                        main: Trim {
+                            in_frames: m.main.0,
+                            out_frames: m.main.1,
+                        },
+                        outro: m.outro.map(part),
+                        outro_starts: OutroStart::EndOfMain,
+                        outro_trigger: false,
+                    });
+                    any = true;
+                }
+            }
+        }
+        if any {
+            self.edits += 1;
+        }
     }
 
     /// Handles what the engines have reported (logging, Play Next) and releases retired
@@ -644,13 +685,21 @@ impl Controller {
                         // Playable length: trimmed range at the preset speed.
                         let full = audio.duration_secs() as f32;
                         let src = source.sample_rate.max(1) as f32;
-                        let len = match c.trim {
-                            // An Out point past the file's end (a session imported without
-                            // the file, say) plays only to the end, so counts only to it.
-                            Some(t) => ((t.out_frames as f32 / src).min(full)
-                                - t.in_frames as f32 / src)
-                                .max(0.0),
-                            None => full,
+                        // An Out point past the file's end (a session imported without
+                        // the file, say) plays only to the end, so counts only to it.
+                        let part = |t: bubble_project::Trim| {
+                            ((t.out_frames as f32 / src).min(full) - t.in_frames as f32 / src)
+                                .max(0.0)
+                        };
+                        let len = match (c.sections.filter(|s| s.on), c.trim) {
+                            // Once through: the Intro, Main and the Outro.
+                            (Some(s), _) => [s.intro_on(), Some(s.main), s.outro_on()]
+                                .into_iter()
+                                .flatten()
+                                .map(part)
+                                .sum(),
+                            (None, Some(t)) => part(t),
+                            (None, None) => full,
                         };
                         rt.duration_s = len / c.speed.max(0.01);
                         rt.speed = c.speed;
@@ -696,6 +745,7 @@ impl Controller {
                     rt.remaining_s = (len - pos).max(0.0) / rate / sp;
                     rt.duration_s = len / rate / sp;
                     rt.speed = v.speed;
+                    rt.section = v.section;
                 }
             });
         }
@@ -716,6 +766,53 @@ impl Controller {
         remaining
     }
 
+    /// The part a cart in sections is playing (its most advanced voice that is not
+    /// stopping), if any.
+    fn playing_section(&self, cart: Uuid) -> Option<VoiceSection> {
+        let key = self.keys.get(&cart)?;
+        let mut section = None;
+        self.for_each_voice(|v| {
+            if v.cart == *key && v.phase != VoicePhase::Stopping {
+                section = Some(v.section);
+            }
+        });
+        section
+    }
+
+    /// Starts a cart's Outro if it is playing Main (and has an Outro). True when it did.
+    pub fn start_outro(&mut self, cart: Uuid) -> bool {
+        let Some(s) = self
+            .project
+            .cart(cart)
+            .and_then(|c| c.sections)
+            .filter(|s| s.on && s.outro_on().is_some())
+        else {
+            return false;
+        };
+        if self.playing_section(cart) != Some(VoiceSection::Main) {
+            return false;
+        }
+        let key = self.key(cart);
+        let instantly = s.outro_starts == OutroStart::Instantly;
+        self.send(EngineCommand::Outro {
+            cart: key,
+            instantly,
+        });
+        let label = self.label(cart);
+        self.log_push(Some(cart), label, LogKind::Info("Outro".into()));
+        true
+    }
+
+    /// A press on a cart whose Outro follows its own trigger: during Main, the press
+    /// starts the Outro. True when it did (the press does nothing else).
+    fn press_starts_outro(&mut self, cart: Uuid) -> bool {
+        self.project
+            .cart(cart)
+            .and_then(|c| c.sections)
+            .is_some_and(|s| s.on && !s.outro_trigger)
+            && self.start_outro(cart)
+    }
+
     pub fn current_page(&self) -> usize {
         self.current_page
     }
@@ -734,6 +831,9 @@ impl Controller {
 
     /// Mouse/touch press on a cart.
     pub fn pointer_down(&mut self, cart: Uuid, button: MouseButton) {
+        if button == MouseButton::Primary && self.press_starts_outro(cart) {
+            return;
+        }
         match (self.machine.mouse_mode, button) {
             (MouseMode::Toggle, MouseButton::Primary) => {
                 if self.resume_if_slowed(cart) {
@@ -760,6 +860,13 @@ impl Controller {
     /// Plays a cart using its settings. `velocity` (MIDI) scales gain when enabled.
     pub fn trigger(&mut self, cart: Uuid, source: TriggerSource, velocity: Option<u8>) -> bool {
         if self.resume_if_slowed(cart) {
+            return true;
+        }
+        if matches!(
+            source,
+            TriggerSource::Key | TriggerSource::Midi | TriggerSource::Mouse
+        ) && self.press_starts_outro(cart)
+        {
             return true;
         }
         let Some((page_idx, row, col)) = self.project.cart_position(cart) else {
@@ -963,12 +1070,20 @@ impl Controller {
             gain *= v as f32 / 127.0;
         }
         let ratio = rate as f64 / src.sample_rate.max(1) as f64;
-        let (start_frame, end_frame) = match c.trim {
-            Some(t) => (
-                (t.in_frames as f64 * ratio).round() as usize,
-                Some((t.out_frames as f64 * ratio).round() as usize),
-            ),
-            None => (0, None),
+        let at = |f: u64| (f as f64 * ratio).round() as usize;
+        let span = |t: bubble_project::Trim| (at(t.in_frames), at(t.out_frames));
+        let sections = c.sections.filter(|s| s.on).map(|s| SectionPlan {
+            intro: s.intro_on().is_some(),
+            main: span(s.main),
+            outro: s.outro_on().map(span),
+        });
+        let (start_frame, end_frame) = match (c.sections.filter(|s| s.on), c.trim) {
+            (Some(s), _) => {
+                let (a, b) = span(s.intro_on().unwrap_or(s.main));
+                (a, Some(b))
+            }
+            (None, Some(t)) => (at(t.in_frames), Some(at(t.out_frames))),
+            (None, None) => (0, None),
         };
         let fade = |f: FadeSpec| Fade {
             frames: (f.ms as u64 * rate as u64 / 1000) as u32,
@@ -993,7 +1108,8 @@ impl Controller {
             pan: c.pan,
             start_frame,
             end_frame,
-            looping: c.looping,
+            looping: c.looping && sections.is_none(),
+            sections,
             fade_in: c.fade_in.map(fade).unwrap_or(Fade::NONE),
             fade_out: fade(c.fade_out.unwrap_or(FadeSpec::ms(s.default_fade_out_ms))),
             retrigger,
@@ -1378,7 +1494,7 @@ impl Controller {
             }
             Action::Toggle => {
                 for t in targets {
-                    if self.resume_if_slowed(t) {
+                    if self.resume_if_slowed(t) || self.press_starts_outro(t) {
                     } else if self.is_playing(t).is_some() {
                         self.stop_cart(t, true);
                     } else {
@@ -1399,6 +1515,19 @@ impl Controller {
                 self.current_page = (self.current_page + n - 1) % n;
             }
             Action::GotoPage => {}
+            // Only for a cart whose Outro has a trigger of its own.
+            Action::Outro => {
+                for t in targets {
+                    let own = self
+                        .project
+                        .cart(t)
+                        .and_then(|c| c.sections)
+                        .is_some_and(|s| s.outro_trigger);
+                    if own {
+                        self.start_outro(t);
+                    }
+                }
+            }
         }
     }
 
@@ -1688,6 +1817,11 @@ impl Controller {
         let old_asset = cart.asset.replace(asset_id);
         if cart.label.is_empty() || old_asset.is_some() {
             cart.label = stem;
+        }
+        // Sections belong to the old file; the new one's own, if marked, come when
+        // it has loaded.
+        if old_asset.is_some_and(|a| a != asset_id) {
+            cart.sections = None;
         }
         let cart_id = cart.id;
         self.key(cart_id);
@@ -2116,14 +2250,16 @@ impl Controller {
             .collect()
     }
 
-    /// Sets the single binding of this source kind (key or MIDI) for `cart`.
+    /// Sets the single binding of this source kind (key or MIDI) for `cart`: its
+    /// trigger, or (with [`Action::Outro`]) its Outro's, each kept apart.
     pub fn set_binding(&mut self, cart: Uuid, source: BindingSource, action: Action) {
         self.checkpoint("binding");
         let same_kind =
             |s: &BindingSource| std::mem::discriminant(s) == std::mem::discriminant(&source);
-        self.project
-            .bindings
-            .retain(|b| !(b.targets == [cart] && same_kind(&b.source)));
+        let outro = action == Action::Outro;
+        self.project.bindings.retain(|b| {
+            !(b.targets == [cart] && same_kind(&b.source) && (b.action == Action::Outro) == outro)
+        });
         self.project.bindings.push(Binding {
             id: Uuid::new_v4(),
             source,
@@ -2137,13 +2273,16 @@ impl Controller {
         self.mark_dirty();
     }
 
-    /// Removes bindings of `cart` (all kinds when `key` is None, else key or MIDI only).
-    pub fn clear_bindings(&mut self, cart: Uuid, key: Option<bool>) {
+    /// Removes bindings of `cart` (all kinds when `key` is None, else key or MIDI only),
+    /// its trigger's or (`outro`) its Outro's.
+    pub fn clear_bindings(&mut self, cart: Uuid, key: Option<bool>, outro: bool) {
         self.checkpoint("binding-clear");
         let before = self.project.bindings.len();
         self.project.bindings.retain(|b| {
             let is_key = matches!(b.source, BindingSource::Key { .. });
-            !(b.targets == [cart] && key.is_none_or(|k| k == is_key))
+            !(b.targets == [cart]
+                && key.is_none_or(|k| k == is_key)
+                && (b.action == Action::Outro) == outro)
         });
         if before != self.project.bindings.len() {
             self.mark_dirty();
