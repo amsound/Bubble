@@ -943,6 +943,9 @@ impl Mixer {
                     v.active = false;
                     continue;
                 };
+                if let Some(s) = v.stream.as_mut() {
+                    s.poll();
+                }
                 let n = (audio.channels() as usize).min(MAX_CHANNELS);
                 // 5.1 output with a 5.1 (or wider) source: channel for channel.
                 let direct = v.out_w >= 6 && n >= 6;

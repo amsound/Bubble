@@ -273,11 +273,12 @@ export component Clock inherits HorizontalLayout {
         text: c;
         // ∞ (Main of a cart in sections) is drawn larger, as tall as the figures,
         // and wider.
-        width: (c == ":" || c == ".") ? root.size * 0.3 : (c == "−" || c == "-") ? root.size * 0.48 : c == "∞" ? root.size * 2.0 : root.size * 0.62;
-        font-size: c == "∞" ? root.size * 1.95 : root.size;
+        width: (c == ":" || c == ".") ? root.size * 0.3 : (c == "−" || c == "-") ? root.size * 0.48 : c == "∞" ? root.size * 1.85 : root.size * 0.62;
+        font-size: c == "∞" ? root.size * 1.8 : root.size;
         // Without making the line taller than the figures'.
         height: c == "∞" ? fig.preferred-height : self.preferred-height;
-        font-weight: root.weight;
+        // Light: drawn this large, the figures' weight looks heavy.
+        font-weight: c == "∞" ? 300 : root.weight;
         color: root.colour;
         horizontal-alignment: center;
         vertical-alignment: center;

@@ -204,6 +204,32 @@ fn loops_from_out_back_to_in_across_the_stream() {
 }
 
 #[test]
+fn a_loop_longer_than_the_head_wraps_without_an_underrun() {
+    // The ring is full when the loop wraps (Out is far ahead of In): the reader can
+    // only refill from In once the samples it read past Out are dropped, which must
+    // happen while the voice still plays In's head, not when the head runs out.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ramp.wav");
+    // Long enough that the reader has filled the whole ring past Out.
+    ramp_wav(&path, SR as usize * 20, SR);
+    let out = same_as_resident(&path, &[10_000], |r, a| {
+        r.play(
+            1,
+            a,
+            PlayParams {
+                start_frame: 10_000,
+                end_frame: Some(300_000),
+                looping: true,
+                ..Default::default()
+            },
+        );
+        r.render(310_000)
+    });
+    assert_eq!(out[290_000 * 2], 10_000.0, "wrapped to In");
+    assert_eq!(out[300_000 * 2], 20_000.0, "past In's head, from the disk");
+}
+
+#[test]
 fn sections_join_across_the_stream() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ramp.wav");

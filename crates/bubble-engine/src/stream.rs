@@ -153,6 +153,14 @@ impl VoiceStream {
         self.ring_pos = self.req_pos;
     }
 
+    /// Takes the reader's answer to a request as soon as it comes, so the samples it
+    /// read before jumping leave the ring at once: a voice playing from a head (after
+    /// a loop or a section's join) does not touch the ring until the head ends, and the
+    /// reader cannot fill it from the new place while they are there. Real-time safe.
+    pub(crate) fn poll(&mut self) {
+        self.sync();
+    }
+
     /// Whether the reader has written all there is for the current request.
     fn eof_reached(&self) -> bool {
         let (epoch, _) = unpack(self.shared.eof.load(Ordering::Acquire));
