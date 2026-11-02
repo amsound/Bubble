@@ -213,6 +213,8 @@ impl EngineStatus {
         self.voices.len()
     }
 
+    // One voice's display state, field by field as the slot keeps it.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn publish_voice(
         &self,
         slot: usize,

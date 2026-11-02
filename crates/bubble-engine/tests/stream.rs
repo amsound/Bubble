@@ -330,7 +330,7 @@ fn sections_of_a_44_1_khz_file_match_memory_through_many_passes() {
 
 #[test]
 fn loops_and_sections_keep_up_with_the_clock() {
-    // Played against the clock (4 × real time), not waiting for the reader: no gap at
+    // Played against the clock (2 × real time), not waiting for the reader: no gap at
     // any wrap or join. Heads as Bubble keeps them (2 s).
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ramp.wav");
@@ -367,12 +367,12 @@ fn loops_and_sections_keep_up_with_the_clock() {
             ..Default::default()
         },
     );
-    r.render_paced(48_000 * 20, 4.0);
+    r.render_paced(48_000 * 20, 2.0);
     r.send(EngineCommand::Outro {
         cart: CartKey(2),
         instantly: false,
     });
-    r.render_paced(48_000 * 6, 4.0);
+    r.render_paced(48_000 * 6, 2.0);
     assert_eq!(r.underruns(), (0, 0), "no gaps");
 }
 

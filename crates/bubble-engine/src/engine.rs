@@ -36,9 +36,10 @@ impl EngineConfig {
     }
 }
 
-/// Error returned when the command ring is full; carries the command back.
+/// Error returned when the command ring is full; carries the command back (boxed on
+/// the control side, so the error stays small).
 #[derive(Debug)]
-pub struct CommandQueueFull(pub EngineCommand);
+pub struct CommandQueueFull(pub Box<EngineCommand>);
 
 impl std::fmt::Display for CommandQueueFull {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -69,7 +70,7 @@ impl EngineHandle {
     pub fn send(&mut self, cmd: EngineCommand) -> Result<(), CommandQueueFull> {
         self.commands
             .push(cmd)
-            .map_err(|rtrb::PushError::Full(c)| CommandQueueFull(c))
+            .map_err(|rtrb::PushError::Full(c)| CommandQueueFull(Box::new(c)))
     }
 
     /// Drains pending events into `f`. Also releases retired buffers.
