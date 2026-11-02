@@ -1805,6 +1805,15 @@ impl App {
                                 });
                             });
                         }
+                        // The first cart playing.
+                        "play" => {
+                            let me = me.clone();
+                            slint::Timer::single_shot(Duration::from_millis(10), move || {
+                                if let Some(app) = me.upgrade() {
+                                    act(&app, move |_, i| i.push(Intent::Trigger(id)));
+                                }
+                            });
+                        }
                         // `cartsetup:a,b`: Cart Setup, then its buttons a and b
                         // ("menu" opens Main's options).
                         _ if scene.starts_with("cartsetup:") => {

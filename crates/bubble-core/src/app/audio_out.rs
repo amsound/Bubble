@@ -532,7 +532,7 @@ impl Core {
     /// a failed audio thread), and counts dropouts. A live stream's callback runs all the
     /// time, even with nothing playing.
     fn watch_streams(&mut self, dead: &mut Vec<usize>, lost: &mut Vec<String>) {
-        let (counts, dropouts): (Vec<u64>, u64) = {
+        let (counts, dropouts, detail): (Vec<u64>, u64, Vec<bubble_engine::Diagnostics>) = {
             let c = self.lock();
             (
                 c.engines()
@@ -540,12 +540,34 @@ impl Core {
                     .map(|e| e.status().callback_count())
                     .collect(),
                 c.engines().iter().map(|e| e.status().dropouts()).sum(),
+                c.engines().iter().map(|e| e.status().diagnostics()).collect(),
             )
         };
         if dropouts > self.watch.dropouts_seen {
             self.dropouts += dropouts - self.watch.dropouts_seen;
             self.dropout_at = Some(Instant::now());
-            crate::log::info(&format!("audio dropout ({} so far)", self.dropouts));
+            // Which kind: the device ran out (an xrun) or the disk was late (a long
+            // file), with the longest callback so far against its time to fill.
+            let kinds: Vec<String> = detail
+                .iter()
+                .map(|d| {
+                    let budget_us =
+                        d.last_callback_frames as u64 * 1_000_000 / d.sample_rate.max(1) as u64;
+                    format!(
+                        "xruns {}, disk late {} ({} frames), longest callback {} µs of {} µs",
+                        d.xruns,
+                        d.stream_underruns,
+                        d.stream_underrun_frames,
+                        d.max_process_ns / 1000,
+                        budget_us
+                    )
+                })
+                .collect();
+            crate::log::info(&format!(
+                "audio dropout ({} so far): {}",
+                self.dropouts,
+                kinds.join("; ")
+            ));
         }
         self.watch.dropouts_seen = dropouts;
 

@@ -137,8 +137,12 @@ pub fn tile_text(cart: &Cart, project: &Project, rt: &CartRuntime) -> TileText {
         flags.push("⚠".into());
     }
     let time = match rt.state {
-        // Main repeats until it is stopped or its Outro starts.
-        CartState::Playing if rt.section == bubble_control::VoiceSection::Main => "∞".into(),
+        // Main repeats until it is stopped or its Outro starts, fading out or not.
+        CartState::Playing | CartState::Stopping
+            if rt.section == bubble_control::VoiceSection::Main =>
+        {
+            "∞".into()
+        }
         CartState::Playing | CartState::Stopping => {
             format!("-{}", fmt_clock(rt.remaining_s, true))
         }
