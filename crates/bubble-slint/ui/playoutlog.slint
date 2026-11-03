@@ -10,14 +10,19 @@
 import { ListView } from "std-widgets.slint";
 import { Theme, SysButton } from "theme.slint";
 
+// One row: a play (started, ended, how long, and how it started and ended), or
+// something that happened on its own (refused, a dropout, the Outro, a note).
 export struct LogRow {
     time: string,
     swatch: color,
     number: string,
     label: string,
+    ended: string,
+    length: string,
     verb: string,
     detail: string,
-    // 0 started, 1 ended, 2 refused, 3 dropout, 4 Outro, 5 ignored, 6 a note.
+    // 0 a play that ended, 7 one still playing; 2 refused, 3 dropout, 4 Outro,
+    // 5 ignored, 6 a note.
     kind: int,
     selected: bool,
 }
@@ -67,7 +72,7 @@ export component PlayoutLogWindow inherits Window {
     in property <image> window-icon;
     title: Theme.mac ? "Playout Log" : "Playout log";
     icon: window-icon;
-    preferred-width: 640px;
+    preferred-width: 760px;
     preferred-height: 480px;
     min-width: 480px;
     min-height: 260px;
@@ -144,11 +149,34 @@ export component PlayoutLogWindow inherits Window {
                         root.action("export");
                     }
                 }
-                SysButton {
-                    text: Theme.mac ? "Clear Log…" : "Clear log…";
-                    enabled: root.all-count > 0;
-                    clicked => {
-                        root.action("clear");
+                // Clear, apart from the rest and as a bin, so it is not pressed for
+                // Export by mistake.
+                Rectangle {
+                    width: 16px;
+                }
+                Rectangle {
+                    width: 32px;
+                    height: Theme.mac ? 26px : 32px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: Theme.mac ? 6px : 4px;
+                    background: bin.has-hover && root.all-count > 0 ? Theme.danger-text.transparentize(85%) : transparent;
+                    opacity: root.all-count > 0 ? 1 : 0.4;
+                    accessible-role: button;
+                    accessible-label: Theme.mac ? "Clear Log…" : "Clear log…";
+                    Path {
+                        width: 16px;
+                        height: 16px;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        commands: "M2.5 4H13.5 M6 4V2.5H10V4 M4 4L4.8 13.5H11.2L12 4 M6.6 6.5V11 M9.4 6.5V11";
+                        stroke: Theme.danger-text;
+                        stroke-width: 1.3px;
+                    }
+                    bin := TouchArea {
+                        enabled: root.all-count > 0;
+                        clicked => {
+                            root.action("clear");
+                        }
                     }
                 }
             }
@@ -161,7 +189,7 @@ export component PlayoutLogWindow inherits Window {
                 vertical-stretch: 0;
                 Text {
                     width: 72px;
-                    text: "Time";
+                    text: "Started";
                     font-size: 12px;
                     color: Theme.weak-text;
                     vertical-alignment: center;
@@ -171,6 +199,21 @@ export component PlayoutLogWindow inherits Window {
                     text: "Cart";
                     font-size: 12px;
                     color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    width: 72px;
+                    text: "Ended";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    width: 52px;
+                    text: "Length";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    horizontal-alignment: right;
                     vertical-alignment: center;
                 }
                 Text {
@@ -226,19 +269,31 @@ export component PlayoutLogWindow inherits Window {
                                 Text {
                                     width: 24px;
                                     text: r.number;
-                                    font-weight: 700;
+                                    font-weight: 600;
                                     color: Theme.text;
                                     horizontal-alignment: right;
                                     vertical-alignment: center;
                                 }
                                 Text {
                                     text: r.label;
-                                    font-weight: 600;
                                     color: Theme.text;
                                     vertical-alignment: center;
                                     overflow: elide;
                                     horizontal-stretch: 1;
                                 }
+                            }
+                            Text {
+                                width: 72px;
+                                text: r.ended;
+                                color: r.kind == 7 ? Theme.accent : Theme.weak-text;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                width: 52px;
+                                text: r.length;
+                                color: Theme.text;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
                             }
                             HorizontalLayout {
                                 horizontal-stretch: 1;
@@ -250,18 +305,18 @@ export component PlayoutLogWindow inherits Window {
                                     viewbox-width: 14;
                                     viewbox-height: 14;
                                     // Start ▷, end □, refused ⚠, dropout ϟ, Outro ⇥.
-                                    commands: r.kind == 0 ? "M3.5 2.5L11 7L3.5 11.5Z" : r.kind == 1 ? "M3 3h8v8H3Z" : r.kind == 2 ? "M7 1.8L12.6 11.8H1.4ZM7 5.5v3M7 10v.6" : r.kind == 3 ? "M8 1.5L3.5 8H7L6 12.5L10.5 6H7Z" : r.kind == 4 ? "M2 7h8M7.5 4.5L10 7L7.5 9.5M12 3v8" : r.kind == 6 ? "M7 1.5a5.5 5.5 0 1 0 .01 0ZM7 6.2v4M7 4v.6" : "M3 7h8";
-                                    stroke: r.kind == 2 ? Theme.danger-text : r.kind == 3 ? Theme.warning : Theme.text;
+                                    commands: r.kind == 0 || r.kind == 7 ? "M3.5 2.5L11 7L3.5 11.5Z" : r.kind == 2 ? "M7 1.8L12.6 11.8H1.4ZM7 5.5v3M7 10v.6" : r.kind == 3 ? "M8 1.5L3.5 8H7L6 12.5L10.5 6H7Z" : r.kind == 4 ? "M2 7h8M7.5 4.5L10 7L7.5 9.5M12 3v8" : r.kind == 6 ? "M7 1.5a5.5 5.5 0 1 0 .01 0ZM7 6.2v4M7 4v.6" : "M3 7h8";
+                                    stroke: r.kind == 2 ? Theme.danger-text : r.kind == 3 ? Theme.warning : r.kind == 7 ? Theme.accent : Theme.weak-text;
                                     stroke-width: 1.3px;
                                 }
                                 Text {
                                     text: r.verb;
-                                    font-weight: 700;
+                                    font-weight: r.kind == 2 || r.kind == 3 ? 600 : 400;
                                     color: r.kind == 2 ? Theme.danger-text : r.kind == 3 ? Theme.warning : Theme.text;
                                     vertical-alignment: center;
                                 }
                                 Text {
-                                    text: r.detail == "" ? "" : "·  " + r.detail;
+                                    text: r.detail == "" || r.verb == "" ? r.detail : "·  " + r.detail;
                                     color: Theme.weak-text;
                                     vertical-alignment: center;
                                     overflow: elide;
@@ -306,19 +361,26 @@ export component PlayoutLogWindow inherits Window {
                         horizontal-alignment: center;
                     }
                 }
+                // Back to the newest entry: a round down arrow.
                 if !root.following && root.rows.length > 0: Rectangle {
-                    x: parent.width - self.width - 16px;
-                    y: parent.height - self.height - 12px;
-                    width: jump.preferred-width + 28px;
-                    height: 32px;
-                    border-radius: Theme.mac ? 7px : 4px;
+                    x: parent.width - self.width - 20px;
+                    y: parent.height - self.height - 14px;
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 18px;
                     background: Theme.accent;
                     drop-shadow-blur: 8px;
                     drop-shadow-color: #00000050;
-                    jump := Text {
-                        text: Theme.mac ? "Jump to Latest" : "Jump to latest";
-                        font-weight: 600;
-                        color: Theme.on-accent;
+                    accessible-role: button;
+                    accessible-label: Theme.mac ? "Jump to Latest" : "Jump to latest";
+                    Path {
+                        width: 16px;
+                        height: 16px;
+                        viewbox-width: 16;
+                        viewbox-height: 16;
+                        commands: "M8 3v10M3.5 8.5L8 13l4.5-4.5";
+                        stroke: Theme.on-accent;
+                        stroke-width: 2px;
                     }
                     TouchArea {
                         clicked => {

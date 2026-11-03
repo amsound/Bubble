@@ -1176,3 +1176,42 @@ fn a_fade_out_carries_on_across_the_joins() {
     render(&mut m, 1_000);
     assert_eq!(h.status().active_voices(), 0);
 }
+
+#[test]
+fn a_play_delay_is_silence_first_and_a_stop_ends_it_at_once() {
+    let (mut h, mut m) = engine(4);
+    no_limiter(&mut h);
+    let buf = ramp(100);
+    play(
+        &mut h,
+        1,
+        &buf,
+        PlayParams {
+            start_frame: 10,
+            delay_frames: 5,
+            ..Default::default()
+        },
+    );
+    let out = left(&render(&mut m, 8));
+    assert_eq!(out, vec![0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 11.0, 12.0]);
+    // During a delay a stop ends the voice straight away.
+    play(
+        &mut h,
+        2,
+        &buf,
+        PlayParams {
+            delay_frames: 48_000,
+            ..Default::default()
+        },
+    );
+    render(&mut m, 10);
+    h.send(EngineCommand::Stop {
+        target: StopTarget::Cart(CartKey(2)),
+        fade: None,
+    })
+    .unwrap();
+    render(&mut m, 2);
+    let mut two = false;
+    h.status().for_each_voice(|v| two |= v.cart == CartKey(2));
+    assert!(!two);
+}

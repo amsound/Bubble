@@ -27,6 +27,7 @@ export struct SpeedInfo {
 component SplitButton inherits Rectangle {
     in property <string> text;
     in property <string> time;
+    // The action waits for the cart to play; its time can be chosen any time.
     in property <bool> enabled: true;
     // 0 plain, 1 in progress (accent tint), 2 the thing to press (accent),
     // 3 done (amber).
@@ -40,7 +41,6 @@ component SplitButton inherits Rectangle {
     border-width: root.look == 3 ? 1.5px : Theme.mac ? 0px : 1px;
     border-color: root.look == 3 ? Theme.warning : Theme.control-border;
     background: root.look == 2 ? Theme.accent : root.look == 1 ? Theme.accent.transparentize(55%) : root.look == 3 ? Theme.warning.transparentize(85%) : Theme.mac ? Theme.text.transparentize(87%) : Theme.control;
-    opacity: root.enabled ? 1 : 0.45;
     clip: true;
     property <color> ink: root.look == 2 ? Theme.on-accent : root.look == 3 ? Theme.warning : Theme.text;
     HorizontalLayout {
@@ -54,6 +54,7 @@ component SplitButton inherits Rectangle {
                 font-size: 16px;
                 font-weight: 700;
                 color: root.ink;
+                opacity: root.enabled ? 1 : 0.45;
             }
             act := TouchArea {
                 enabled: root.enabled;
@@ -70,7 +71,7 @@ component SplitButton inherits Rectangle {
             width: 84px;
             accessible-role: button;
             accessible-label: root.label + " time";
-            background: pick.pressed ? Theme.text.transparentize(80%) : pick.has-hover && root.enabled ? Theme.text.transparentize(92%) : transparent;
+            background: pick.pressed ? Theme.text.transparentize(80%) : pick.has-hover ? Theme.text.transparentize(92%) : transparent;
             HorizontalLayout {
                 alignment: center;
                 spacing: 6px;
@@ -91,7 +92,6 @@ component SplitButton inherits Rectangle {
                 }
             }
             pick := TouchArea {
-                enabled: root.enabled;
                 clicked => {
                     root.choose();
                 }

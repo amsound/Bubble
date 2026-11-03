@@ -741,6 +741,20 @@ impl Converter<'_> {
             }
         }
 
+        // Play delay, in tenths of a second (SpotOn's 0.6 s is 6, its 999.9 s 9999),
+        // up to 999.9 s as in Bubble.
+        if rc.play_delay_max > 0 {
+            let ms = rc.play_delay_max as u32 * 100;
+            cart.play_delay_ms = ms.min(bubble_project::validate::MAX_PLAY_DELAY_MS);
+            if ms > cart.play_delay_ms {
+                warnings.push(format!(
+                    "play delay {:.1} s shortened to {:.1} s, Bubble's longest",
+                    ms as f32 / 1000.0,
+                    cart.play_delay_ms as f32 / 1000.0
+                ));
+            }
+        }
+
         // Settings with no Bubble equivalent.
         let mut drop_if = |cond: bool, field: &str, value: String| {
             if cond {
@@ -756,11 +770,6 @@ impl Converter<'_> {
             rc.pitch != 0 && !(25..=400).contains(&rc.pitch),
             "pitch",
             rc.pitch.to_string(),
-        );
-        drop_if(
-            rc.play_delay_max != 0,
-            "play_delay_max",
-            rc.play_delay_max.to_string(),
         );
         drop_if(
             rc.slow_down_time != 0,

@@ -98,6 +98,9 @@ pub struct PlayParams {
     pub looping: bool,
     /// Intro, Main and Outro; `None` plays `start_frame`..`end_frame` as usual.
     pub sections: Option<SectionPlan>,
+    /// Silence before the audio starts (play delay): the voice is playing, and stops,
+    /// from the trigger on.
+    pub delay_frames: u32,
     pub fade_in: Fade,
     /// Fade used when the voice is stopped without an explicit fade.
     pub fade_out: Fade,
@@ -127,6 +130,7 @@ impl Default for PlayParams {
             end_frame: None,
             looping: false,
             sections: None,
+            delay_frames: 0,
             fade_in: Fade::NONE,
             fade_out: Fade::NONE,
             retrigger: Retrigger::Restart,

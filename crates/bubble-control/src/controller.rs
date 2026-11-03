@@ -109,6 +109,8 @@ pub enum LogKind {
     Info(String),
     /// Audio went missing for a moment: what ran short, and how much was lost.
     Dropout(String),
+    /// A new voice carries on a play (a seek in Cart Setup); not shown on its own.
+    Continued,
 }
 
 #[derive(Clone, Debug)]
@@ -117,6 +119,9 @@ pub struct LogEntry {
     pub cart: Option<Uuid>,
     pub label: String,
     pub kind: LogKind,
+    /// The engine's voice for a start (once the engine has started it), an end, or a
+    /// voice carrying on another's play (a seek): pairs each play's start and end.
+    pub voice: Option<u64>,
 }
 
 /// Entries the playout log keeps; older ones go.
@@ -149,6 +154,7 @@ pub struct Controller {
     current_page: usize,
     log: VecDeque<LogEntry>,
     log_total: u64,
+    log_rev: u64,
     learn: Option<Learn>,
     /// Carts slowed (or halted) by the speed bar's `x0`.
     slowed: std::collections::HashSet<Uuid>,
@@ -256,6 +262,7 @@ impl Controller {
             current_page: 0,
             log: VecDeque::new(),
             log_total: 0,
+            log_rev: 0,
             learn: None,
             slowed: Default::default(),
             overlap_cursor: HashMap::new(),
@@ -606,23 +613,52 @@ impl Controller {
     /// as from [`Self::tick`], so a busy interface does not delay Play Next.
     pub fn pump_events(&mut self) -> bool {
         let mut events = Vec::new();
-        for e in &mut self.engines {
-            e.poll_events(|ev| events.push(ev));
+        for (n, e) in self.engines.iter_mut().enumerate() {
+            e.poll_events(|ev| events.push((n, ev)));
         }
         let any = !events.is_empty();
-        for ev in events {
+        // A voice's id, unique across the engines.
+        let voice_of = |n: usize, v: bubble_engine::VoiceId| (n as u64) << 48 | v.0;
+        for (n, ev) in events {
             match ev {
-                EngineEvent::VoiceStarted { .. } => {}
-                EngineEvent::VoiceEnded { cart, reason, .. } => {
+                EngineEvent::VoiceStarted { cart, voice } => {
                     let Some(id) = self.by_key.get(&cart.0).copied() else {
                         continue;
                     };
-                    // A restart (retrigger or seek) is already logged as a start.
-                    if reason == EndReason::Restarted {
-                        continue;
+                    // The start it belongs to: the cart's oldest without a voice yet.
+                    // None: a seek's new voice, carrying on the play.
+                    let start = self.log.iter_mut().find(|e| {
+                        e.cart == Some(id)
+                            && e.voice.is_none()
+                            && matches!(e.kind, LogKind::Started(_))
+                    });
+                    match start {
+                        Some(e) => {
+                            e.voice = Some(voice_of(n, voice));
+                            self.log_rev += 1;
+                        }
+                        None => {
+                            let label = self.label(id);
+                            self.log_push(Some(id), label, LogKind::Continued);
+                            if let Some(e) = self.log.back_mut() {
+                                e.voice = Some(voice_of(n, voice));
+                            }
+                        }
                     }
+                }
+                EngineEvent::VoiceEnded {
+                    cart,
+                    voice,
+                    reason,
+                } => {
+                    let Some(id) = self.by_key.get(&cart.0).copied() else {
+                        continue;
+                    };
                     let label = self.label(id);
                     self.log_push(Some(id), label, LogKind::Ended(reason));
+                    if let Some(e) = self.log.back_mut() {
+                        e.voice = Some(voice_of(n, voice));
+                    }
                     if reason == EndReason::Completed {
                         self.play_next(id);
                     }
@@ -832,6 +868,16 @@ impl Controller {
         &self.log
     }
 
+    /// The disk reader's slowest step since last asked (for explaining a late read).
+    pub fn take_slowest_read(&self) -> Option<(std::time::Duration, &'static str, String)> {
+        self.streamer.take_slowest()
+    }
+
+    /// Changes to entries already in the log (a start learning its voice).
+    pub fn log_rev(&self) -> u64 {
+        self.log_rev
+    }
+
     /// Entries ever added (the log's own count, so a viewer can tell what is new).
     pub fn log_total(&self) -> u64 {
         self.log_total
@@ -993,6 +1039,13 @@ impl Controller {
         } else {
             0
         };
+        // A press on a playing cart set to Toggle stop or Ignore starts nothing (the
+        // engine stops it, or says it ignored it): the log says so then, not "started".
+        let starts = !(self.is_playing(cart).is_some()
+            && matches!(
+                params.retrigger,
+                bubble_engine::Retrigger::ToggleStop | bubble_engine::Retrigger::Ignore
+            ));
         let stream = self.streamer.open(&audio, start);
         if self.send_to(
             route.engine,
@@ -1003,7 +1056,9 @@ impl Controller {
                 params,
             },
         ) {
-            self.log_push(Some(cart), label, LogKind::Started(source));
+            if starts {
+                self.log_push(Some(cart), label, LogKind::Started(source));
+            }
             true
         } else {
             false
@@ -1129,6 +1184,9 @@ impl Controller {
             end_frame,
             looping: c.looping && sections.is_none(),
             sections,
+            delay_frames: (c.play_delay_ms.min(bubble_project::validate::MAX_PLAY_DELAY_MS) as u64
+                * rate as u64
+                / 1000) as u32,
             fade_in: c.fade_in.map(fade).unwrap_or(Fade::NONE),
             fade_out: fade(c.fade_out.unwrap_or(FadeSpec::ms(s.default_fade_out_ms))),
             retrigger,
@@ -2480,6 +2538,7 @@ impl Controller {
             cart,
             label,
             kind,
+            voice: None,
         });
     }
 }

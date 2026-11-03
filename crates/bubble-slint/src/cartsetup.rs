@@ -167,6 +167,27 @@ fn length_text(s: f64) -> String {
     }
 }
 
+/// A play delay as shown: "" for none, else "12.3 s".
+fn delay_text(ms: u32) -> String {
+    if ms == 0 {
+        String::new()
+    } else {
+        format!("{:.1} s", ms as f32 / 1000.0)
+    }
+}
+
+/// A play delay as typed ("12.3", "12.3 s", "12,3"), to the tenth, at most 999.9 s.
+/// `None` for something that is not a number.
+pub fn parse_delay(text: &str) -> Option<u32> {
+    let t = text.trim().trim_end_matches(['s', 'S']).trim().replace(',', ".");
+    if t.is_empty() {
+        return Some(0);
+    }
+    let v: f32 = t.parse().ok()?;
+    let tenths = (v.max(0.0) * 10.0).round() as u32;
+    Some((tenths * 100).min(bubble_project::validate::MAX_PLAY_DELAY_MS))
+}
+
 fn seconds_text(ms: u32) -> String {
     if ms == 0 {
         "Instant".into()
@@ -288,6 +309,8 @@ impl Setup {
     /// (looped by the transport's loop).
     fn audition(&self) -> Cart {
         let mut c = self.draft.clone();
+        // Heard at once here, without the cart's play delay.
+        c.play_delay_ms = 0;
         if let Some(t) = self.part_trim(&self.draft, self.part) {
             c.sections = None;
             c.trim = Some(t);
@@ -1438,6 +1461,7 @@ impl Setup {
             win.set_speed(c.speed);
             win.set_label_text(model::piped(&c.label).into());
             win.set_notes_text(c.notes.clone().into());
+            win.set_delay_text(delay_text(c.play_delay_ms).into());
         }
     }
 

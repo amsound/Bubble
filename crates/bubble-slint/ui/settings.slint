@@ -990,7 +990,7 @@ export component SessionSettingsWindow inherits Window {
             reject
         }
         SettingsFrame {
-            sections: ["General", "Tiles", "Groups", "Pages", "Outputs"];
+            sections: ["General", "Tiles", "Groups", "Pages", Theme.mac ? "Cart Outputs" : "Cart outputs"];
             section <=> root.section;
             section-chosen(i) => {
                 root.section-chosen(i);
@@ -1437,14 +1437,20 @@ export component SessionSettingsWindow inherits Window {
                 opacity: opt.on ? 1 : 0.45;
                 HorizontalLayout {
                     spacing: 10px;
+                    // A radio button: a ring, or chosen a filled circle with a dot,
+                    // drawn as plain circles (no border to blur against the fill).
                     Rectangle {
                         width: 18px;
                         height: 18px;
                         y: (parent.height - self.height) / 2;
                         border-radius: 9px;
-                        border-width: root.move-scope == i ? 5px : 1.5px;
-                        border-color: root.move-scope == i ? Theme.accent : Theme.control-border;
-                        background: root.move-scope == i ? Theme.on-accent : transparent;
+                        background: root.move-scope == i ? Theme.accent : Theme.control-border;
+                        Rectangle {
+                            width: root.move-scope == i ? 8px : 15px;
+                            height: self.width;
+                            border-radius: self.width / 2;
+                            background: root.move-scope == i ? Theme.on-accent : Theme.card;
+                        }
                     }
                     Text {
                         text: opt.text;
@@ -1480,11 +1486,16 @@ export component SessionSettingsWindow inherits Window {
                     color: Theme.weak-text;
                     vertical-alignment: center;
                 }
-                Choice {
+                if root.move-to != "": Choice {
                     value: root.move-to;
                     open(x, y) => {
                         root.choice-menu("move-to", 0, x, y);
                     }
+                }
+                if root.move-to == "": Text {
+                    text: "–";
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
                 }
                 Rectangle {
                     horizontal-stretch: 1;

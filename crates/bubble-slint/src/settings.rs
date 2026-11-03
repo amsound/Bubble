@@ -61,7 +61,7 @@ fn refresh<T: Clone + PartialEq + 'static>(
 
 /// Audio status: the summary, whether there are dropouts, and the details (the open
 /// devices first, each "Output A, B").
-fn status(core: &Core) -> (String, bool, Vec<StatusLine>) {
+fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
     let line = |label: String, value: String, bad: bool| StatusLine {
         label: label.into(),
         value: value.into(),
@@ -71,6 +71,24 @@ fn status(core: &Core) -> (String, bool, Vec<StatusLine>) {
     let diags: Vec<_> = c.engines().iter().map(|e| e.status().diagnostics()).collect();
     let (used, limit) = c.audio_memory();
     drop(c);
+    let xruns: u64 = diags.iter().map(|d| d.xruns).sum();
+    let late: u64 = diags.iter().map(|d| d.stream_underruns).sum();
+    let lost: u64 = diags.iter().map(|d| d.stream_underrun_frames).sum();
+    let count = |n: u64| if n == 1 { "1 dropout".to_string() } else { format!("{n} dropouts") };
+    let total = xruns + late;
+    let summary = match (xruns, late) {
+        (0, 0) => "All well · 0 dropouts this run".to_string(),
+        (x, 0) => format!("{} this run: {x} device short", count(total)),
+        (0, l) => format!("{} this run: {l} late disk read{}", count(total), if l == 1 { "" } else { "s" }),
+        (x, l) => format!(
+            "{} this run: {x} device short, {l} late disk read{}",
+            count(total),
+            if l == 1 { "" } else { "s" }
+        ),
+    };
+    if !details {
+        return (summary, total > 0, Vec::new());
+    }
     let mut lines = Vec::new();
     let outputs = core.prefs.effective_outputs();
     for (i, (a, key)) in core.audio.iter().zip(&core.audio_keys).enumerate() {
@@ -139,10 +157,6 @@ fn status(core: &Core) -> (String, bool, Vec<StatusLine>) {
         format!("{playing} of {capacity} · {stolen} cut short"),
         false,
     ));
-    let xruns: u64 = diags.iter().map(|d| d.xruns).sum();
-    let late: u64 = diags.iter().map(|d| d.stream_underruns).sum();
-    let lost: u64 = diags.iter().map(|d| d.stream_underrun_frames).sum();
-    let count = |n: u64| if n == 1 { "1 dropout".to_string() } else { format!("{n} dropouts") };
     lines.push(line(
         name("Device Ran Short", "Device ran short"),
         if xruns == 0 { "None".into() } else { count(xruns) },
@@ -174,18 +188,6 @@ fn status(core: &Core) -> (String, bool, Vec<StatusLine>) {
         ),
         false,
     ));
-    // Since these engines started (Reopen starts the count again).
-    let total = xruns + late;
-    let summary = match (xruns, late) {
-        (0, 0) => "All well · 0 dropouts this run".to_string(),
-        (x, 0) => format!("{} this run: {x} device short", count(total)),
-        (0, l) => format!("{} this run: {l} late disk read{}", count(total), if l == 1 { "" } else { "s" }),
-        (x, l) => format!(
-            "{} this run: {x} device short, {l} late disk read{}",
-            count(total),
-            if l == 1 { "" } else { "s" }
-        ),
-    };
     (summary, total > 0, lines)
 }
 
@@ -620,7 +622,7 @@ impl Settings {
             }
             "reopen" => core.open_audio(),
             "copy-status" => {
-                let (summary, _, lines) = status(core);
+                let (summary, _, lines) = status(core, true);
                 let text: Vec<String> = std::iter::once(format!("Audio status: {summary}"))
                     .chain(lines.iter().map(|l| format!("{}: {}", l.label, l.value)))
                     .collect();
@@ -636,8 +638,10 @@ impl Settings {
     /// Settings ▸ Audio's status section.
     fn show_status(&mut self, core: &Core) {
         let w = &self.win;
-        let (summary, bad, lines) = status(core);
-        w.set_status_open(core.prefs.audio_status_open);
+        let open = core.prefs.audio_status_open;
+        // Closed, only the dropout counts are read for the summary.
+        let (summary, bad, lines) = status(core, open);
+        w.set_status_open(open);
         w.set_status_bad(bad);
         w.set_status_summary(summary.into());
         // Devices across the whole width; the rest in two columns.
@@ -890,8 +894,10 @@ impl SessionSettings {
         w.set_has_groups(!p.groups.is_empty());
         w.set_move_group(gi.map_or("None".into(), |i| p.groups[i].display_name(i)).into());
         w.set_move_group_count(if m.group.is_some() { carts_text(group) } else { String::new() }.into());
-        w.set_move_to(format!("Output {}", m.to).into());
-        w.set_move_summary(if n == 0 {
+        w.set_move_to(if m.to.is_empty() { String::new() } else { format!("Output {}", m.to) }.into());
+        w.set_move_summary(if m.to.is_empty() {
+            "There is no other output to move them to.".into()
+        } else if n == 0 {
             "No carts to move.".into()
         } else if m.scope == 0 {
             format!("{} will move from {} to {}.", carts_text(n), m.from, m.to)
@@ -911,12 +917,12 @@ impl SessionSettings {
             name("Carts", "carts")
         };
         w.set_move_button(format!("Move {n} {carts}").into());
-        w.set_move_enabled(n > 0 && m.to != m.from);
+        w.set_move_enabled(n > 0 && !m.to.is_empty() && m.to != m.from);
     }
 
     /// Letters to move to: this computer's outputs and those in use, but not `from`.
     fn targets(&self, snap: &Snapshot, from: &str) -> Vec<String> {
-        let mut v: Vec<String> = (0..self.outputs.len().max(1))
+        let mut v: Vec<String> = (0..self.outputs.len())
             .map(bubble_project::output_letter)
             .chain(audio_carts(&snap.project).map(|(_, c)| c.output.clone()))
             .filter(|l| l != from)

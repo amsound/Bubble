@@ -266,8 +266,28 @@ impl ReaderStream {
             .store(pack(self.epoch, self.written), Ordering::Release);
     }
 
-    /// One step of work. Returns whether anything was done.
+    /// One step of work, timed. Returns whether anything was done.
     fn step(&mut self, stats: &ReaderStats) -> bool {
+        let t = Instant::now();
+        let jump = unpack(self.shared.request.load(Ordering::Acquire)).0 != self.epoch;
+        let worked = self.work(stats);
+        let took = t.elapsed();
+        if worked && took > Duration::from_millis(20) {
+            let mut s = stats.slowest.lock().unwrap_or_else(|e| e.into_inner());
+            if s.as_ref().is_none_or(|(d, _, _)| took > *d) {
+                let what = if jump { "opening and seeking" } else { "reading" };
+                let name = self
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                *s = Some((took, what, name));
+            }
+        }
+        worked
+    }
+
+    fn work(&mut self, stats: &ReaderStats) -> bool {
         let (epoch, pos) = unpack(self.shared.request.load(Ordering::Acquire));
         if epoch == 0 {
             return false;
@@ -343,6 +363,9 @@ struct ReaderStats {
     paused: AtomicBool,
     /// A file that could not be read, for the interface to say so.
     failed: std::sync::Mutex<Option<String>>,
+    /// The slowest step since last asked: how long, what ("opening and seeking",
+    /// "reading") and which file. For telling why a read came late.
+    slowest: std::sync::Mutex<Option<(Duration, &'static str, String)>>,
 }
 
 impl ReaderStats {
@@ -424,6 +447,16 @@ impl Streamer {
     pub fn take_read_failure(&self) -> Option<String> {
         self.stats
             .failed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    /// The disk reader's slowest step since last asked (longer than 20 ms): how long,
+    /// what it was doing, and the file.
+    pub fn take_slowest(&self) -> Option<(Duration, &'static str, String)> {
+        self.stats
+            .slowest
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .take()

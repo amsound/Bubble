@@ -143,6 +143,8 @@ pub mod icon {
     pub const MIDI: &str = "M8 2a6 6 0 1 0 0.01 0zM5 8h1.2M7.4 5.5h1.2M9.8 8h1.2M6 10.6h1M9 10.6h1";
     pub const CHANGED: &str = "M8 2.5l6 11H2zM8 6.5v3M8 11.2v.8";
     pub const PAUSE: &str = "M5.5 3.5v9M10.5 3.5v9";
+    /// Play delay: a clock.
+    pub const DELAY: &str = "M8 2.5a5.5 5.5 0 1 0 .01 0ZM8 5v3.2l2.2 1.4";
     /// Sections: a list with a play mark.
     pub const SECTIONS: &str = "M2 4h8M2 8h8M2 12h4.5M9.5 10.5v4l3.5-2z";
 }
@@ -220,6 +222,9 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         }
         if cart.looping && !sections {
             icons.push(icon::LOOP.into());
+        }
+        if cart.play_delay_ms > 0 {
+            icons.push(icon::DELAY.into());
         }
         if cart.on_play.stop != StopScope::None {
             icons.push(icon::STOP_ALL.into());

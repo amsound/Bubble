@@ -2504,6 +2504,7 @@ impl BubbleApp {
                         LogKind::Rejected(r) => format!("REJECTED: {r}"),
                         LogKind::Info(m) => m.clone(),
                         LogKind::Dropout(m) => format!("DROPOUT: {m}"),
+                        LogKind::Continued => "continued".into(),
                     };
                     ui.monospace(format!("{ts}  {:<28} {what}", e.label));
                 }

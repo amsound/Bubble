@@ -226,6 +226,8 @@ struct Voice {
     section: VoiceSection,
     main: (usize, usize),
     outro: Option<(usize, usize)>,
+    /// Frames of silence left before the audio starts (play delay).
+    delay: u32,
     gain: Ramp,
     pan_l: Ramp,
     pan_r: Ramp,
@@ -261,6 +263,7 @@ impl Voice {
             section: VoiceSection::Whole,
             main: (0, 0),
             outro: None,
+            delay: 0,
             gain: Ramp::new(0.0),
             pan_l: Ramp::new(0.0),
             pan_r: Ramp::new(0.0),
@@ -300,6 +303,7 @@ impl Voice {
             section: self.section,
             main: self.main,
             outro: self.outro,
+            delay: self.delay,
             gain: self.gain,
             pan_l: self.pan_l,
             pan_r: self.pan_r,
@@ -682,10 +686,11 @@ impl Mixer {
             }
             Retrigger::Restart => {
                 let kill = self.kill_ramp;
+                // A voice already being stopped keeps its own reason.
                 for v in self
                     .voices
                     .iter_mut()
-                    .filter(|v| v.active && v.cart == cart)
+                    .filter(|v| v.active && v.cart == cart && !v.stopping())
                 {
                     v.pending_reason = EndReason::Restarted;
                     v.env.release(kill, FadeCurve::Linear);
@@ -752,6 +757,7 @@ impl Mixer {
         v.looping = p.looping;
         v.section = VoiceSection::Whole;
         v.outro = None;
+        v.delay = p.delay_frames;
         if let Some(plan) = p.sections {
             let fit = |(s, e): (usize, usize)| {
                 let e = e.min(frames);
@@ -952,6 +958,16 @@ impl Mixer {
                 let mut a = [0.0f32; MAX_CHANNELS];
                 let mut b = [0.0f32; MAX_CHANNELS];
                 for i in 0..frames {
+                    // A play delay: silence until it runs out; stopped meanwhile, the
+                    // voice ends at once (there is nothing to fade).
+                    if v.delay > 0 {
+                        if v.stopping() {
+                            finished = Some(v.pending_reason);
+                            break;
+                        }
+                        v.delay -= 1;
+                        continue;
+                    }
                     let heir = v.heir_of.is_some();
                     match fetch(&audio, &mut v.stream, heir, v.pos, &mut a, true) {
                         Fetch::Ok => v.starved = false,

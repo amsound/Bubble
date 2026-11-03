@@ -8,7 +8,7 @@
 //   [ ruler / waveform with IN, OUT, fades, cursor, playhead ]                  [meter]
 //   [ Intro · 0:19 ] [ Main ∞ · 0:25  v ] [ Outro · 0:14 ]     (with Sections on)
 //   [Trim In  0:03.12 − + Set] [0:12.08 −0:22.10  ⏮ ⟲ ▶ ■] [Trim Out 0:37.18 − + Set]
-//   Sound: Output, Gain, Pan, Speed, Speed Bar, Fades, Playback, On Retrigger
+//   Sound: Output, Gain, Pan, Speed, Play Delay, Fades, On Retrigger
 //   Cart:  Label, Colour, When It Starts, When It Ends, Group, Hotkey, MIDI, Audio File,
 //          Notes
 //                                                                       [Cancel] [OK]
@@ -575,6 +575,8 @@ export component CartSetupWindow inherits Window {
     in-out property <float> speed;
     in-out property <string> label-text;
     in-out property <string> notes-text;
+    // Play delay, as typed ("12.3 s").
+    in-out property <string> delay-text;
 
     // ---- the waveform, all from Rust, in pixels of the wave area ----
     in property <string> wave-path;
@@ -636,6 +638,7 @@ export component CartSetupWindow inherits Window {
     callback toggle(string);
     callback label-edited(string);
     callback notes-edited(string);
+    callback delay-edited(string);
     callback colour(int);
     callback pick-colour();
     // "learn", "clear-key", "clear-midi", "replace", "locate", "top-and-tail",
@@ -1334,20 +1337,25 @@ export component CartSetupWindow inherits Window {
                                 width: 32px;
                             }
                         }
+                        // Seconds between the trigger and the audio (the cart shows as
+                        // playing meanwhile); the Speed Bar's times are in the Speed Bar.
                         FieldRow {
                             label-width: root.label-width;
                             grouped: false;
-                            label: Theme.mac ? "Speed Bar" : "Speed bar";
-                            PopPair {
-                                a-label: "x0";
-                                a-value: info.speed-x0;
-                                b-label: "x1";
-                                b-value: info.speed-x1;
-                                open-a(x, y) => {
-                                    root.choice-menu("x0", x, y);
-                                }
-                                open-b(x, y) => {
-                                    root.choice-menu("x1", x, y);
+                            label: Theme.mac ? "Play Delay" : "Play delay";
+                            HorizontalLayout {
+                                alignment: start;
+                                LabelField {
+                                    width: 96px;
+                                    single-line: true;
+                                    placeholder: "0.0 s";
+                                    text <=> root.delay-text;
+                                    edited(t) => {
+                                        root.delay-edited(t);
+                                    }
+                                    accepted => {
+                                        root.ok();
+                                    }
                                 }
                             }
                         }

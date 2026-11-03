@@ -24,7 +24,7 @@ pub const MAX_GRID: u16 = 16;
 pub const GAIN_MIN_DB: f32 = -60.0;
 pub const GAIN_MAX_DB: f32 = 12.0;
 pub const MAX_FADE_MS: u32 = 60_000;
-pub const MAX_PLAY_DELAY_MS: u32 = 99_900;
+pub const MAX_PLAY_DELAY_MS: u32 = 999_900;
 pub const MAX_TEXT: usize = 4096;
 
 pub fn validate(p: &Project) -> Vec<Issue> {
@@ -220,7 +220,7 @@ impl Validator {
             self.err(format!("{path}.speedup_ms"), "longer than 60 s");
         }
         if c.play_delay_ms > MAX_PLAY_DELAY_MS {
-            self.err(format!("{path}.play_delay_ms"), "longer than 99.9 s");
+            self.err(format!("{path}.play_delay_ms"), "longer than 999.9 s");
         }
         // An Out point past the file's end is allowed: the file may have been replaced
         // by a shorter one, or measured differently when imported, and playback ends

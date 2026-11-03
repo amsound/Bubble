@@ -593,6 +593,11 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
     on_setup!(win, me, on_notes_edited, |s, a, _snap, _i, t| {
         s.draft.notes = t.to_string();
     });
+    on_setup!(win, me, on_delay_edited, |s, a, _snap, _i, t| {
+        if let Some(ms) = cartsetup::parse_delay(&t) {
+            s.draft.play_delay_ms = ms;
+        }
+    });
     on_setup!(win, me, on_colour, |s, a, _snap, _i, idx| {
         if let Some(c) = model::SETUP_SWATCHES.get(idx as usize).copied() {
             s.set_colour(Some(c));

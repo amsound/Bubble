@@ -226,6 +226,43 @@ pub struct MenuState {
     pub settings_window: bool,
 }
 
+/// A label in this platform's style: as written (Title Case) on a Mac, sentence case
+/// elsewhere ("Stop all now", "Reassign cart outputs…"). Acronyms (MIDI, CSV), single
+/// letters (Output A) and names (Bubble) keep their capitals.
+pub fn t(label: &str) -> String {
+    if cfg!(target_os = "macos") {
+        return label.to_string();
+    }
+    let keep = |w: &str| {
+        let core: String = w.chars().filter(|c| c.is_alphanumeric()).collect();
+        core.len() == 1 && core.chars().all(|c| c.is_ascii_uppercase())
+            || core.len() > 1 && core.chars().all(|c| !c.is_lowercase())
+            || ["Bubble", "SpotOn", "Finder"].contains(&core.as_str())
+    };
+    label
+        .split(' ')
+        .enumerate()
+        .map(|(i, w)| {
+            if i == 0 || keep(w) {
+                return w.to_string();
+            }
+            // The first letter, after any opening bracket, made small.
+            let mut out = String::with_capacity(w.len());
+            let mut done = false;
+            for c in w.chars() {
+                if !done && c.is_alphabetic() {
+                    out.extend(c.to_lowercase());
+                    done = true;
+                } else {
+                    out.push(c);
+                }
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The menus for the current state.
 pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     let has_sel = st.selected.is_some();
@@ -237,59 +274,59 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         .map(|(i, p)| Item::action(p.display().to_string(), Cmd::OpenRecent(i)))
         .collect();
     let mut file = vec![
-        Item::action("New Session…", Cmd::New).accel("CmdOrCtrl+N"),
-        Item::action("Open…", Cmd::Open).accel("CmdOrCtrl+O"),
+        Item::action(t("New Session…"), Cmd::New).accel("CmdOrCtrl+N"),
+        Item::action(t("Open…"), Cmd::Open).accel("CmdOrCtrl+O"),
     ];
     if !recent.is_empty() {
-        file.push(Item::sub("Open Recent", recent));
+        file.push(Item::sub(t("Open Recent"), recent));
     }
     file.extend([
         Item::Separator,
-        Item::action("Close Session", Cmd::CloseSession)
+        Item::action(t("Close Session"), Cmd::CloseSession)
             .accel("CmdOrCtrl+W")
             .enabled(snap.path.is_some() || snap.project.carts().next().is_some()),
-        Item::action("Save", Cmd::Save).accel("CmdOrCtrl+S"),
-        Item::action("Save Session As…", Cmd::SaveAs).accel("CmdOrCtrl+Shift+S"),
+        Item::action(t("Save"), Cmd::Save).accel("CmdOrCtrl+S"),
+        Item::action(t("Save Session As…"), Cmd::SaveAs).accel("CmdOrCtrl+Shift+S"),
         Item::Separator,
         Item::action(
             if cfg!(target_os = "macos") {
-                "Show Session in Finder"
+                "Show Session in Finder".to_string()
             } else {
-                "Reveal Session Folder"
+                t("Reveal Session Folder")
             },
             Cmd::RevealSession,
         )
         .enabled(snap.path.is_some()),
-        Item::action("Relink Missing Files…", Cmd::Relink),
-        Item::action("Reload All Audio", Cmd::ReloadAudio),
+        Item::action(t("Relink Missing Files…"), Cmd::Relink),
+        Item::action(t("Reload All Audio"), Cmd::ReloadAudio),
     ]);
     #[cfg(not(target_os = "macos"))]
     file.extend([
         Item::Separator,
-        Item::action("Quit", Cmd::Quit).accel("CmdOrCtrl+Q"),
+        Item::action(t("Quit"), Cmd::Quit).accel("CmdOrCtrl+Q"),
     ]);
 
     let edit = vec![
-        Item::action("Undo", Cmd::Undo)
+        Item::action(t("Undo"), Cmd::Undo)
             .accel("CmdOrCtrl+Z")
             .enabled(snap.can_undo),
-        Item::action("Redo", Cmd::Redo)
+        Item::action(t("Redo"), Cmd::Redo)
             .accel("CmdOrCtrl+Shift+Z")
             .enabled(snap.can_redo),
         Item::Separator,
-        Item::action("Cut Cart", Cmd::Cut)
+        Item::action(t("Cut Cart"), Cmd::Cut)
             .accel("CmdOrCtrl+X")
             .enabled(has_sel),
-        Item::action("Copy Cart", Cmd::Copy)
+        Item::action(t("Copy Cart"), Cmd::Copy)
             .accel("CmdOrCtrl+C")
             .enabled(has_sel),
-        Item::action("Paste Cart", Cmd::Paste)
+        Item::action(t("Paste Cart"), Cmd::Paste)
             .accel("CmdOrCtrl+V")
             .enabled(core.clipboard.is_some() && st.paste_target.is_some()),
         {
             let can = core.clipboard.is_some() && has_sel;
             let a = |label: &str, what: PasteAttr| {
-                Item::action(label, Cmd::PasteAttributes(what)).enabled(can)
+                Item::action(t(label), Cmd::PasteAttributes(what)).enabled(can)
             };
             Item::sub(
                 "Paste Attributes",
@@ -308,12 +345,12 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
                 ],
             )
         },
-        Item::action("Duplicate Cart", Cmd::DuplicateCart)
+        Item::action(t("Duplicate Cart"), Cmd::DuplicateCart)
             .accel("CmdOrCtrl+D")
             .enabled(has_sel),
-        Item::action("Clear Cart", Cmd::ClearCart).enabled(has_sel),
+        Item::action(t("Clear Cart"), Cmd::ClearCart).enabled(has_sel),
         Item::Separator,
-        Item::action("Edit Mode", Cmd::ToggleEditMode)
+        Item::action(t("Edit Mode"), Cmd::ToggleEditMode)
             .accel("CmdOrCtrl+E")
             .check(st.edit_mode),
     ];
@@ -350,11 +387,15 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     ]);
 
     let cart = vec![
-        Item::action("Cart Setup…", Cmd::AudioSetup)
+        Item::action(t("Cart Setup…"), Cmd::AudioSetup)
             .accel("CmdOrCtrl+I")
             .enabled(has_sel),
-        Item::action("Speed Bar…", Cmd::SpeedBar).enabled(has_sel),
-        Item::action("Play Selected Cart", Cmd::PlaySelected).enabled(has_sel),
+        Item::action(t("Speed Bar…"), Cmd::SpeedBar)
+            .accel("CmdOrCtrl+B")
+            .enabled(has_sel),
+        Item::action(t("Play"), Cmd::PlaySelected)
+            .accel("CmdOrCtrl+P")
+            .enabled(has_sel),
     ];
 
     let pages = snap.project.pages.len();
@@ -376,17 +417,22 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
                 .enabled(grid_fits(snap, snap.page, r, c))
         })
         .collect();
-    grid.extend([Item::Separator, Item::action("Other…", Cmd::PageSettings)]);
+    grid.extend([Item::Separator, Item::action(t("Other…"), Cmd::PageSettings)]);
 
     let mut audio = vec![
-        Item::action("Stop All (fade)", Cmd::StopAll),
-        Item::action("Stop Page (fade)", Cmd::StopPage),
-        Item::action("Stop All Immediately", Cmd::StopAllNow).accel("CmdOrCtrl+Period"),
+        Item::action(t("Stop All (fade)"), Cmd::StopAll),
+        Item::action(t("Stop Page (fade)"), Cmd::StopPage),
+        // ⌘. is the Mac's own "stop"; Windows has no such convention.
+        Item::action(t("Stop All Now"), Cmd::StopAllNow).accel(if cfg!(target_os = "macos") {
+            "CmdOrCtrl+Period"
+        } else {
+            "CmdOrCtrl+Shift+A"
+        }),
         Item::Separator,
-        Item::sub(format!("Output Level ({level:.0} dB)"), levels),
+        Item::sub(format!("{} ({level:.0} dB)", t("Output Level")), levels),
         Item::Separator,
-        Item::action("Outputs…", Cmd::Outputs),
-        Item::action("Reassign Cart Outputs…", Cmd::ReassignOutputs),
+        Item::action(t("Outputs…"), Cmd::Outputs),
+        Item::action(t("Reassign Cart Outputs…"), Cmd::ReassignOutputs),
     ];
     let today = jiff::Zoned::now().date();
     let mut backups: Vec<Item> = core
@@ -398,19 +444,19 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         })
         .collect();
     if backups.is_empty() {
-        backups.push(Item::action("No backups yet", Cmd::RestoreBackup(0)).enabled(false));
+        backups.push(Item::action(t("No backups yet"), Cmd::RestoreBackup(0)).enabled(false));
     }
     let mut session = vec![
-        Item::action("Session Settings…", Cmd::ProjectSettings).accel("CmdOrCtrl+Comma"),
-        Item::sub("Restore from Backup", backups),
+        Item::action(t("Session Settings…"), Cmd::ProjectSettings).accel("CmdOrCtrl+Comma"),
+        Item::sub(t("Restore from Backup"), backups),
         Item::Separator,
-        Item::action("Add Page", Cmd::AddPage),
-        Item::action("Copy Page", Cmd::CopyPage),
-        Item::action("Paste Page (Replaces This One)", Cmd::PastePage)
+        Item::action(t("Add Page"), Cmd::AddPage),
+        Item::action(t("Copy Page"), Cmd::CopyPage),
+        Item::action(t("Paste Page (Replaces This One)"), Cmd::PastePage)
             .enabled(core.page_clip.is_some()),
-        Item::sub("Grid Size", grid),
+        Item::sub(t("Grid Size"), grid),
         Item::Separator,
-        Item::action("Delete Page…", Cmd::RemovePage).enabled(pages > 1),
+        Item::action(t("Delete Page…"), Cmd::RemovePage).enabled(pages > 1),
     ];
     let view = vec![
         Item::sub(
@@ -419,7 +465,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
                 .into_iter()
                 .enumerate()
                 .map(|(i, n)| {
-                    Item::action(n, Cmd::BarSize(i as u8)).check(core.prefs.bar_size == i as u8)
+                    Item::action(t(n), Cmd::BarSize(i as u8)).check(core.prefs.bar_size == i as u8)
                 })
                 .collect(),
         ),
@@ -427,13 +473,13 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             "Appearance",
             APPEARANCES
                 .into_iter()
-                .map(|(n, a)| Item::action(n, Cmd::Appearance(a)).check(core.prefs.appearance == a))
+                .map(|(n, a)| Item::action(t(n), Cmd::Appearance(a)).check(core.prefs.appearance == a))
                 .collect(),
         ),
         Item::Separator,
-        Item::action("Playout Log", Cmd::ShowLog).accel("CmdOrCtrl+L"),
-        Item::action("Audio Diagnostics", Cmd::ShowDiagnostics),
-        Item::action("Show Log File", Cmd::ShowLogs),
+        Item::action(t("Playout Log"), Cmd::ShowLog).accel("CmdOrCtrl+L"),
+        Item::action(t("Audio Diagnostics"), Cmd::ShowDiagnostics),
+        Item::action(t("Show Log File"), Cmd::ShowLogs),
     ];
     if st.settings_window {
         // Windows and Linux: Settings… in File (macOS has it in the Bubble menu).
@@ -441,7 +487,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             let at = file.len() - 2;
             file.splice(
                 at..at,
-                [Item::Separator, Item::action("Settings…", Cmd::Settings)],
+                [Item::Separator, Item::action(t("Settings…"), Cmd::Settings)],
             );
         }
     } else {
@@ -595,7 +641,7 @@ pub fn buffer_label(b: Option<u32>) -> String {
 pub const SAMPLE_RATES: [u32; 2] = [44_100, 48_000];
 
 /// Page bar heights, in `Prefs::bar_size` order.
-pub const BAR_SIZES: [&str; 3] = ["Small", "Medium", "Large (touch screen)"];
+pub const BAR_SIZES: [&str; 3] = ["Small", "Medium", "Large"];
 
 pub const APPEARANCES: [(&str, Appearance); 3] = [
     ("Follow System", Appearance::System),

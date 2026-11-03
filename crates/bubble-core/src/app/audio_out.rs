@@ -565,8 +565,12 @@ impl Core {
                     )
                 })
                 .collect();
+            // A late disk read: the slowest the reader was lately, and at what.
+            let slow = self.lock().take_slowest_read().map_or(String::new(), |(d, what, file)| {
+                format!("; slowest disk step {} ms {what} {file}", d.as_millis())
+            });
             crate::log::info(&format!(
-                "audio dropout ({} so far): {}",
+                "audio dropout ({} so far): {}{slow}",
                 self.dropouts,
                 kinds.join("; ")
             ));
