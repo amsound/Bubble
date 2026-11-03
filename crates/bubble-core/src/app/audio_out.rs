@@ -49,6 +49,8 @@ pub struct DeviceWatch {
     checked: Option<Instant>,
     /// Dropouts counted so far on the current engines.
     dropouts_seen: u64,
+    /// The same by cause: device xruns, late disk reads and the frames they lost.
+    causes_seen: (u64, u64, u64),
     /// When problems were last logged, so a struggling machine does not flood the log.
     problem_logged: Option<Instant>,
 }
@@ -569,6 +571,32 @@ impl Core {
                 kinds.join("; ")
             ));
         }
+        // The playout log says what ran short.
+        let causes = detail.iter().fold((0, 0, 0), |a, d| {
+            (
+                a.0 + d.xruns,
+                a.1 + d.stream_underruns,
+                a.2 + d.stream_underrun_frames,
+            )
+        });
+        let seen = self.watch.causes_seen;
+        if causes.0 > seen.0 || causes.1 > seen.1 {
+            let rate = detail.first().map_or(48_000, |d| d.sample_rate.max(1)) as u64;
+            let mut c = self.lock();
+            for _ in seen.0..causes.0.min(seen.0 + 5) {
+                c.log_dropout("Device ran short".into());
+            }
+            if causes.1 > seen.1 {
+                let ms = causes.2.saturating_sub(seen.2) * 1000 / rate;
+                let n = causes.1 - seen.1;
+                c.log_dropout(if n == 1 {
+                    format!("Long file read late \u{b7} {ms} ms lost")
+                } else {
+                    format!("Long file read late ({n} times) \u{b7} {ms} ms lost")
+                });
+            }
+        }
+        self.watch.causes_seen = causes;
         self.watch.dropouts_seen = dropouts;
 
         let failed = self.lock().take_read_failure();

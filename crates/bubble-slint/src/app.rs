@@ -28,6 +28,7 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use uuid::Uuid;
 
 use crate::alerts::{Alert, Alerts};
+use crate::{playoutlog, speedbar};
 use crate::model::{self, Selection};
 use crate::{
     BusyRow, LoadInfo, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys,
@@ -88,6 +89,8 @@ enum Dialog {
     NewSession,
     Relink,
     DeletePage,
+    /// Clear Log… in the Playout Log.
+    ClearLog,
     /// Windows: the new session's Audio files setting, asked after the Save dialog
     /// (the Mac asks it inside the Save panel).
     AudioFiles,
@@ -146,6 +149,11 @@ pub struct App {
     /// The Settings (this computer) and Session Settings windows, while open.
     settings: Option<settings::Settings>,
     session_settings: Option<settings::SessionSettings>,
+    /// Open Speed Bars, oldest first (at most `speedbar::MAX_OPEN`).
+    speed_bars: Vec<speedbar::SpeedBar>,
+    playout_log: Option<playoutlog::PlayoutLog>,
+    /// Clear Log… asked: the alert asks first.
+    clear_log: bool,
     /// This app, for windows opened later to call back into.
     me: std::rc::Weak<RefCell<App>>,
     /// The system Save panel for a new session: open, its answer, and the Audio files
@@ -834,6 +842,148 @@ fn wire_tool_window(w: &slint::Window, me: &std::rc::Weak<RefCell<App>>, session
     });
 }
 
+/// The Playout Log's callbacks.
+fn wire_playout_log(win: &crate::PlayoutLogWindow, me: &std::rc::Weak<RefCell<App>>) {
+    let close = {
+        let me = me.clone();
+        move || {
+            if let Some(app) = me.upgrade() {
+                act(&app, |a, _| {
+                    if let Some(l) = a.playout_log.take() {
+                        let _ = l.win.hide();
+                    }
+                });
+            }
+        }
+    };
+    let close2 = close.clone();
+    win.window().on_close_requested(move || {
+        close2();
+        slint::CloseRequestResponse::HideWindow
+    });
+    win.window().on_winit_window_event(move |_w, ev| {
+        if let WindowEvent::Focused(true) = ev {
+            window::restore_menu();
+        }
+        EventResult::Propagate
+    });
+    let me2 = me.clone();
+    win.on_row_pressed(move |i, shift, toggle| {
+        if let Some(app) = me2.upgrade() {
+            act(&app, move |a, _| {
+                let snap = a.core.snapshot();
+                if let Some(l) = &mut a.playout_log {
+                    l.row_pressed(i.max(0) as usize, shift, toggle, &a.core, &snap);
+                }
+            });
+        }
+    });
+    let me2 = me.clone();
+    win.on_action(move |what| {
+        if what.as_str() == "escape" {
+            close();
+            return;
+        }
+        let Some(app) = me2.upgrade() else { return };
+        act(&app, move |a, _| {
+            let snap = a.core.snapshot();
+            let Some(l) = &mut a.playout_log else { return };
+            match what.as_str() {
+                "all" | "problems" => l.set_filter(what.as_str() == "problems", &a.core, &snap),
+                "copy" => l.copy(),
+                "clear" => a.clear_log = true,
+                "export" => {
+                    let csv = l.csv();
+                    let name = format!(
+                        "Playout Log {}.csv",
+                        jiff::Zoned::now().strftime("%Y-%m-%d %H-%M")
+                    );
+                    // Beside new sessions (Settings ▸ General ▸ Default save location).
+                    let location = a.core.session_root();
+                    savepanel::show(
+                        savepanel::Request {
+                            title: if cfg!(target_os = "macos") {
+                                "Export Playout Log".into()
+                            } else {
+                                "Export playout log".into()
+                            },
+                            button: "Export".into(),
+                            name,
+                            location,
+                            ask_audio: false,
+                        },
+                        l.win.window(),
+                        Box::new(move |c| {
+                            if let Some(c) = c
+                                && let Err(e) = std::fs::write(&c.path, csv)
+                            {
+                                bubble_core::log::info(&format!(
+                                    "could not export the playout log: {e}"
+                                ));
+                            }
+                        }),
+                    );
+                }
+                _ => {}
+            }
+        });
+    });
+}
+
+/// A Speed Bar's callbacks act on its `SpeedBar` (found by its cart).
+fn wire_speed_bar(win: &crate::SpeedBarWindow, me: &std::rc::Weak<RefCell<App>>, id: Uuid) {
+    fn with(
+        me: &std::rc::Weak<RefCell<App>>,
+        id: Uuid,
+        f: impl FnOnce(&mut speedbar::SpeedBar, &Snapshot, &mut Vec<Intent>) + 'static,
+    ) {
+        if let Some(app) = me.upgrade() {
+            act(&app, move |a, i| {
+                let snap = a.core.snapshot();
+                if let Some(b) = a.speed_bars.iter_mut().find(|b| b.id == id) {
+                    f(b, &snap, i);
+                }
+            });
+        }
+    }
+    let close = {
+        let me = me.clone();
+        move || {
+            if let Some(app) = me.upgrade() {
+                act(&app, move |a, _| {
+                    if let Some(i) = a.speed_bars.iter().position(|b| b.id == id) {
+                        let b = a.speed_bars.remove(i);
+                        let _ = b.win.hide();
+                    }
+                });
+            }
+        }
+    };
+    let close2 = close.clone();
+    win.window().on_close_requested(move || {
+        close2();
+        slint::CloseRequestResponse::HideWindow
+    });
+    win.window().on_winit_window_event(move |_w, ev| {
+        if let WindowEvent::Focused(true) = ev {
+            window::restore_menu();
+        }
+        EventResult::Propagate
+    });
+    let me2 = me.clone();
+    win.on_speed_changed(move |v| with(&me2, id, move |b, snap, i| b.speed(v, snap, i)));
+    let me2 = me.clone();
+    win.on_action(move |what| {
+        if what.as_str() == "escape" {
+            close();
+            return;
+        }
+        with(&me2, id, move |b, snap, i| b.action(what.as_str(), snap, i));
+    });
+    let me2 = me.clone();
+    win.on_time_chosen(move |t| with(&me2, id, move |b, snap, i| b.time_chosen(t, snap, i)));
+}
+
 fn wire_settings(win: &crate::SettingsWindow, me: &std::rc::Weak<RefCell<App>>) {
     wire_tool_window(win.window(), me, false);
     // Esc closes it (⌘W too).
@@ -1330,6 +1480,9 @@ impl App {
             key_gate: Arc::default(),
             settings: None,
             session_settings: None,
+            speed_bars: Vec::new(),
+            playout_log: None,
+            clear_log: false,
             me: std::rc::Weak::new(),
             save_open: false,
             save_tx,
@@ -1752,6 +1905,19 @@ impl App {
             settings::share_theme!(ui, s.win);
             s.show(snap);
         }
+        if let Some(l) = &mut self.playout_log {
+            settings::share_theme!(ui, l.win);
+            l.show(&self.core, snap);
+        }
+        // A Speed Bar whose cart has gone closes.
+        self.speed_bars.retain_mut(|b| {
+            settings::share_theme!(ui, b.win);
+            let keep = b.show(snap);
+            if !keep {
+                let _ = b.win.hide();
+            }
+            keep
+        });
     }
 
     /// What the busy popover lists: the running job or the session being opened, then
@@ -1803,6 +1969,42 @@ impl App {
                                 slint::Timer::single_shot(Duration::from_millis(500), move || {
                                     act(&app, move |a, _| a.open_setup(id));
                                 });
+                            });
+                        }
+                        // `speedbar`, `speedbar:play` or `speedbar:pick-x1`: the first
+                        // cart's Speed Bar (playing, or with a time chooser open).
+                        _ if scene.starts_with("speedbar") => {
+                            a.open_speed_bar(id);
+                            let step = scene.split(':').nth(1).unwrap_or("").to_string();
+                            let me = me.clone();
+                            slint::Timer::single_shot(Duration::from_millis(10), move || {
+                                if let Some(app) = me.upgrade() {
+                                    act(&app, move |a, i| match step.as_str() {
+                                        "play" => i.push(Intent::Trigger(id)),
+                                        "" => {}
+                                        other => {
+                                            let snap = a.core.snapshot();
+                                            if let Some(b) = a.speed_bars.first_mut() {
+                                                b.action(other, &snap, i);
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                        // The Playout Log after the first cart has played, stopped and
+                        // played again.
+                        "log" => {
+                            let me = me.clone();
+                            slint::Timer::single_shot(Duration::from_millis(10), move || {
+                                if let Some(app) = me.upgrade() {
+                                    act(&app, move |_, i| {
+                                        i.push(Intent::Trigger(id));
+                                        i.push(Intent::KillCart(id));
+                                        i.push(Intent::Trigger(id));
+                                    });
+                                    act(&app, |a, _| a.open_playout_log());
+                                }
                             });
                         }
                         // The first cart playing.
@@ -1857,6 +2059,12 @@ impl App {
                 if let Ok(a) = app.try_borrow() {
                     match (&a.setup, a.ui.upgrade()) {
                         (Some(s), _) if scene.starts_with("cartsetup") => save_bmp(s.win.window(), &path),
+                        _ if scene == "log" && a.playout_log.is_some() => {
+                            save_bmp(a.playout_log.as_ref().unwrap().win.window(), &path)
+                        }
+                        _ if scene.starts_with("speedbar") && !a.speed_bars.is_empty() => {
+                            save_bmp(a.speed_bars[0].win.window(), &path)
+                        }
                         _ if scene.starts_with("settings:") && a.settings.is_some() => {
                             save_bmp(a.settings.as_ref().unwrap().win.window(), &path)
                         }
@@ -2857,7 +3065,13 @@ impl App {
             Cmd::Outputs => self.open_settings(Some(1)),
             Cmd::ProjectSettings => self.open_session_settings(None),
             Cmd::PageSettings => self.open_session_settings(Some(3)),
-            Cmd::SpeedBar | Cmd::ReassignOutputs | Cmd::ShowLog | Cmd::ShowDiagnostics => {}
+            Cmd::SpeedBar => {
+                if let Some(id) = sel {
+                    self.open_speed_bar(id);
+                }
+            }
+            Cmd::ShowLog => self.open_playout_log(),
+            Cmd::ReassignOutputs | Cmd::ShowDiagnostics => {}
             // Handled by `apply_common`.
             _ => {}
         }
@@ -3082,6 +3296,59 @@ impl App {
         let _ = s.win.show();
         window::finish_tool(&s.win, &ui);
         self.settings = Some(s);
+    }
+
+    /// Opens the Playout Log, or brings it to the front.
+    fn open_playout_log(&mut self) {
+        if let Some(l) = &self.playout_log {
+            let _ = l.win.show();
+            return;
+        }
+        let (Ok(win), Some(ui)) = (crate::PlayoutLogWindow::new(), self.ui.upgrade()) else {
+            return;
+        };
+        settings::share_theme!(ui, win);
+        win.set_window_icon(window::icon());
+        window::remember_menu();
+        wire_playout_log(&win, &self.me);
+        let mut l = playoutlog::PlayoutLog::new(win);
+        l.show(&self.core, &self.core.snapshot());
+        window::place_over(l.win.window(), ui.window(), 640.0, 480.0);
+        let _ = l.win.show();
+        window::finish_tool(&l.win, &ui);
+        self.playout_log = Some(l);
+    }
+
+    /// Opens a cart's Speed Bar, or brings it to the front. With four open, the oldest
+    /// closes first.
+    fn open_speed_bar(&mut self, id: Uuid) {
+        if let Some(b) = self.speed_bars.iter().find(|b| b.id == id) {
+            let _ = b.win.show();
+            return;
+        }
+        let (Ok(win), Some(ui)) = (crate::SpeedBarWindow::new(), self.ui.upgrade()) else {
+            return;
+        };
+        if self.speed_bars.len() >= speedbar::MAX_OPEN {
+            let old = self.speed_bars.remove(0);
+            let _ = old.win.hide();
+        }
+        settings::share_theme!(ui, win);
+        win.set_window_icon(window::icon());
+        window::remember_menu();
+        wire_speed_bar(&win, &self.me, id);
+        let mut b = speedbar::SpeedBar::new(win, id);
+        b.show(&self.core.snapshot());
+        // Side by side across the main window's lower part, one place per bar.
+        let n = self.speed_bars.len() as f32;
+        let s = ui.window().scale_factor();
+        let (pos, size) = (ui.window().position(), ui.window().size());
+        let x = pos.x as f32 / s + 24.0 + n * 380.0;
+        let y = (pos.y as f32 + size.height as f32) / s - 200.0 - 120.0;
+        b.win.window().set_position(slint::LogicalPosition::new(x, y.max(0.0)));
+        let _ = b.win.show();
+        window::finish_tool(&b.win, &ui);
+        self.speed_bars.push(b);
     }
 
     /// Opens Session Settings, at a section if given, or brings it to the front.
@@ -3327,6 +3594,8 @@ impl App {
             Some(Dialog::NewSession)
         } else if self.delete_page.is_some() {
             Some(Dialog::DeletePage)
+        } else if self.clear_log {
+            Some(Dialog::ClearLog)
         } else if self.relink {
             Some(Dialog::Relink)
         } else if self.needs_session() {
@@ -3529,6 +3798,17 @@ impl App {
                     ..Default::default()
                 }
             }
+            Dialog::ClearLog => Alert {
+                title: if cfg!(target_os = "macos") {
+                    "Clear the Playout Log?".into()
+                } else {
+                    "Clear the playout log?".into()
+                },
+                info: "Its entries are not kept anywhere else.".into(),
+                buttons: buttons(&["Clear".into(), "Cancel".into()]),
+                destructive: Some(0),
+                ..Default::default()
+            },
             Dialog::DeletePage => {
                 let page = self.delete_page.unwrap_or(0);
                 let n = snap
@@ -3752,6 +4032,16 @@ impl App {
             // The Save panel answers these (save_chosen, alert_answer).
             (Dialog::NewSession | Dialog::AudioFiles | Dialog::Start | Dialog::SetupClose, _) => {}
             (Dialog::Relink, _) => self.relink = false,
+            (Dialog::ClearLog, i) => {
+                self.clear_log = false;
+                if i == 0 {
+                    self.lock().clear_log();
+                    let snap = self.core.snapshot();
+                    if let Some(l) = &mut self.playout_log {
+                        l.cleared(&self.core, &snap);
+                    }
+                }
+            }
             (Dialog::DeletePage, i) => {
                 if let Some(p) = self.delete_page.take()
                     && i == 0

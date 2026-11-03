@@ -1,0 +1,365 @@
+// Playout Log: what played this run, newest at the bottom (design "Playout Log").
+// It follows new entries until scrolled up; All or Problems only (refused carts and
+// dropouts). Rows, counts and selection come from Rust (src/playoutlog.rs).
+//
+//   [All 112 | Problems 6]            [Copy] [Export as CSV…] [Clear Log…]
+//   Time      Cart                What happened
+//   08:21:11  ■ 6 Interview Bed   ▷ Started · Click
+//   112 entries · keeps the last 2,000                   ● Following new entries
+
+import { ListView } from "std-widgets.slint";
+import { Theme, SysButton } from "theme.slint";
+
+export struct LogRow {
+    time: string,
+    swatch: color,
+    number: string,
+    label: string,
+    verb: string,
+    detail: string,
+    // 0 started, 1 ended, 2 refused, 3 dropout, 4 Outro, 5 ignored, 6 a note.
+    kind: int,
+    selected: bool,
+}
+
+// All or Problems.
+component Filter inherits Rectangle {
+    in property <[string]> labels;
+    in property <int> current;
+    callback chosen(int);
+    height: Theme.mac ? 26px : 32px;
+    border-radius: Theme.mac ? 6px : 4px;
+    border-width: Theme.mac ? 0px : 1px;
+    border-color: Theme.control-border;
+    background: Theme.mac ? Theme.text.transparentize(90%) : Theme.control;
+    clip: true;
+    HorizontalLayout {
+        padding: Theme.mac ? 2px : 0px;
+        spacing: Theme.mac ? 2px : 0px;
+        for t[i] in root.labels: Rectangle {
+            min-width: label.preferred-width + 24px;
+            border-radius: Theme.mac ? 5px : 0px;
+            background: i == root.current ? (Theme.mac ? (Theme.dark ? #636366 : #ffffff) : Theme.accent) : ta.has-hover ? Theme.button-hover : transparent;
+            accessible-role: button;
+            accessible-label: t;
+            accessible-checkable: true;
+            accessible-checked: i == root.current;
+            if i > 0 && !Theme.mac: Rectangle {
+                x: 0;
+                width: 1px;
+                background: Theme.control-border;
+            }
+            label := Text {
+                text: t;
+                color: i == root.current && !Theme.mac ? Theme.on-accent : Theme.text;
+                font-weight: i == root.current ? 600 : 400;
+            }
+            ta := TouchArea {
+                clicked => {
+                    root.chosen(i);
+                }
+            }
+        }
+    }
+}
+
+export component PlayoutLogWindow inherits Window {
+    in property <image> window-icon;
+    title: Theme.mac ? "Playout Log" : "Playout log";
+    icon: window-icon;
+    preferred-width: 640px;
+    preferred-height: 480px;
+    min-width: 480px;
+    min-height: 260px;
+    background: Theme.window-bg;
+    default-font-family: Theme.ui-font;
+    default-font-size: Theme.mac ? 13px : 14px;
+
+    in property <[LogRow]> rows;
+    in property <int> filter;
+    in property <int> all-count;
+    in property <int> problem-count;
+    in property <bool> any-selected;
+    in property <string> footer;
+    // Follows new entries; false once scrolled up (Rust is told, and shows "Jump to
+    // latest").
+    in-out property <bool> following: true;
+
+    // A row pressed: its index, and whether Shift or ⌘/Ctrl was held.
+    callback row-pressed(int, bool, bool);
+    // "all", "problems", "copy", "export", "clear", "escape".
+    callback action(string);
+
+    property <length> row-h: 36px;
+    // Scrolled to the newest entry.
+    public function to-latest() {
+        list.content-y = min(0px, list.visible-height - root.rows.length * root.row-h);
+        root.following = true;
+    }
+    changed rows => {
+        if root.following {
+            root.to-latest();
+        }
+    }
+
+    FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.action("escape");
+                return accept;
+            }
+            if e.modifiers.control && (e.text == "c" || e.text == "C") {
+                root.action("copy");
+                return accept;
+            }
+            reject
+        }
+        VerticalLayout {
+            // Toolbar.
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+                vertical-stretch: 0;
+                Filter {
+                    labels: ["All " + root.all-count, "Problems " + root.problem-count];
+                    current: root.filter;
+                    chosen(i) => {
+                        root.action(i == 1 ? "problems" : "all");
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                SysButton {
+                    text: "Copy";
+                    enabled: root.any-selected;
+                    clicked => {
+                        root.action("copy");
+                    }
+                }
+                SysButton {
+                    text: Theme.mac ? "Export as CSV…" : "Export as CSV…";
+                    enabled: root.all-count > 0;
+                    clicked => {
+                        root.action("export");
+                    }
+                }
+                SysButton {
+                    text: Theme.mac ? "Clear Log…" : "Clear log…";
+                    enabled: root.all-count > 0;
+                    clicked => {
+                        root.action("clear");
+                    }
+                }
+            }
+            // Column heads.
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                height: 22px;
+                spacing: 12px;
+                vertical-stretch: 0;
+                Text {
+                    width: 72px;
+                    text: "Time";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    width: 190px;
+                    text: "Cart";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: Theme.mac ? "What Happened" : "What happened";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle {
+                height: 1px;
+                vertical-stretch: 0;
+                background: Theme.card-border;
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.cart-panel;
+                list := ListView {
+                    scrolled => {
+                        // At the bottom (within a row): following; otherwise not.
+                        root.following = self.content-y <= min(0px, self.visible-height - root.rows.length * root.row-h) + root.row-h / 2;
+                    }
+                    for r[i] in root.rows: Rectangle {
+                        height: root.row-h;
+                        background: r.selected ? Theme.accent.transparentize(78%) : r.kind == 2 ? Theme.danger-text.transparentize(86%) : r.kind == 3 ? Theme.warning.transparentize(86%) : transparent;
+                        if r.selected: Rectangle {
+                            x: 0;
+                            width: 3px;
+                            background: Theme.accent;
+                        }
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            spacing: 12px;
+                            Text {
+                                width: 72px;
+                                text: r.time;
+                                color: Theme.weak-text;
+                                vertical-alignment: center;
+                            }
+                            HorizontalLayout {
+                                width: 190px;
+                                spacing: 8px;
+                                Rectangle {
+                                    width: 12px;
+                                    height: 12px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 3px;
+                                    background: r.swatch;
+                                    visible: r.number != "";
+                                }
+                                Text {
+                                    width: 24px;
+                                    text: r.number;
+                                    font-weight: 700;
+                                    color: Theme.text;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: r.label;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 6px;
+                                Path {
+                                    width: 14px;
+                                    height: 14px;
+                                    y: (parent.height - self.height) / 2;
+                                    viewbox-width: 14;
+                                    viewbox-height: 14;
+                                    // Start ▷, end □, refused ⚠, dropout ϟ, Outro ⇥.
+                                    commands: r.kind == 0 ? "M3.5 2.5L11 7L3.5 11.5Z" : r.kind == 1 ? "M3 3h8v8H3Z" : r.kind == 2 ? "M7 1.8L12.6 11.8H1.4ZM7 5.5v3M7 10v.6" : r.kind == 3 ? "M8 1.5L3.5 8H7L6 12.5L10.5 6H7Z" : r.kind == 4 ? "M2 7h8M7.5 4.5L10 7L7.5 9.5M12 3v8" : r.kind == 6 ? "M7 1.5a5.5 5.5 0 1 0 .01 0ZM7 6.2v4M7 4v.6" : "M3 7h8";
+                                    stroke: r.kind == 2 ? Theme.danger-text : r.kind == 3 ? Theme.warning : Theme.text;
+                                    stroke-width: 1.3px;
+                                }
+                                Text {
+                                    text: r.verb;
+                                    font-weight: 700;
+                                    color: r.kind == 2 ? Theme.danger-text : r.kind == 3 ? Theme.warning : Theme.text;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: r.detail == "" ? "" : "·  " + r.detail;
+                                    color: Theme.weak-text;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+                        TouchArea {
+                            pointer-event(e) => {
+                                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                                    root.row-pressed(i, e.modifiers.shift, e.modifiers.control || e.modifiers.meta);
+                                }
+                            }
+                        }
+                    }
+                }
+                if root.rows.length == 0: VerticalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    Rectangle {
+                        height: 44px;
+                        Rectangle {
+                            width: 44px;
+                            height: 44px;
+                            border-radius: 22px;
+                            background: Theme.text.transparentize(90%);
+                            Path {
+                                width: 18px;
+                                height: 18px;
+                                viewbox-width: 18;
+                                viewbox-height: 18;
+                                commands: "M4 5h10M4 9h10M4 13h6";
+                                stroke: Theme.weak-text;
+                                stroke-width: 1.5px;
+                            }
+                        }
+                    }
+                    Text {
+                        text: root.filter == 1 ? "No problems" : "Nothing has played yet";
+                        font-weight: 600;
+                        color: Theme.text;
+                        horizontal-alignment: center;
+                    }
+                }
+                if !root.following && root.rows.length > 0: Rectangle {
+                    x: parent.width - self.width - 16px;
+                    y: parent.height - self.height - 12px;
+                    width: jump.preferred-width + 28px;
+                    height: 32px;
+                    border-radius: Theme.mac ? 7px : 4px;
+                    background: Theme.accent;
+                    drop-shadow-blur: 8px;
+                    drop-shadow-color: #00000050;
+                    jump := Text {
+                        text: Theme.mac ? "Jump to Latest" : "Jump to latest";
+                        font-weight: 600;
+                        color: Theme.on-accent;
+                    }
+                    TouchArea {
+                        clicked => {
+                            root.to-latest();
+                        }
+                    }
+                }
+            }
+            // Footer.
+            Rectangle {
+                height: 1px;
+                vertical-stretch: 0;
+                background: Theme.card-border;
+            }
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                height: 30px;
+                spacing: 8px;
+                vertical-stretch: 0;
+                Text {
+                    text: root.footer;
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Rectangle {
+                    width: 7px;
+                    height: 7px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 3.5px;
+                    background: root.following ? #30d158 : #ff9f0a;
+                }
+                Text {
+                    text: root.following ? "Following new entries" : "Paused: scrolled up";
+                    font-size: 12px;
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

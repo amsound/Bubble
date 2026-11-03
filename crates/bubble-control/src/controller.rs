@@ -107,6 +107,8 @@ pub enum LogKind {
     Ignored,
     Rejected(String),
     Info(String),
+    /// Audio went missing for a moment: what ran short, and how much was lost.
+    Dropout(String),
 }
 
 #[derive(Clone, Debug)]
@@ -117,7 +119,8 @@ pub struct LogEntry {
     pub kind: LogKind,
 }
 
-const LOG_CAPACITY: usize = 2000;
+/// Entries the playout log keeps; older ones go.
+pub const LOG_CAPACITY: usize = 2000;
 
 /// Pending "learn" request: the next input becomes a binding for this cart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,6 +148,7 @@ pub struct Controller {
     next_key: u32,
     current_page: usize,
     log: VecDeque<LogEntry>,
+    log_total: u64,
     learn: Option<Learn>,
     /// Carts slowed (or halted) by the speed bar's `x0`.
     slowed: std::collections::HashSet<Uuid>,
@@ -251,6 +255,7 @@ impl Controller {
             next_key: 1,
             current_page: 0,
             log: VecDeque::new(),
+            log_total: 0,
             learn: None,
             slowed: Default::default(),
             overlap_cursor: HashMap::new(),
@@ -324,7 +329,7 @@ impl Controller {
         self.learn = None;
         self.rebuild_keys();
         self.rearm();
-        self.info(format!("Opened project \"{}\"", self.project.name));
+        self.info(format!("Opened \u{201c}{}\u{201d}", self.project.name));
     }
 
     /// Files looked up off the lock, for the next re-arm: so that replacing the project
@@ -825,6 +830,20 @@ impl Controller {
 
     pub fn log(&self) -> &VecDeque<LogEntry> {
         &self.log
+    }
+
+    /// Entries ever added (the log's own count, so a viewer can tell what is new).
+    pub fn log_total(&self) -> u64 {
+        self.log_total
+    }
+
+    pub fn clear_log(&mut self) {
+        self.log.clear();
+    }
+
+    /// A dropout, for the playout log: what ran short.
+    pub fn log_dropout(&mut self, what: String) {
+        self.log_push(None, String::new(), LogKind::Dropout(what));
     }
 
     // ----- triggering -----------------------------------------------------
@@ -2452,6 +2471,7 @@ impl Controller {
     }
 
     fn log_push(&mut self, cart: Option<Uuid>, label: String, kind: LogKind) {
+        self.log_total += 1;
         if self.log.len() >= LOG_CAPACITY {
             self.log.pop_front();
         }

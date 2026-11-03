@@ -22,6 +22,8 @@ mod menu;
 mod model;
 mod savepanel;
 mod settings;
+mod playoutlog;
+mod speedbar;
 mod window;
 
 slint::include_modules!();

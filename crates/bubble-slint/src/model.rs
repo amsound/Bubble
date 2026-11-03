@@ -63,7 +63,7 @@ fn rgb(c: [u8; 3]) -> Color {
 }
 
 /// Black or white, whichever reads on `bg`.
-fn text_color(c: [u8; 3]) -> Color {
+pub fn text_color(c: [u8; 3]) -> Color {
     let l = 0.299 * c[0] as f32 + 0.587 * c[1] as f32 + 0.114 * c[2] as f32;
     if l > 150.0 {
         Color::from_rgb_u8(0, 0, 0)

@@ -23,7 +23,7 @@ const SLOTS: usize = 6;
 pub fn not_here(cmd: &Cmd) -> bool {
     matches!(
         cmd,
-        Cmd::SpeedBar | Cmd::ReassignOutputs | Cmd::ShowLog | Cmd::ShowDiagnostics
+        Cmd::ReassignOutputs | Cmd::ShowDiagnostics
     )
 }
 

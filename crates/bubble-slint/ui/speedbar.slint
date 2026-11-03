@@ -1,0 +1,347 @@
+// Speed Bar: one cart's playback speed, live, in a small window of its own (design
+// "Speed Bar"). Up to four are open at once, one per cart. Everything shown comes from
+// Rust (src/speedbar.rs); every press goes back to it.
+//
+//   [12] Weather Bed                    100%
+//        ● Playing                      Live
+//   25 ──────●──────────────── 400    [100%]
+//   [ x0 | 2.0 s ⌄ ]   [ x1 | 1.0 s ⌄ ]
+
+import { Theme, SysButton, SetupSlider } from "theme.slint";
+
+export struct SpeedInfo {
+    number: string,
+    label: string,
+    colour: color,
+    number-colour: color,
+    // 0 stopped, 1 playing, 2 slowing, 3 halted, 4 returning.
+    state: int,
+    state-text: string,
+    percent: string,
+    caption: string,
+    x0-time: string,
+    x1-time: string,
+}
+
+// x0 or x1: a large action, then its time with a chevron, which opens the chooser.
+component SplitButton inherits Rectangle {
+    in property <string> text;
+    in property <string> time;
+    in property <bool> enabled: true;
+    // 0 plain, 1 in progress (accent tint), 2 the thing to press (accent),
+    // 3 done (amber).
+    in property <int> look;
+    in property <string> label;
+    callback pressed();
+    callback choose();
+    height: 48px;
+    horizontal-stretch: 1;
+    border-radius: Theme.mac ? 8px : 4px;
+    border-width: root.look == 3 ? 1.5px : Theme.mac ? 0px : 1px;
+    border-color: root.look == 3 ? Theme.warning : Theme.control-border;
+    background: root.look == 2 ? Theme.accent : root.look == 1 ? Theme.accent.transparentize(55%) : root.look == 3 ? Theme.warning.transparentize(85%) : Theme.mac ? Theme.text.transparentize(87%) : Theme.control;
+    opacity: root.enabled ? 1 : 0.45;
+    clip: true;
+    property <color> ink: root.look == 2 ? Theme.on-accent : root.look == 3 ? Theme.warning : Theme.text;
+    HorizontalLayout {
+        Rectangle {
+            horizontal-stretch: 1;
+            accessible-role: button;
+            accessible-label: root.label;
+            background: act.pressed ? Theme.text.transparentize(80%) : act.has-hover && root.enabled ? Theme.text.transparentize(92%) : transparent;
+            Text {
+                text: root.text;
+                font-size: 16px;
+                font-weight: 700;
+                color: root.ink;
+            }
+            act := TouchArea {
+                enabled: root.enabled;
+                clicked => {
+                    root.pressed();
+                }
+            }
+        }
+        Rectangle {
+            width: 1px;
+            background: root.look == 2 ? Theme.on-accent.transparentize(60%) : Theme.control-border.transparentize(40%);
+        }
+        Rectangle {
+            width: 84px;
+            accessible-role: button;
+            accessible-label: root.label + " time";
+            background: pick.pressed ? Theme.text.transparentize(80%) : pick.has-hover && root.enabled ? Theme.text.transparentize(92%) : transparent;
+            HorizontalLayout {
+                alignment: center;
+                spacing: 6px;
+                Text {
+                    text: root.time;
+                    color: root.ink;
+                    vertical-alignment: center;
+                }
+                Path {
+                    width: 10px;
+                    height: 10px;
+                    y: (parent.height - self.height) / 2;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    commands: "M2 3.5L5 6.5L8 3.5";
+                    stroke: root.ink;
+                    stroke-width: 1.5px;
+                }
+            }
+            pick := TouchArea {
+                enabled: root.enabled;
+                clicked => {
+                    root.choose();
+                }
+            }
+        }
+    }
+}
+
+// A time in the chooser.
+component TimeChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback chosen();
+    height: 40px;
+    horizontal-stretch: 1;
+    min-width: 0;
+    preferred-width: 0;
+    border-radius: Theme.mac ? 7px : 4px;
+    border-width: root.on || Theme.mac ? 0px : 1px;
+    border-color: Theme.control-border;
+    background: root.on ? Theme.accent : ta.has-hover ? Theme.button-hover : Theme.mac ? Theme.text.transparentize(87%) : Theme.control;
+    accessible-role: button;
+    accessible-label: root.text;
+    Text {
+        text: root.text;
+        color: root.on ? Theme.on-accent : Theme.text;
+        font-weight: root.on ? 600 : 400;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.chosen();
+        }
+    }
+}
+
+export component SpeedBarWindow inherits Window {
+    in property <image> window-icon;
+    in property <string> window-title;
+    title: window-title;
+    icon: window-icon;
+    width: 360px;
+    // As tall as what it holds.
+    height: body.preferred-height;
+    background: Theme.cart-panel;
+    default-font-family: Theme.ui-font;
+    default-font-size: Theme.mac ? 13px : 14px;
+
+    in property <SpeedInfo> info;
+    // The slider: the live speed while playing, else the cart's preset.
+    in-out property <float> speed: 1;
+    // The time chooser: none (-1), x0 (0) or x1 (1), its times, and which is chosen.
+    in property <int> picking: -1;
+    in property <[string]> times;
+    in property <int> chosen-time: -1;
+
+    callback speed-changed(float);
+    // "x0", "x1", "reset", "pick-x0", "pick-x1", "close-pick", "escape".
+    callback action(string);
+    // A time from the chooser (its index; -1 for Instant).
+    callback time-chosen(int);
+
+    property <[string]> ticks: ["25", "50", "100", "200", "400"];
+
+    FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                root.action(root.picking >= 0 ? "close-pick" : "escape");
+                return accept;
+            }
+            reject
+        }
+        body := VerticalLayout {
+            padding: 16px;
+            padding-top: 14px;
+            spacing: 12px;
+            // The cart, its state, and its speed.
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    y: 2px;
+                    border-radius: 6px;
+                    background: info.colour;
+                    Text {
+                        text: info.number;
+                        font-weight: 700;
+                        color: info.number-colour;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: info.label;
+                        font-weight: 600;
+                        color: Theme.text;
+                        overflow: elide;
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Rectangle {
+                            width: 7px;
+                            height: 7px;
+                            y: (parent.height - self.height) / 2;
+                            border-radius: 3.5px;
+                            background: info.state == 0 ? Theme.weak-text : info.state == 3 ? Theme.warning : #ffd82e;
+                        }
+                        Text {
+                            text: info.state-text;
+                            font-size: 12px;
+                            color: Theme.weak-text;
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 0px;
+                    Text {
+                        text: info.percent;
+                        font-size: 26px;
+                        font-weight: 700;
+                        color: Theme.text;
+                        horizontal-alignment: right;
+                    }
+                    Text {
+                        text: info.caption;
+                        font-size: 11px;
+                        color: Theme.weak-text;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+            // The speed, 25 % to 400 %, and back to 100 %.
+            HorizontalLayout {
+                spacing: 10px;
+                VerticalLayout {
+                    spacing: 2px;
+                    slider := SetupSlider {
+                        minimum: 0.25;
+                        maximum: 4;
+                        log-scale: true;
+                        centre-mark: true;
+                        value <=> root.speed;
+                        changed(v) => {
+                            root.speed-changed(v);
+                        }
+                        reset => {
+                            root.action("reset");
+                        }
+                    }
+                    Rectangle {
+                        height: 14px;
+                        for t[i] in root.ticks: Text {
+                            // Under each value's place on the slider (log scale: a
+                            // quarter of the way each).
+                            x: Theme.mac ? 9px + (parent.width - 18px) * i / 4 - self.width / 2 : 10px + (parent.width - 20px) * i / 4 - self.width / 2;
+                            text: t;
+                            font-size: 11px;
+                            color: Theme.weak-text;
+                        }
+                    }
+                }
+                SysButton {
+                    text: "100%";
+                    clicked => {
+                        root.action("reset");
+                    }
+                }
+            }
+            // x0 and x1.
+            HorizontalLayout {
+                spacing: 10px;
+                SplitButton {
+                    text: "x0";
+                    label: Theme.mac ? "Slow to a Stop" : "Slow to a stop";
+                    time: info.x0-time;
+                    enabled: info.state != 0;
+                    look: info.state == 2 ? 1 : info.state == 3 ? 3 : 0;
+                    pressed => {
+                        root.action("x0");
+                    }
+                    choose => {
+                        root.action("pick-x0");
+                    }
+                }
+                SplitButton {
+                    text: "x1";
+                    label: Theme.mac ? "Back to Normal Speed" : "Back to normal speed";
+                    time: info.x1-time;
+                    enabled: info.state != 0;
+                    look: info.state == 4 ? 1 : info.state == 3 ? 2 : 0;
+                    pressed => {
+                        root.action("x1");
+                    }
+                    choose => {
+                        root.action("pick-x1");
+                    }
+                }
+            }
+        }
+    }
+
+    // The time chooser, over the window; a press outside it closes it.
+    if root.picking >= 0: TouchArea {
+        clicked => {
+            root.action("close-pick");
+        }
+    }
+    if root.picking >= 0: Rectangle {
+        x: 8px;
+        y: max(4px, (parent.height - self.height) / 2);
+        width: parent.width - 16px;
+        height: chooser.preferred-height;
+        border-radius: 8px;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.card-border;
+        drop-shadow-blur: 16px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-color: #00000060;
+        TouchArea { }
+        chooser := VerticalLayout {
+            padding: 8px;
+            padding-top: 6px;
+            spacing: 6px;
+            Text {
+                text: root.picking == 0 ? "x0: slow to a stop over" : "x1: back to normal over";
+                font-size: 12px;
+                color: Theme.weak-text;
+            }
+            for row in [0, 4]: HorizontalLayout {
+                spacing: 6px;
+                for i in 4: TimeChip {
+                    text: root.times[row + i];
+                    on: root.chosen-time == row + i;
+                    chosen => {
+                        root.time-chosen(row + i);
+                    }
+                }
+            }
+            if root.picking == 1: TimeChip {
+                text: "Instant";
+                on: root.chosen-time == -1;
+                chosen => {
+                    root.time-chosen(-1);
+                }
+            }
+        }
+    }
+}
