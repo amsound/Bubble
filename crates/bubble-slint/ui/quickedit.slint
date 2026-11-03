@@ -183,7 +183,8 @@ export component FieldRow inherits HorizontalLayout {
     in property <bool> grouped: true;
     spacing: 12px;
     // One row height throughout (the window design pass): 36 px, controls 32 px.
-    min-height: Theme.mac && grouped ? 0px : 36px;
+    // Never squeezed below a control's height (a long page scrolls instead).
+    min-height: Theme.mac && grouped ? 34px : 36px;
     padding-left: Theme.mac && grouped ? 10px : 0px;
     padding-right: Theme.mac && grouped ? 10px : 0px;
     padding-top: Theme.mac && grouped ? 6px : 0px;

@@ -18,7 +18,8 @@ use bubble_project::{DuplicatePolicy, MouseMode, Retrigger, Scope};
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::{
-    GroupRow, OutputRow, PageRow, PopupRow, PortRow, SessionSettingsWindow, SettingsWindow,
+    GroupRow, OutputRow, OutputUse, PageRow, PopupRow, PortRow, SessionSettingsWindow,
+    SettingsWindow, StatusLine,
 };
 
 /// A label in this platform's style: Title Case on a Mac, sentence case on Windows.
@@ -56,6 +57,136 @@ fn refresh<T: Clone + PartialEq + 'static>(
         *shown = new.clone();
         set(ModelRc::new(VecModel::from(new)));
     }
+}
+
+/// Audio status: the summary, whether there are dropouts, and the details (the open
+/// devices first, each "Output A, B").
+fn status(core: &Core) -> (String, bool, Vec<StatusLine>) {
+    let line = |label: String, value: String, bad: bool| StatusLine {
+        label: label.into(),
+        value: value.into(),
+        bad,
+    };
+    let c = core.lock();
+    let diags: Vec<_> = c.engines().iter().map(|e| e.status().diagnostics()).collect();
+    let (used, limit) = c.audio_memory();
+    drop(c);
+    let mut lines = Vec::new();
+    let outputs = core.prefs.effective_outputs();
+    for (i, (a, key)) in core.audio.iter().zip(&core.audio_keys).enumerate() {
+        let letters: Vec<String> = outputs
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| &o.device == key)
+            .map(|(n, _)| bubble_project::output_letter(n))
+            .collect();
+        let label = if letters.len() > 1 {
+            format!("Outputs {}", letters.join(", "))
+        } else {
+            format!("Output {}", letters.first().cloned().unwrap_or_else(|| "A".into()))
+        };
+        let latency = diags
+            .get(i)
+            .map(|d| d.output_latency_us)
+            .filter(|us| *us > 0)
+            .map_or(String::new(), |us| format!(" · {:.1} ms", us as f32 / 1000.0));
+        lines.push(line(
+            label,
+            format!(
+                "{} · {} kHz · {} ch · {}{latency}",
+                a.device_name,
+                a.sample_rate as f32 / 1000.0,
+                a.channels,
+                a.sample_format
+            ),
+            false,
+        ));
+    }
+    let rate = diags.first().map_or(48_000, |d| d.sample_rate.max(1));
+    let ms = |frames: u64| frames as f32 * 1000.0 / rate as f32;
+    let asked = match core.prefs.buffer_frames {
+        Some(f) => format!("{f} frames ({:.1} ms)", ms(f as u64)),
+        None => name("Device Default", "Device default"),
+    };
+    lines.push(line(name("Buffer Asked For", "Buffer asked for"), asked, false));
+    let (lo, hi) = diags.iter().fold((u32::MAX, 0), |a, d| {
+        (a.0.min(d.min_callback_frames.max(1)), a.1.max(d.max_callback_frames))
+    });
+    lines.push(line(
+        name("Buffer Used", "Buffer used"),
+        if hi == 0 {
+            "–".into()
+        } else if lo == hi {
+            format!("{hi} frames")
+        } else {
+            format!("{lo} to {hi} frames")
+        },
+        false,
+    ));
+    let busiest = diags.iter().map(|d| d.max_process_ns).max().unwrap_or(0);
+    let budget = diags.iter().map(|d| d.last_callback_frames).max().unwrap_or(0);
+    lines.push(line(
+        name("Busiest Callback", "Busiest callback"),
+        format!("{} µs of {:.1} ms", busiest / 1000, ms(budget as u64)),
+        false,
+    ));
+    let (playing, capacity, stolen) = core.lock().engines().iter().fold((0, 0, 0), |a, e| {
+        let d = e.status().diagnostics();
+        (a.0 + d.active_voices, a.1 + e.status().voice_capacity(), a.2 + d.voices_stolen)
+    });
+    lines.push(line(
+        "Voices".into(),
+        format!("{playing} of {capacity} · {stolen} cut short"),
+        false,
+    ));
+    let xruns: u64 = diags.iter().map(|d| d.xruns).sum();
+    let late: u64 = diags.iter().map(|d| d.stream_underruns).sum();
+    let lost: u64 = diags.iter().map(|d| d.stream_underrun_frames).sum();
+    let count = |n: u64| if n == 1 { "1 dropout".to_string() } else { format!("{n} dropouts") };
+    lines.push(line(
+        name("Device Ran Short", "Device ran short"),
+        if xruns == 0 { "None".into() } else { count(xruns) },
+        xruns > 0,
+    ));
+    lines.push(line(
+        name("File Read Late", "File read late"),
+        if late == 0 {
+            "None".into()
+        } else {
+            format!("{} · {:.0} ms lost", count(late), ms(lost))
+        },
+        late > 0,
+    ));
+    let mb = |b: u64| (b as f64 / 1_048_576.0).round() as u64;
+    lines.push(line(
+        name("Audio Memory", "Audio memory"),
+        format!("{} MB of {} MB", mb(used), mb(limit)),
+        false,
+    ));
+    let wait = core.midi.max_lock_wait_us.load(std::sync::atomic::Ordering::Relaxed);
+    let ports = core.midi.open_ports().len();
+    lines.push(line(
+        "MIDI".into(),
+        format!(
+            "{ports} {} · {:.1} ms wait",
+            if ports == 1 { "port" } else { "ports" },
+            wait as f32 / 1000.0
+        ),
+        false,
+    ));
+    // Since these engines started (Reopen starts the count again).
+    let total = xruns + late;
+    let summary = match (xruns, late) {
+        (0, 0) => "All well · 0 dropouts this run".to_string(),
+        (x, 0) => format!("{} this run: {x} device short", count(total)),
+        (0, l) => format!("{} this run: {l} late disk read{}", count(total), if l == 1 { "" } else { "s" }),
+        (x, l) => format!(
+            "{} this run: {x} device short, {l} late disk read{}",
+            count(total),
+            if l == 1 { "" } else { "s" }
+        ),
+    };
+    (summary, total > 0, lines)
 }
 
 pub fn appearance_text(a: Appearance) -> String {
@@ -125,6 +256,7 @@ pub struct Settings {
     shown_outputs: Vec<OutputRow>,
     shown_ports: Vec<PortRow>,
     shown_level: Option<f32>,
+    shown_status: (Vec<StatusLine>, Vec<StatusLine>, Vec<StatusLine>),
     /// The output level moves with the slider; it is saved once it rests.
     save_at: Option<Instant>,
 }
@@ -140,6 +272,7 @@ impl Settings {
             shown_outputs: Vec::new(),
             shown_ports: Vec::new(),
             shown_level: None,
+            shown_status: Default::default(),
             save_at: None,
         };
         s.revert(core);
@@ -272,7 +405,6 @@ impl Settings {
         );
         w.set_rate(rate_text(self.rate).into());
         w.set_buffer(menu::buffer_label(self.buffer).into());
-        w.set_dropouts(core.dropouts.to_string().into());
         w.set_file_link(!p.no_file_link);
         w.set_audio_changed(self.audio_changed(core));
         w.set_audio_problem(core.audio_error.clone().unwrap_or_default().into());
@@ -290,6 +422,7 @@ impl Settings {
             })
             .collect();
         refresh(&mut self.shown_ports, ports, |m| w.set_ports(m));
+        self.show_status(core);
     }
 
     /// The choices for a pop-up button, set on the window for its native menu.
@@ -481,9 +614,44 @@ impl Settings {
                 self.revert(core);
             }
             "rescan-midi" => return Some(Cmd::RescanMidi),
+            "status-toggle" => {
+                core.prefs.audio_status_open = !core.prefs.audio_status_open;
+                core.save_prefs();
+            }
+            "reopen" => core.open_audio(),
+            "copy-status" => {
+                let (summary, _, lines) = status(core);
+                let text: Vec<String> = std::iter::once(format!("Audio status: {summary}"))
+                    .chain(lines.iter().map(|l| format!("{}: {}", l.label, l.value)))
+                    .collect();
+                if let Ok(mut c) = arboard::Clipboard::new() {
+                    let _ = c.set_text(text.join("\n"));
+                }
+            }
             _ => {}
         }
         None
+    }
+
+    /// Settings ▸ Audio's status section.
+    fn show_status(&mut self, core: &Core) {
+        let w = &self.win;
+        let (summary, bad, lines) = status(core);
+        w.set_status_open(core.prefs.audio_status_open);
+        w.set_status_bad(bad);
+        w.set_status_summary(summary.into());
+        // Devices across the whole width; the rest in two columns.
+        let (devices, rest): (Vec<_>, Vec<_>) = lines.into_iter().partition(|l| l.label.starts_with("Output"));
+        let half = rest.len().div_ceil(2);
+        let right = rest[half..].to_vec();
+        let left = rest[..half].to_vec();
+        let new = (devices, left, right);
+        if self.shown_status != new {
+            w.set_status_devices(ModelRc::new(VecModel::from(new.0.clone())));
+            w.set_status_left(ModelRc::new(VecModel::from(new.1.clone())));
+            w.set_status_right(ModelRc::new(VecModel::from(new.2.clone())));
+            self.shown_status = new;
+        }
     }
 
     pub fn toggle(&self, what: &str, row: usize, core: &Core) -> Option<Cmd> {
@@ -524,6 +692,17 @@ enum SessionPick {
     Duplicates(DuplicatePolicy),
     Scope(Scope),
     Typeface(Option<String>),
+    MoveGroup(uuid::Uuid),
+    MoveTo(String),
+}
+
+/// Outputs ▸ Move…: from which letter, which carts (0 all, 1 this page, 2 a group),
+/// the group, and to which letter.
+struct Move {
+    from: String,
+    scope: i32,
+    group: Option<uuid::Uuid>,
+    to: String,
 }
 
 /// Typefaces offered for tile labels: what the egui app offered, by family name (a
@@ -602,6 +781,24 @@ pub struct SessionSettings {
     shown_small: Option<f32>,
     shown_groups: Vec<GroupRow>,
     shown_pages: Vec<PageRow>,
+    shown_uses: Vec<OutputUse>,
+    moving: Option<Move>,
+    /// This computer's outputs (from Settings ▸ Audio), for where each letter plays.
+    outputs: Vec<OutputPref>,
+}
+
+/// The carts (not control buttons) that play audio.
+fn audio_carts(p: &bubble_project::Project) -> impl Iterator<Item = (usize, &bubble_project::Cart)> {
+    p.pages.iter().enumerate().flat_map(|(pi, page)| {
+        page.cells
+            .iter()
+            .map(move |c| (pi, &c.cart))
+            .filter(|(_, c)| c.control.is_none() && c.asset.is_some())
+    })
+}
+
+fn carts_text(n: usize) -> String {
+    if n == 1 { "1 cart".into() } else { format!("{n} carts") }
 }
 
 impl SessionSettings {
@@ -614,10 +811,127 @@ impl SessionSettings {
             shown_small: None,
             shown_groups: Vec::new(),
             shown_pages: Vec::new(),
+            shown_uses: Vec::new(),
+            moving: None,
+            outputs: Vec::new(),
         }
     }
 
+    /// The Outputs tab and Move….
+    fn show_outputs(&mut self, snap: &Snapshot) {
+        let p = &snap.project;
+        let mut letters: Vec<String> = audio_carts(p).map(|(_, c)| c.output.clone()).collect();
+        letters.sort_by_key(|l| bubble_project::output_index(l).unwrap_or(usize::MAX));
+        letters.dedup();
+        let uses: Vec<OutputUse> = letters
+            .iter()
+            .map(|l| {
+                let n = audio_carts(p).filter(|(_, c)| &c.output == l).count();
+                let here = bubble_project::output_index(l).and_then(|i| self.outputs.get(i));
+                OutputUse {
+                    letter: l.clone().into(),
+                    carts: carts_text(n).into(),
+                    device: match here {
+                        Some(o) if o.device.is_empty() => {
+                            name("System Default", "System default").into()
+                        }
+                        Some(o) => o.device.clone().into(),
+                        None => "Not set up on this computer".into(),
+                    },
+                    channels: here
+                        .map(|o| {
+                            if o.channels == 1 {
+                                format!("Channel {}", o.first_channel + 1)
+                            } else {
+                                format!(
+                                    "Channels {}–{}",
+                                    o.first_channel + 1,
+                                    o.first_channel + o.channels
+                                )
+                            }
+                        })
+                        .unwrap_or_default()
+                        .into(),
+                    missing: here.is_none(),
+                    note: if n == 1 {
+                        "This cart plays on Output A instead.".to_string()
+                    } else {
+                        format!("These {n} carts play on Output A instead.")
+                    }
+                    .into(),
+                }
+            })
+            .collect();
+        refresh(&mut self.shown_uses, uses, |m| self.win.set_output_uses(m));
+
+        let w = &self.win;
+        let Some(m) = &self.moving else {
+            w.set_move_open(false);
+            return;
+        };
+        let from = |c: &&bubble_project::Cart| c.output == m.from;
+        let all = audio_carts(p).filter(|(_, c)| from(c)).count();
+        let page = audio_carts(p).filter(|(pi, c)| *pi == snap.page && from(c)).count();
+        let group = m
+            .group
+            .map_or(0, |g| audio_carts(p).filter(|(_, c)| from(c) && c.group == Some(g)).count());
+        let n = match m.scope {
+            1 => page,
+            2 => group,
+            _ => all,
+        };
+        let gi = m.group.and_then(|g| p.groups.iter().position(|x| x.id == g));
+        w.set_move_open(true);
+        w.set_move_from(m.from.clone().into());
+        w.set_move_scope(m.scope);
+        w.set_move_all(carts_text(all).into());
+        w.set_move_page(p.pages.get(snap.page).map(|x| x.name.clone()).unwrap_or_default().into());
+        w.set_move_page_count(carts_text(page).into());
+        w.set_has_groups(!p.groups.is_empty());
+        w.set_move_group(gi.map_or("None".into(), |i| p.groups[i].display_name(i)).into());
+        w.set_move_group_count(if m.group.is_some() { carts_text(group) } else { String::new() }.into());
+        w.set_move_to(format!("Output {}", m.to).into());
+        w.set_move_summary(if n == 0 {
+            "No carts to move.".into()
+        } else if m.scope == 0 {
+            format!("{} will move from {} to {}.", carts_text(n), m.from, m.to)
+        } else {
+            format!(
+                "{} will move from {} to {}. Other carts on Output {} stay there.",
+                carts_text(n),
+                m.from,
+                m.to,
+                m.from
+            )
+        }
+        .into());
+        let carts = if n == 1 {
+            name("Cart", "cart")
+        } else {
+            name("Carts", "carts")
+        };
+        w.set_move_button(format!("Move {n} {carts}").into());
+        w.set_move_enabled(n > 0 && m.to != m.from);
+    }
+
+    /// Letters to move to: this computer's outputs and those in use, but not `from`.
+    fn targets(&self, snap: &Snapshot, from: &str) -> Vec<String> {
+        let mut v: Vec<String> = (0..self.outputs.len().max(1))
+            .map(bubble_project::output_letter)
+            .chain(audio_carts(&snap.project).map(|(_, c)| c.output.clone()))
+            .filter(|l| l != from)
+            .collect();
+        v.sort_by_key(|l| bubble_project::output_index(l).unwrap_or(usize::MAX));
+        v.dedup();
+        v
+    }
+
+    pub fn set_outputs(&mut self, outputs: Vec<OutputPref>) {
+        self.outputs = outputs;
+    }
+
     pub fn show(&mut self, snap: &Snapshot) {
+        self.show_outputs(snap);
         let w = &self.win;
         let p = &snap.project;
         let s = &p.settings;
@@ -694,6 +1008,13 @@ impl SessionSettings {
 
     pub fn choices(&mut self, field: &str, _row: usize, snap: &Snapshot) {
         let s = &snap.project.settings;
+        // Move…'s choices of output, and the one chosen.
+        let (targets, cur_to) = self
+            .moving
+            .as_ref()
+            .map(|m| (self.targets(snap, &m.from), m.to.clone()))
+            .unwrap_or_default();
+        let cur_group = self.moving.as_ref().and_then(|m| m.group);
         let mut list = Vec::new();
         self.picks.clear();
         let mut add = |pick: SessionPick, text: String, enabled: bool, checked: bool| {
@@ -776,6 +1097,18 @@ impl SessionSettings {
                     );
                 }
             }
+            "move-group" => {
+                for (i, g) in snap.project.groups.iter().enumerate() {
+                    let on = cur_group == Some(g.id);
+                    add(SessionPick::MoveGroup(g.id), g.display_name(i), true, on);
+                }
+            }
+            "move-to" => {
+                for l in targets {
+                    let on = l == cur_to;
+                    add(SessionPick::MoveTo(l.clone()), format!("Output {l}"), true, on);
+                }
+            }
             "typeface" => {
                 let current = s.display.font.clone();
                 add(
@@ -809,8 +1142,25 @@ impl SessionSettings {
         else {
             return;
         };
+        match &pick {
+            SessionPick::MoveGroup(g) => {
+                if let Some(m) = &mut self.moving {
+                    m.group = Some(*g);
+                    m.scope = 2;
+                }
+                return;
+            }
+            SessionPick::MoveTo(l) => {
+                if let Some(m) = &mut self.moving {
+                    m.to = l.clone();
+                }
+                return;
+            }
+            _ => {}
+        }
         let mut st = snap.project.settings.clone();
         match pick {
+            SessionPick::MoveGroup(_) | SessionPick::MoveTo(_) => {}
             SessionPick::AudioFiles(w) => st.convert_to_wav = w,
             SessionPick::Fade(ms) => st.default_fade_out_ms = ms,
             SessionPick::Retrigger(r) => st.default_retrigger = r,
@@ -908,6 +1258,34 @@ impl SessionSettings {
     /// Buttons that are intents; Delete Page… asks first, so the app handles it.
     pub fn action(&mut self, what: &str, row: usize, snap: &Snapshot, intents: &mut Vec<Intent>) {
         match what {
+            "move" => {
+                if let Some(u) = self.shown_uses.get(row) {
+                    let from = u.letter.to_string();
+                    let to = self.targets(snap, &from).into_iter().next().unwrap_or_default();
+                    self.moving = Some(Move {
+                        from,
+                        scope: 0,
+                        group: snap.project.groups.first().map(|g| g.id),
+                        to,
+                    });
+                }
+            }
+            "move-scope" => {
+                if let Some(m) = &mut self.moving {
+                    m.scope = row as i32;
+                }
+            }
+            "move-cancel" => self.moving = None,
+            "move-confirm" => {
+                if let Some(m) = self.moving.take() {
+                    let scope = match (m.scope, m.group) {
+                        (1, _) => bubble_control::ReassignScope::Page(snap.page),
+                        (2, Some(g)) => bubble_control::ReassignScope::Group(g),
+                        _ => bubble_control::ReassignScope::All,
+                    };
+                    intents.push(Intent::ReassignOutputs(Some(m.from), m.to, scope));
+                }
+            }
             "add-group" => intents.push(Intent::AddGroup),
             "remove-group" => {
                 let mut groups = snap.project.groups.clone();

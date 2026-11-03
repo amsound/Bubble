@@ -90,6 +90,8 @@ pub struct Prefs {
     pub last_project: Option<PathBuf>,
     /// Windows: not to link .bubble files to Bubble.
     pub no_file_link: bool,
+    /// Settings ▸ Audio's status section left open.
+    pub audio_status_open: bool,
     pub recent_projects: Vec<PathBuf>,
     pub ui_scale: Option<f32>,
     /// Bottom page/stop bar height: 0 small, 1 medium, 2 large (touch screens).

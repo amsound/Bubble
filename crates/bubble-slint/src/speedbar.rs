@@ -38,7 +38,7 @@ fn time_text(ms: u32) -> String {
 }
 
 fn time_chip(ms: u32) -> String {
-    if ms % 1000 == 0 {
+    if ms.is_multiple_of(1000) {
         format!("{} s", ms / 1000)
     } else {
         format!("{:.1} s", ms as f32 / 1000.0)

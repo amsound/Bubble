@@ -20,11 +20,8 @@ pub const SEPARATOR: &str = "\u{E001}⸺";
 const SLOTS: usize = 6;
 
 /// Commands that open windows the Slint interface does not have yet (still egui).
-pub fn not_here(cmd: &Cmd) -> bool {
-    matches!(
-        cmd,
-        Cmd::ReassignOutputs | Cmd::ShowDiagnostics
-    )
+pub fn not_here(_cmd: &Cmd) -> bool {
+    false
 }
 
 /// The menus for Slint, and the command behind each entry id.

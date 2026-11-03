@@ -1903,6 +1903,7 @@ impl App {
         }
         if let Some(s) = &mut self.session_settings {
             settings::share_theme!(ui, s.win);
+            s.set_outputs(self.core.prefs.effective_outputs());
             s.show(snap);
         }
         if let Some(l) = &mut self.playout_log {
@@ -2044,11 +2045,23 @@ impl App {
                         _ => {}
                     }
                 }
-                let section = |p: &str| scene.strip_prefix(p).and_then(|n| n.parse().ok());
+                // `session:N` or `session:N:action:row` (a button in that section).
+                let section = |p: &str| {
+                    scene
+                        .strip_prefix(p)
+                        .and_then(|n| n.split(':').next())
+                        .and_then(|n| n.parse().ok())
+                };
                 if let Some(n) = section("settings:") {
                     a.open_settings(Some(n));
                 } else if let Some(n) = section("session:") {
                     a.open_session_settings(Some(n));
+                    let parts: Vec<&str> = scene.split(':').collect();
+                    if let [_, _, what, row] = parts[..]
+                        && let Some(s) = &a.session_settings
+                    {
+                        s.win.invoke_action(what.into(), row.parse().unwrap_or(0));
+                    }
                 }
                 a.tick();
             }
@@ -3071,7 +3084,11 @@ impl App {
                 }
             }
             Cmd::ShowLog => self.open_playout_log(),
-            Cmd::ReassignOutputs | Cmd::ShowDiagnostics => {}
+            Cmd::ReassignOutputs => self.open_session_settings(Some(4)),
+            Cmd::ShowDiagnostics => {
+                self.core.prefs.audio_status_open = true;
+                self.open_settings(Some(1));
+            }
             // Handled by `apply_common`.
             _ => {}
         }
@@ -3371,6 +3388,7 @@ impl App {
         window::remember_menu();
         wire_session_settings(&win, &self.me);
         let mut s = settings::SessionSettings::new(win);
+        s.set_outputs(self.core.prefs.effective_outputs());
         s.show(&self.core.snapshot());
         window::place_over(s.win.window(), ui.window(), 660.0, 556.0);
         let _ = s.win.show();

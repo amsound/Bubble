@@ -28,6 +28,24 @@ export struct OutputRow {
     note: string,
 }
 
+// A line of Settings ▸ Audio's status: what, its value, and whether it is a problem.
+export struct StatusLine {
+    label: string,
+    value: string,
+    bad: bool,
+}
+
+// An output letter the session's carts use: how many, and where it plays here.
+export struct OutputUse {
+    letter: string,
+    carts: string,
+    device: string,
+    channels: string,
+    // Not set up on this computer (its carts play on Output A).
+    missing: bool,
+    note: string,
+}
+
 export struct PortRow {
     name: string,
     on: bool,
@@ -239,7 +257,14 @@ export component SettingsWindow inherits Window {
     in property <bool> can-add-output;
     in property <string> rate;
     in property <string> buffer;
-    in property <string> dropouts;
+    // Audio status: open or not, a problem or not, the one-line summary, the devices
+    // (full width) and the rest (two columns).
+    in property <bool> status-open;
+    in property <bool> status-bad;
+    in property <string> status-summary;
+    in property <[StatusLine]> status-devices;
+    in property <[StatusLine]> status-left;
+    in property <[StatusLine]> status-right;
     in property <bool> file-link;
     // Outputs, sample rate or buffer size changed but not applied.
     in property <bool> audio-changed;
@@ -525,16 +550,6 @@ export component SettingsWindow inherits Window {
                                 }
                             }
                         }
-                        if Theme.mac: Rule { }
-                        FieldRow {
-                            label-width: root.label-width;
-                            label: "Dropouts";
-                            Text {
-                                text: root.dropouts + " this run";
-                                color: Theme.text;
-                                vertical-alignment: center;
-                            }
-                        }
                     }
                     Group {
                         FieldRow {
@@ -572,6 +587,141 @@ export component SettingsWindow inherits Window {
                                     on: root.limiter;
                                     toggled => {
                                         root.toggle("limiter", 0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Audio status: one row, open for the details (it never opens by
+                    // itself, so nothing moves while carts play).
+                    Rectangle {
+                        border-radius: Theme.mac ? 9px : 8px;
+                        background: root.status-bad ? Theme.danger-text.transparentize(88%) : Theme.mac ? Theme.text.transparentize(94%) : Theme.card;
+                        border-width: root.status-bad ? 1px : Theme.mac ? 0px : 1px;
+                        border-color: root.status-bad ? Theme.danger-border : Theme.card-border;
+                        VerticalLayout {
+                            Rectangle {
+                                height: 56px;
+                                accessible-role: button;
+                                accessible-label: root.status-open ? "Hide details" : "Show details";
+                                HorizontalLayout {
+                                    padding-left: 16px;
+                                    padding-right: 16px;
+                                    spacing: 10px;
+                                    Text {
+                                        text: Theme.mac ? "Audio Status" : "Audio status";
+                                        font-weight: 600;
+                                        color: Theme.text;
+                                        vertical-alignment: center;
+                                    }
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 4px;
+                                        background: root.status-bad ? Theme.danger-text : #30d158;
+                                    }
+                                    Text {
+                                        text: root.status-summary;
+                                        color: root.status-bad ? Theme.danger-text : Theme.weak-text;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: root.status-open ? (Theme.mac ? "Hide Details" : "Hide details") : (Theme.mac ? "Show Details" : "Show details");
+                                        color: Theme.accent;
+                                        vertical-alignment: center;
+                                    }
+                                    Path {
+                                        width: 10px;
+                                        height: 10px;
+                                        y: (parent.height - self.height) / 2;
+                                        viewbox-width: 10;
+                                        viewbox-height: 10;
+                                        commands: root.status-open ? "M2 6.5L5 3.5L8 6.5" : "M2 3.5L5 6.5L8 3.5";
+                                        stroke: Theme.accent;
+                                        stroke-width: 1.5px;
+                                    }
+                                }
+                                TouchArea {
+                                    clicked => {
+                                        root.action("status-toggle", 0);
+                                    }
+                                }
+                            }
+                            if root.status-open: VerticalLayout {
+                                padding-left: 16px;
+                                padding-right: 16px;
+                                padding-bottom: 14px;
+                                spacing: 8px;
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.card-border;
+                                }
+                                for d in root.status-devices: HorizontalLayout {
+                                    spacing: 12px;
+                                    Text {
+                                        width: 90px;
+                                        text: d.label;
+                                        color: Theme.weak-text;
+                                    }
+                                    Text {
+                                        text: d.value;
+                                        color: Theme.text;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: 24px;
+                                    for col in [root.status-left, root.status-right]: VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        min-width: 0;
+                                        preferred-width: 0;
+                                        spacing: 6px;
+                                        alignment: start;
+                                        for l in col: HorizontalLayout {
+                                            spacing: 12px;
+                                            Text {
+                                                width: 116px;
+                                                text: l.label;
+                                                color: l.bad ? Theme.danger-text : Theme.weak-text;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: l.value;
+                                                color: l.bad ? Theme.danger-text : Theme.text;
+                                                font-weight: l.bad ? 600 : 400;
+                                                overflow: elide;
+                                                horizontal-stretch: 1;
+                                            }
+                                        }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    padding-top: 6px;
+                                    spacing: 8px;
+                                    SysButton {
+                                        text: Theme.mac ? "Copy Details" : "Copy details";
+                                        clicked => {
+                                            root.action("copy-status", 0);
+                                        }
+                                    }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: "Briefly interrupts all playing audio.";
+                                        font-size: Theme.mac ? 11px : 12px;
+                                        color: Theme.weak-text;
+                                        vertical-alignment: center;
+                                    }
+                                    SysButton {
+                                        text: Theme.mac ? "Reopen Audio Output" : "Reopen audio output";
+                                        clicked => {
+                                            root.action("reopen", 0);
+                                        }
                                     }
                                 }
                             }
@@ -798,6 +948,21 @@ export component SessionSettingsWindow inherits Window {
     // "add-group", "remove-group" (row), "add-page", "delete-page" (row), and a
     // page's "rows-up", "rows-down", "cols-up", "cols-down" (row).
     callback action(string, int);
+    // Outputs: the letters in use, and Move… (from, which carts, to, how many).
+    in property <[OutputUse]> output-uses;
+    in property <bool> move-open;
+    in property <string> move-from;
+    in property <int> move-scope;
+    in property <string> move-all;
+    in property <string> move-page;
+    in property <string> move-page-count;
+    in property <string> move-group;
+    in property <string> move-group-count;
+    in property <bool> has-groups;
+    in property <string> move-to;
+    in property <string> move-summary;
+    in property <string> move-button;
+    in property <bool> move-enabled;
     callback key(string);
 
     public function open-popup() {
@@ -810,6 +975,10 @@ export component SessionSettingsWindow inherits Window {
 
     keys := FocusScope {
         key-pressed(e) => {
+            if e.text == Key.Escape && root.move-open {
+                root.action("move-cancel", 0);
+                return accept;
+            }
             if e.text == Key.Escape {
                 root.key("escape");
                 return accept;
@@ -821,7 +990,7 @@ export component SessionSettingsWindow inherits Window {
             reject
         }
         SettingsFrame {
-            sections: ["General", "Tiles", "Groups", "Pages"];
+            sections: ["General", "Tiles", "Groups", "Pages", "Outputs"];
             section <=> root.section;
             section-chosen(i) => {
                 root.section-chosen(i);
@@ -1078,6 +1247,87 @@ export component SessionSettingsWindow inherits Window {
                 }
             }
 
+            // ---- Outputs ----
+            if root.section == 4: VerticalLayout {
+                spacing: 8px;
+                Group {
+                    for o[i] in root.output-uses: VerticalLayout {
+                        if i > 0 && Theme.mac: Rule { }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            padding-left: Theme.mac ? 10px : 0px;
+                            padding-right: Theme.mac ? 10px : 0px;
+                            padding-top: 6px;
+                            padding-bottom: 6px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: 4px;
+                                    background: Theme.text.transparentize(85%);
+                                    Text {
+                                        text: o.letter;
+                                        font-weight: 700;
+                                        color: Theme.text;
+                                    }
+                                }
+                            }
+                            Text {
+                                width: 70px;
+                                text: o.carts;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 1;
+                                spacing: 2px;
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    if o.missing: Path {
+                                        width: 14px;
+                                        height: 14px;
+                                        viewbox-width: 14;
+                                        viewbox-height: 14;
+                                        commands: "M7 1.8L12.6 11.8H1.4ZM7 5.5v3M7 10v.6";
+                                        stroke: Theme.warning;
+                                        stroke-width: 1.3px;
+                                    }
+                                    Text {
+                                        text: o.device;
+                                        color: o.missing ? Theme.warning : Theme.text;
+                                        font-weight: o.missing ? 600 : 400;
+                                        overflow: elide;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                Text {
+                                    text: o.missing ? o.note : o.channels;
+                                    font-size: Theme.mac ? 11px : 12px;
+                                    color: Theme.weak-text;
+                                    overflow: elide;
+                                }
+                            }
+                            SysButton {
+                                y: (parent.height - self.height) / 2;
+                                text: "Move…";
+                                clicked => {
+                                    root.action("move", i);
+                                }
+                            }
+                        }
+                    }
+                    if root.output-uses.length == 0: Text {
+                        x: Theme.mac ? 10px : 0px;
+                        height: 36px;
+                        text: "No carts play audio yet.";
+                        color: Theme.weak-text;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
             // ---- Pages ----
             if root.section == 3: VerticalLayout {
                 spacing: 8px;
@@ -1141,6 +1391,132 @@ export component SessionSettingsWindow inherits Window {
                         clicked => {
                             root.action("add-page", 0);
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // Move…: which carts, to which output, and how many move, over the window.
+    if root.move-open: Rectangle {
+        background: #00000059;
+        TouchArea { }
+    }
+    if root.move-open: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: max(24px, (parent.height - self.height) / 2);
+        width: 440px;
+        height: dlg.preferred-height;
+        border-radius: Theme.mac ? 10px : 8px;
+        background: Theme.card;
+        border-width: 1px;
+        border-color: Theme.card-border;
+        drop-shadow-blur: 24px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: #00000070;
+        dlg := VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            Text {
+                text: (Theme.mac ? "Move Carts from Output " : "Move carts from Output ") + root.move-from;
+                font-size: 15px;
+                font-weight: 700;
+                color: Theme.text;
+            }
+            Text {
+                text: Theme.mac ? "Which Carts" : "Which carts";
+                font-size: 12px;
+                color: Theme.weak-text;
+            }
+            for opt[i] in [
+                { text: "All carts on " + root.move-from, count: root.move-all, on: true },
+                { text: "Current page (" + root.move-page + ")", count: "", on: true },
+                { text: "One exclusive group:", count: root.move-group-count, on: root.has-groups },
+            ]: Rectangle {
+                height: 36px;
+                opacity: opt.on ? 1 : 0.45;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle {
+                        width: 18px;
+                        height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 9px;
+                        border-width: root.move-scope == i ? 5px : 1.5px;
+                        border-color: root.move-scope == i ? Theme.accent : Theme.control-border;
+                        background: root.move-scope == i ? Theme.on-accent : transparent;
+                    }
+                    Text {
+                        text: opt.text;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    if i == 2: Choice {
+                        value: root.move-group;
+                        open(x, y) => {
+                            root.choice-menu("move-group", 0, x, y);
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: i == 1 ? root.move-page-count : opt.count;
+                        color: Theme.weak-text;
+                        vertical-alignment: center;
+                    }
+                }
+                TouchArea {
+                    enabled: opt.on;
+                    clicked => {
+                        root.action("move-scope", i);
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Text {
+                    text: Theme.mac ? "Move To" : "Move to";
+                    color: Theme.weak-text;
+                    vertical-alignment: center;
+                }
+                Choice {
+                    value: root.move-to;
+                    open(x, y) => {
+                        root.choice-menu("move-to", 0, x, y);
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+            }
+            Text {
+                text: root.move-summary;
+                color: Theme.text;
+                font-weight: 600;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                if Theme.mac: SysButton {
+                    text: "Cancel";
+                    clicked => {
+                        root.action("move-cancel", 0);
+                    }
+                }
+                SysButton {
+                    text: root.move-button;
+                    primary: true;
+                    enabled: root.move-enabled;
+                    clicked => {
+                        root.action("move-confirm", 0);
+                    }
+                }
+                if !Theme.mac: SysButton {
+                    text: "Cancel";
+                    clicked => {
+                        root.action("move-cancel", 0);
                     }
                 }
             }
