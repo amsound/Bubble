@@ -1393,3 +1393,27 @@ fn a_long_file_being_edited_is_held_whole_in_memory() {
     c.edit_in_memory(None);
     assert!(!c.editing_in_memory(asset));
 }
+
+#[test]
+fn an_outro_added_while_the_cart_plays_starts_on_the_next_press() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut c, mut m, cart) = sections_cart(dir.path(), false);
+    // Playing without an Outro…
+    c.edit_cart(cart, |x| x.sections.as_mut().unwrap().outro = None);
+    press(&mut c, "KeyR");
+    run(&mut c, &mut m, 15_000);
+    assert_eq!(section(&c, cart), VoiceSection::Main);
+    // …one is added (Cart Setup's OK), and a press starts it.
+    c.edit_cart(cart, |x| {
+        x.sections.as_mut().unwrap().outro = Some(Section {
+            in_frames: 24_000,
+            out_frames: 28_800,
+            on: true,
+        })
+    });
+    c.pointer_down(cart, MouseButton::Primary);
+    run(&mut c, &mut m, 256);
+    assert_eq!(section(&c, cart), VoiceSection::MainThenOutro);
+    run(&mut c, &mut m, 5_000);
+    assert_eq!(section(&c, cart), VoiceSection::Outro);
+}

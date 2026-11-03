@@ -185,8 +185,14 @@ pub enum EngineCommand {
         ramp_frames: u32,
     },
     /// Starts the Outro of a cart's voices that are in Main: at once (crossfading
-    /// as a seek does), or when Main next reaches its Out point.
-    Outro { cart: CartKey, instantly: bool },
+    /// as a seek does), or when Main next reaches its Out point. `region` is the
+    /// Outro's In and Out now (buffer frames), so a voice started before the Outro was
+    /// added or moved plays the one there is now.
+    Outro {
+        cart: CartKey,
+        instantly: bool,
+        region: (usize, usize),
+    },
     /// Turn looping on/off for playing voices (REF "Loop+").
     SetLoop { cart: CartKey, looping: bool },
     /// Move a cart's playing voice to `frame` (buffer frames, kept within its In and
@@ -249,9 +255,14 @@ impl EngineCommand {
                 speed: *speed,
                 ramp_frames: *ramp_frames,
             },
-            Outro { cart, instantly } => Outro {
+            Outro {
+                cart,
+                instantly,
+                region,
+            } => Outro {
                 cart: *cart,
                 instantly: *instantly,
+                region: *region,
             },
             SetLoop { cart, looping } => SetLoop {
                 cart: *cart,

@@ -597,7 +597,11 @@ impl Mixer {
                 }
             }
             EngineCommand::Seek { cart, frame } => self.seek(cart, frame),
-            EngineCommand::Outro { cart, instantly } => self.outro(cart, instantly),
+            EngineCommand::Outro {
+                cart,
+                instantly,
+                region,
+            } => self.outro(cart, instantly, region),
             EngineCommand::SetRegion { cart, start, end } => {
                 for v in self
                     .voices
@@ -804,7 +808,7 @@ impl Mixer {
     }
 
     /// See [`EngineCommand::Outro`].
-    fn outro(&mut self, cart: CartKey, instantly: bool) {
+    fn outro(&mut self, cart: CartKey, instantly: bool, region: (usize, usize)) {
         let mut jump = None;
         for v in self
             .voices
@@ -814,10 +818,17 @@ impl Mixer {
             if v.section != VoiceSection::Main {
                 continue;
             }
-            match v.outro {
-                Some(o) if instantly => jump = Some(o),
-                Some(_) => v.section = VoiceSection::MainThenOutro,
-                None => {}
+            // The Outro as it is now (it may have been added since the voice began).
+            let frames = v.audio.as_ref().map_or(0, |a| a.frames());
+            let (s, e) = (region.0, region.1.min(frames));
+            if s >= e {
+                continue;
+            }
+            v.outro = Some((s, e));
+            if instantly {
+                jump = Some((s, e));
+            } else {
+                v.section = VoiceSection::MainThenOutro;
             }
         }
         if let Some((s, e)) = jump {

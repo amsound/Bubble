@@ -4197,9 +4197,21 @@ impl App {
     }
 
     fn on_exit(&mut self) {
-        // Slint runs until the last window has gone.
+        // Slint runs until the last window has gone: every one of Bubble's closes too.
         if let Some(s) = self.setup.take() {
             let _ = s.win.hide();
+        }
+        if let Some(s) = self.settings.take() {
+            let _ = s.win.hide();
+        }
+        if let Some(s) = self.session_settings.take() {
+            let _ = s.win.hide();
+        }
+        if let Some(l) = self.playout_log.take() {
+            let _ = l.win.hide();
+        }
+        for b in self.speed_bars.drain(..) {
+            let _ = b.win.hide();
         }
         if self.exited {
             return;

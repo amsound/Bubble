@@ -1083,6 +1083,7 @@ fn sections_join_intro_to_main_and_main_to_outro_sample_for_sample() {
     h.send(EngineCommand::Outro {
         cart: CartKey(1),
         instantly: false,
+        region: (30, 40),
     })
     .unwrap();
     let out = left(&render(&mut m, 20));
@@ -1111,6 +1112,7 @@ fn sections_without_an_intro_start_in_main_and_an_outro_waits_for_main() {
     h.send(EngineCommand::Outro {
         cart: CartKey(2),
         instantly: true,
+        region: (30, 40),
     })
     .unwrap();
     render(&mut m, 1);
@@ -1143,6 +1145,7 @@ fn an_instant_outro_crossfades_into_the_outro() {
     h.send(EngineCommand::Outro {
         cart: CartKey(1),
         instantly: true,
+        region: (10_000, 12_000),
     })
     .unwrap();
     let out = left(&render(&mut m, 400));
@@ -1214,4 +1217,36 @@ fn a_play_delay_is_silence_first_and_a_stop_ends_it_at_once() {
     let mut two = false;
     h.status().for_each_voice(|v| two |= v.cart == CartKey(2));
     assert!(!two);
+}
+
+#[test]
+fn an_outro_added_while_main_plays_is_the_one_that_follows() {
+    let (mut h, mut m) = engine(4);
+    no_limiter(&mut h);
+    let buf = ramp(100);
+    // Started with no Outro (Main 10–20 only).
+    play(
+        &mut h,
+        1,
+        &buf,
+        PlayParams {
+            start_frame: 10,
+            end_frame: Some(20),
+            sections: Some(SectionPlan {
+                intro: false,
+                main: (10, 20),
+                outro: None,
+            }),
+            ..Default::default()
+        },
+    );
+    render(&mut m, 5);
+    h.send(EngineCommand::Outro {
+        cart: CartKey(1),
+        instantly: false,
+        region: (50, 55),
+    })
+    .unwrap();
+    let out = left(&render(&mut m, 12));
+    assert_eq!(out, vec![15.0, 16.0, 17.0, 18.0, 19.0, 50.0, 51.0, 52.0, 53.0, 54.0, 0.0, 0.0]);
 }

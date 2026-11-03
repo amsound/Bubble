@@ -835,9 +835,24 @@ impl Controller {
         }
         let key = self.key(cart);
         let instantly = s.outro_starts == OutroStart::Instantly;
+        // The Outro in buffer frames, as play_params gives a new voice.
+        let rate = self.rate() as f64;
+        let src = self
+            .project
+            .cart(cart)
+            .and_then(|c| c.asset)
+            .and_then(|a| match self.assets.state(a) {
+                Some(AssetState::Ready { source, .. }) => Some(source.sample_rate),
+                _ => None,
+            })
+            .unwrap_or(rate as u32)
+            .max(1) as f64;
+        let at = |f: u64| (f as f64 * rate / src).round() as usize;
+        let Some(o) = s.outro_on() else { return false };
         self.send(EngineCommand::Outro {
             cart: key,
             instantly,
+            region: (at(o.in_frames), at(o.out_frames)),
         });
         let label = self.label(cart);
         self.log_push(Some(cart), label, LogKind::Info("Outro".into()));

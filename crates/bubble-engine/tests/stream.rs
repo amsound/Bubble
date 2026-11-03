@@ -322,6 +322,7 @@ fn sections_of_a_44_1_khz_file_match_memory_through_many_passes() {
         r.send(EngineCommand::Outro {
             cart: CartKey(1),
             instantly: false,
+            region: (eng(outro.0), eng(outro.1)),
         });
         out.extend(r.render(48_000 * 3));
         out
@@ -371,6 +372,7 @@ fn loops_and_sections_keep_up_with_the_clock() {
     r.send(EngineCommand::Outro {
         cart: CartKey(2),
         instantly: false,
+        region: (960_000, 1_056_000),
     });
     r.render_paced(48_000 * 6, 2.0);
     assert_eq!(r.underruns(), (0, 0), "no gaps");
@@ -402,6 +404,7 @@ fn sections_join_across_the_stream() {
         r.send(EngineCommand::Outro {
             cart: CartKey(1),
             instantly: false,
+            region: (100_000, 110_000),
         });
         out.extend(r.render(25_000));
         out
