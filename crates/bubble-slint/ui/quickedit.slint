@@ -288,11 +288,13 @@ export component Toggle inherits Rectangle {
 }
 
 // A 32 px icon-only button, with a 40 px hit area for a finger and a tooltip for a mouse.
-component IconButton inherits Rectangle {
+export component IconButton inherits Rectangle {
     in property <string> label;
     in property <string> icon;
     in property <bool> enabled: true;
     in property <bool> destructive;
+    // The tooltip under the button (at the top of a window) rather than over it.
+    in property <bool> tip-below;
     callback clicked;
     width: 32px;
     height: 32px;
@@ -342,7 +344,7 @@ component IconButton inherits Rectangle {
         }
     }
     if root.tip-shown && ta.has-hover && !ta.pressed: Rectangle {
-        y: -self.height - 6px;
+        y: root.tip-below ? root.height + 6px : -self.height - 6px;
         x: (root.width - self.width) / 2;
         width: tip.preferred-width + 16px;
         height: tip.preferred-height + 8px;

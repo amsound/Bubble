@@ -9,6 +9,7 @@
 
 import { ListView } from "std-widgets.slint";
 import { Theme, SysButton } from "theme.slint";
+import { IconButton as BoxButton } from "quickedit.slint";
 
 // One row: a play (started, ended, how long, and how it started and ended), or
 // something that happened on its own (refused, a dropout, the Outro, a note).
@@ -154,29 +155,16 @@ export component PlayoutLogWindow inherits Window {
                 Rectangle {
                     width: 16px;
                 }
-                Rectangle {
-                    width: 32px;
-                    height: Theme.mac ? 26px : 32px;
+                // As quick edit's Delete.
+                BoxButton {
                     y: (parent.height - self.height) / 2;
-                    border-radius: Theme.mac ? 6px : 4px;
-                    background: bin.has-hover && root.all-count > 0 ? Theme.danger-text.transparentize(85%) : transparent;
-                    opacity: root.all-count > 0 ? 1 : 0.4;
-                    accessible-role: button;
-                    accessible-label: Theme.mac ? "Clear Log…" : "Clear log…";
-                    Path {
-                        width: 16px;
-                        height: 16px;
-                        viewbox-width: 16;
-                        viewbox-height: 16;
-                        commands: "M2.5 4H13.5 M6 4V2.5H10V4 M4 4L4.8 13.5H11.2L12 4 M6.6 6.5V11 M9.4 6.5V11";
-                        stroke: Theme.danger-text;
-                        stroke-width: 1.3px;
-                    }
-                    bin := TouchArea {
-                        enabled: root.all-count > 0;
-                        clicked => {
-                            root.action("clear");
-                        }
+                    label: Theme.mac ? "Clear Log…" : "Clear log…";
+                    destructive: true;
+                    tip-below: true;
+                    enabled: root.all-count > 0;
+                    icon: "M2.5 4H13.5 M6 4V2.5H10V4 M4 4L4.8 13.5H11.2L12 4 M6.6 6.5V11 M9.4 6.5V11";
+                    clicked => {
+                        root.action("clear");
                     }
                 }
             }

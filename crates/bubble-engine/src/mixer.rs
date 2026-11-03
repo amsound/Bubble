@@ -355,7 +355,7 @@ impl Voice {
         self.pos = start + over % len;
         if let Some(s) = self.stream.as_mut() {
             let from = audio.stream_from(self.pos);
-            s.request(from, from > self.pos);
+            s.request(from, self.pos);
         }
         true
     }
@@ -364,7 +364,7 @@ impl Voice {
     fn follow_jump(&mut self) {
         if let (Some(s), Some(a)) = (self.stream.as_mut(), self.audio.as_ref()) {
             let from = a.stream_from(self.pos);
-            s.request(from, from > self.pos);
+            s.request(from, self.pos);
         }
     }
 }

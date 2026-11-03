@@ -693,3 +693,70 @@ fn seeks_with_a_full_pool_and_in_quick_succession() {
         assert_eq!(r.h.status().active_voices(), 1);
     }
 }
+
+/// What Cart Setup does to a playing long file, against the clock: jumps, In and Out
+/// moved while it loops, pauses and speed changes. A gap the reader could have
+/// filled (an underrun, not the wait after a jump) is a bug.
+#[test]
+fn cart_setup_edits_keep_up_with_the_clock() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ramp.wav");
+    ramp_wav(&path, SR as usize * 60, SR);
+    let opts = PrepareOptions {
+        stream_min_secs: 0.0,
+        head_secs: 2.0,
+    };
+    let (a, _) = prepare(&path, SR, &[480_000], opts, u64::MAX).unwrap();
+    let mut r = Rig::new();
+    r.play(
+        1,
+        &a,
+        PlayParams {
+            start_frame: 480_000,
+            end_frame: Some(720_000),
+            looping: true,
+            ..Default::default()
+        },
+    );
+    let mut seed: u64 = std::env::var("STRESS_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(7);
+    let mut rnd = |n: u64| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) % n
+    };
+    let mut last = String::new();
+    for step in 0..60 {
+        let before = r.underruns();
+        let op = match rnd(6) {
+            0 => {
+                let frame = 480_000 + rnd(240_000) as usize;
+                r.send(EngineCommand::Seek { cart: CartKey(1), frame });
+                format!("seek {frame}")
+            }
+            1 => {
+                let start = 400_000 + rnd(200_000) as usize;
+                let end = start + 48_000 + rnd(400_000) as usize;
+                r.send(EngineCommand::SetRegion { cart: CartKey(1), start, end });
+                format!("region {start}..{end}")
+            }
+            2 => {
+                // Up to 2 ×: at 4 × a jump to a place with no head can still come a
+                // few milliseconds short while the reader catches up.
+                let speed = [0.0, 0.5, 1.0, 1.5, 2.0][rnd(5) as usize];
+                r.send(EngineCommand::SetSpeed { cart: CartKey(1), speed, ramp_frames: 240 });
+                format!("speed {speed}")
+            }
+            3 => {
+                let looping = rnd(4) != 0;
+                r.send(EngineCommand::SetLoop { cart: CartKey(1), looping });
+                format!("loop {looping}")
+            }
+            _ => "nothing".to_string(),
+        };
+        let n = 4_800 + rnd(20_000) as usize;
+        // Real time: Cart Setup plays at up to 4 × speed.
+        r.render_paced(n, 1.0);
+        assert_eq!(r.underruns(), before, "step {step}: {op}, after {last}");
+        last = op;
+    }
+    assert_eq!(r.underruns(), (0, 0), "no gaps");
+}

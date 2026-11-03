@@ -80,6 +80,10 @@ pub struct VoiceStream {
     /// The latest request was made ahead of the voice (where a head ends), so having to
     /// wait for it is an underrun rather than the cost of a jump.
     ahead: bool,
+    /// Answered a jump's request (not one made ahead) and nothing has come yet: the
+    /// ring is empty because the reader has only just started there, which is the
+    /// jump's own wait, not the reader falling behind.
+    first_fill: bool,
     /// Engine frame of the next frame in the ring (once synced).
     ring_pos: usize,
     /// Samples taken from the ring in all.
@@ -110,8 +114,11 @@ impl std::fmt::Debug for VoiceStream {
 
 impl VoiceStream {
     /// Asks the reader for data from `pos` on, unless the ring already continues there.
-    /// `ahead` when the voice is still elsewhere (in a head ending at `pos`).
-    pub(crate) fn request(&mut self, pos: usize, ahead: bool) {
+    /// `voice` is where the voice is now: well before `pos` (in a head ending there),
+    /// the reader has time, and waiting for it at `pos` is an underrun; any closer, it
+    /// is a jump's wait.
+    pub(crate) fn request(&mut self, pos: usize, voice: usize) {
+        let ahead = pos > voice + self.margin();
         if self.pending && self.req_pos == pos {
             return;
         }
@@ -128,6 +135,11 @@ impl VoiceStream {
         self.shared
             .request
             .store(pack(self.epoch, pos as u64), Ordering::Release);
+    }
+
+    /// Time the reader may need to start somewhere new (about 60 ms).
+    fn margin(&self) -> usize {
+        self.cap_frames / 64
     }
 
     /// Takes the reader's answer to the latest request, dropping stale samples.
@@ -151,6 +163,7 @@ impl VoiceStream {
         }
         self.pending = false;
         self.ring_pos = self.req_pos;
+        self.first_fill = !self.ahead;
     }
 
     /// Takes the reader's answer to a request as soon as it comes, so the samples it
@@ -197,7 +210,7 @@ impl VoiceStream {
         self.sync();
         if self.pending {
             if may_request && self.req_pos > pos {
-                self.request(pos, false);
+                self.request(pos, pos);
             }
             return Fetch::Wait {
                 starved: self.ahead && pos >= self.req_pos,
@@ -205,7 +218,7 @@ impl VoiceStream {
         }
         if pos < self.ring_pos || pos - self.ring_pos > self.cap_frames {
             if may_request {
-                self.request(pos, false);
+                self.request(pos, pos);
             }
             return Fetch::Wait { starved: false };
         }
@@ -213,14 +226,22 @@ impl VoiceStream {
         let eof = self.eof_reached();
         let skip = pos - self.ring_pos;
         let avail = self.ring.slots() / ch;
+        // After a jump, play once a little is in hand (half the margin), so the
+        // reader's next pass is never needed at once.
+        if self.first_fill && !eof && avail < skip + self.margin() / 2 {
+            return Fetch::Wait { starved: false };
+        }
         if avail <= skip {
             self.skip(avail);
             return if eof {
                 Fetch::End
             } else {
-                Fetch::Wait { starved: true }
+                Fetch::Wait {
+                    starved: !self.first_fill,
+                }
             };
         }
+        self.first_fill = false;
         self.skip(skip);
         let Ok(chunk) = self.ring.read_chunk(ch) else {
             return Fetch::Wait { starved: true };
@@ -431,7 +452,8 @@ impl Streamer {
             epoch: 1,
             req_pos: from,
             pending: true,
-            ahead: from > start,
+            ahead: from > start + cap_frames / 64,
+            first_fill: false,
             ring_pos: 0,
             read: 0,
             cap_frames,
