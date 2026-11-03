@@ -152,9 +152,11 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
         let d = e.status().diagnostics();
         (a.0 + d.active_voices, a.1 + e.status().voice_capacity(), a.2 + d.voices_stolen)
     });
+    // Plays at once (an overlapping cart can have several), out of the most there
+    // can be, and how many were cut short to make room.
     lines.push(line(
-        "Voices".into(),
-        format!("{playing} of {capacity} · {stolen} cut short"),
+        "Playing".into(),
+        format!("{playing} of {capacity} at once · {stolen} cut short"),
         false,
     ));
     lines.push(line(

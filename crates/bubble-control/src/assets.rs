@@ -112,6 +112,13 @@ pub struct AssetCache {
     draft_starts: HashMap<Uuid, u64>,
     overview_jobs: Sender<(Uuid, PathBuf, u64)>,
     overview_done: Receiver<OverviewDone>,
+    /// The asset being edited in Cart Setup, its whole-file copy once loaded, and
+    /// where the load reports.
+    editing: Option<(
+        Uuid,
+        Option<Arc<Playable>>,
+        std::sync::mpsc::Receiver<Option<Arc<Playable>>>,
+    )>,
 }
 
 const WORKERS: usize = 2;
@@ -229,6 +236,56 @@ impl AssetCache {
             draft_starts: HashMap::new(),
             overview_jobs: otx,
             overview_done: odrx,
+            editing: None,
+        }
+    }
+
+    /// Keeps the whole of `asset` in memory (a long file being edited in Cart Setup),
+    /// loaded on a thread of its own, so its auditions and scrubbing never wait for
+    /// the disk; `None` lets it go. Cheap when nothing changes; call regularly.
+    pub fn edit_in_memory(&mut self, asset: Option<Uuid>) {
+        if self.editing.as_ref().map(|e| e.0) == asset {
+            // Take a finished load.
+            if let Some((_, slot @ None, rx)) = &mut self.editing
+                && let Ok(audio) = rx.try_recv()
+            {
+                *slot = audio;
+            }
+            return;
+        }
+        self.editing = None;
+        let Some(asset) = asset else { return };
+        let Some(AssetState::Ready { path, audio, .. }) = self.states.get(&asset) else {
+            return;
+        };
+        if !audio.is_streamed() {
+            return;
+        }
+        let (path, rate) = (path.clone(), self.rate);
+        let free = self.limit.saturating_sub(self.used.load(Ordering::Relaxed));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned = thread::Builder::new()
+            .name("bubble-edit-load".into())
+            .spawn(move || {
+                let r = std::panic::catch_unwind(|| {
+                    bubble_engine::loader::load_for_engine_limited(&path, rate, free)
+                });
+                let audio = match r {
+                    Ok(Ok((buf, _))) => Arc::try_unwrap(buf).ok().map(Playable::resident),
+                    _ => None,
+                };
+                let _ = tx.send(audio);
+            });
+        if spawned.is_ok() {
+            self.editing = Some((asset, None, rx));
+        }
+    }
+
+    /// The whole-file copy of the asset being edited, once loaded.
+    pub fn editing_audio(&self, asset: Uuid) -> Option<Arc<Playable>> {
+        match &self.editing {
+            Some((a, Some(audio), _)) if *a == asset => Some(audio.clone()),
+            _ => None,
         }
     }
 

@@ -945,6 +945,17 @@ impl Controller {
         self.trigger_cart(c, page_idx, source, velocity)
     }
 
+    /// Keeps the file of the cart being edited in Cart Setup whole in memory (`None`
+    /// when Cart Setup closes): its auditions and scrubbing then never wait for the disk.
+    pub fn edit_in_memory(&mut self, asset: Option<Uuid>) {
+        self.assets.edit_in_memory(asset);
+    }
+
+    /// Whether the file of `asset` is whole in memory for editing.
+    pub fn editing_in_memory(&self, asset: Uuid) -> bool {
+        self.assets.editing_audio(asset).is_some_and(|a| !a.is_streamed())
+    }
+
     /// Plays a cart with settings that are not saved yet (Cart Setup's preview), on
     /// the cart's own voice so its normal stop and meters apply.
     pub fn preview(&mut self, draft: &Cart) -> bool {
@@ -998,7 +1009,11 @@ impl Controller {
         else {
             return false;
         };
-        let audio = audio.clone();
+        // Cart Setup's audition: from the whole file in memory once it is there.
+        let audio = match source {
+            TriggerSource::Ui => self.assets.editing_audio(asset).unwrap_or_else(|| audio.clone()),
+            _ => audio.clone(),
+        };
         let route = self.route_for(&c);
         let mut params = self.play_params(&c, page_idx, *info, velocity);
         params.output_offset = route.offset;

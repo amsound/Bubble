@@ -1362,3 +1362,34 @@ fn a_file_with_marked_sections_puts_its_cart_in_sections() {
     wait_ready(&mut c);
     assert!(!c.project().cart(cart).unwrap().sections.unwrap().on);
 }
+
+#[test]
+fn a_long_file_being_edited_is_held_whole_in_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("long.wav");
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SR,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(&p, spec).unwrap();
+    // Long enough to stream (30 s or more).
+    for _ in 0..SR * 32 {
+        w.write_sample(0i16).unwrap();
+    }
+    w.finalize().unwrap();
+    let (mut c, _m) = setup();
+    let cart = c.assign_file(0, 0, 0, &p).unwrap();
+    wait_ready(&mut c);
+    let asset = c.project().cart(cart).unwrap().asset.unwrap();
+    assert!(!c.editing_in_memory(asset));
+    let t = Instant::now();
+    while !c.editing_in_memory(asset) {
+        c.edit_in_memory(Some(asset));
+        assert!(t.elapsed() < Duration::from_secs(20), "never loaded");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    c.edit_in_memory(None);
+    assert!(!c.editing_in_memory(asset));
+}

@@ -3222,6 +3222,7 @@ impl App {
     /// otherwise the draft is dropped and an audition stops.
     fn close_setup(&mut self, keep: bool, intents: &mut Vec<Intent>) {
         let Some(s) = self.setup.take() else { return };
+        self.lock().edit_in_memory(None);
         let snap = self.core.snapshot();
         let playing = snap
             .runtime

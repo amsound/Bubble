@@ -1146,6 +1146,8 @@ impl Setup {
         let mut details = String::new();
         if let Some(a) = self.draft.asset {
             let mut ctl = core.lock();
+            // The whole file in memory while it is edited here.
+            ctl.edit_in_memory(Some(a));
             match ctl.asset_state(a) {
                 Some(AssetState::Ready { source, .. }) => {
                     let (frames, rate, ch) = (source.frames, source.sample_rate, source.channels);

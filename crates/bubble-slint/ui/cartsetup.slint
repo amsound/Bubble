@@ -97,8 +97,8 @@ global Parts {
     out property <[color]> colours: [#bf5af2, #30d158, #ff9f0a];
 }
 
-// A dashed outline (a section not added yet, or switched off).
-component Dashed inherits Rectangle {
+// A dashed outline (a section not added yet, or switched off; Add output).
+export component Dashed inherits Rectangle {
     in property <color> colour;
     for i in floor(root.width / 8px): Rectangle {
         x: i * 8px + 2px;

@@ -15,9 +15,9 @@
 //     Pages:   each page's name, grid and cart numbers
 
 import { ScrollView } from "std-widgets.slint";
-import { Theme, TextCommand, SysButton, PopupRow, ClearX, SetupSlider } from "theme.slint";
+import { Theme, TextCommand, SysButton, PopButton, PopupRow, ClearX, SetupSlider } from "theme.slint";
 import { LabelField, FieldRow, Rule, Group } from "quickedit.slint";
-import { Choice } from "cartsetup.slint";
+import { Choice, Dashed } from "cartsetup.slint";
 
 export struct OutputRow {
     letter: string,
@@ -174,6 +174,46 @@ component Switch inherits Rectangle {
         enabled: root.enabled;
         clicked => {
             root.toggled(!root.on);
+        }
+    }
+}
+
+// A text button in the accent with an icon before it (Rescan devices).
+component LinkButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    callback clicked;
+    height: 32px;
+    min-width: row.preferred-width;
+    horizontal-stretch: 0;
+    border-radius: 4px;
+    background: ta.has-hover ? Theme.accent.transparentize(90%) : transparent;
+    accessible-role: button;
+    accessible-label: root.text;
+    row := HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 6px;
+        Path {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: root.icon;
+            stroke: Theme.accent;
+            stroke-width: 1.6px;
+        }
+        Text {
+            text: root.text;
+            color: Theme.accent;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
         }
     }
 }
@@ -410,123 +450,168 @@ export component SettingsWindow inherits Window {
                 // ---- Audio ----
                 if root.section == 1: VerticalLayout {
                     spacing: 8px;
+                    // Outputs: a heading with Rescan, a line per output (letter, name,
+                    // device, channels, ✕), and Add output across the whole width.
                     Group {
-                        HorizontalLayout {
-                            padding-left: Theme.mac ? 10px : 0px;
-                            padding-right: Theme.mac ? 10px : 0px;
-                            padding-top: Theme.mac ? 8px : 0px;
-                            padding-bottom: Theme.mac ? 6px : 4px;
-                            Heading {
-                                text: "Outputs";
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: root.scanning ? "  Looking for audio devices…" : "";
-                                color: Theme.weak-text;
-                                vertical-alignment: center;
-                                horizontal-stretch: 1;
-                            }
-                            SysButton {
-                                text: Theme.mac ? "Rescan Devices" : "Rescan devices";
-                                clicked => {
-                                    root.action("rescan", 0);
-                                }
-                            }
-                        }
-                        if Theme.mac: Rule { }
-                        for o[i] in root.outputs: VerticalLayout {
-                            if i > 0 && Theme.mac: Rule { }
+                        VerticalLayout {
+                            padding-left: Theme.mac ? 12px : 0px;
+                            padding-right: Theme.mac ? 12px : 0px;
+                            padding-top: Theme.mac ? 10px : 0px;
+                            padding-bottom: Theme.mac ? 12px : 0px;
+                            spacing: 12px;
                             HorizontalLayout {
                                 spacing: 8px;
-                                padding-left: Theme.mac ? 10px : 0px;
-                                padding-right: Theme.mac ? 10px : 0px;
-                                padding-top: Theme.mac ? 6px : 0px;
-                                padding-bottom: Theme.mac ? 6px : 0px;
-                                // The letter, centred on the row (in a layout, `parent`
-                                // is not the row, so centring goes through one).
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 28px;
-                                        height: 28px;
-                                        border-radius: 4px;
-                                        background: Theme.text.transparentize(85%);
-                                        Text {
-                                            text: o.letter;
-                                            font-weight: 700;
-                                            color: Theme.text;
-                                        }
-                                    }
+                                Heading {
+                                    text: "Outputs";
+                                    vertical-alignment: center;
                                 }
-                                VerticalLayout {
-                                    alignment: center;
-                                    LabelField {
-                                        width: 100px;
-                                        single-line: true;
-                                        placeholder: "Name";
-                                        text: o.alias;
-                                        edited(t) => {
-                                            root.alias-edited(i, t);
-                                        }
-                                    }
-                                }
-                                Choice {
-                                    horizontal-stretch: 1;
-                                    value: o.device;
-                                    open(x, y) => {
-                                        root.choice-menu("device", i, x, y);
-                                    }
-                                }
-                                Choice {
-                                    // Room for "Ch 1–2" whatever the device's name.
-                                    min-width: 96px;
-                                    value: o.channels;
-                                    open(x, y) => {
-                                        root.choice-menu("channels", i, x, y);
-                                    }
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    ClearX {
-                                        label: "Remove Output " + o.letter;
-                                        clicked => {
-                                            root.action("remove-output", i);
-                                        }
-                                    }
-                                }
-                            }
-                            if o.note != "": HorizontalLayout {
-                                padding-left: Theme.mac ? 42px : 36px;
                                 Text {
-                                    text: o.note;
-                                    color: Theme.warn;
-                                    font-size: Theme.mac ? 11px : 12px;
-                                    wrap: word-wrap;
+                                    text: root.scanning ? "Looking for audio devices…" : "";
+                                    color: Theme.weak-text;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                LinkButton {
+                                    text: Theme.mac ? "Rescan Devices" : "Rescan devices";
+                                    icon: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+                                    clicked => {
+                                        root.action("rescan", 0);
+                                    }
+                                }
+                            }
+                            for o[i] in root.outputs: VerticalLayout {
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    // The letter, centred on the row (in a layout, `parent`
+                                    // is not the row, so centring goes through one).
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: Theme.mac ? 26px : 32px;
+                                            height: self.width;
+                                            border-radius: Theme.mac ? 6px : 4px;
+                                            background: Theme.control;
+                                            border-width: 1px;
+                                            border-color: Theme.control-border;
+                                            Text {
+                                                text: o.letter;
+                                                font-weight: 700;
+                                                color: Theme.text;
+                                            }
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        LabelField {
+                                            width: 96px;
+                                            single-line: true;
+                                            placeholder: "Name";
+                                            text: o.alias;
+                                            edited(t) => {
+                                                root.alias-edited(i, t);
+                                            }
+                                        }
+                                    }
+                                    // The device's column takes the rest (a Mac pop-up stays
+                                    // as wide as its choice), so the columns line up.
+                                    HorizontalLayout {
+                                        horizontal-stretch: 1;
+                                        min-width: 0;
+                                        PopButton {
+                                            y: (parent.height - self.height) / 2;
+                                            model: [o.device];
+                                            current-index: 0;
+                                            open(x, y) => {
+                                                root.choice-menu("device", i, x, y);
+                                            }
+                                        }
+                                        if Theme.mac: Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    HorizontalLayout {
+                                        // Room for "Ch 1–2" whatever the device's name.
+                                        width: 104px;
+                                        PopButton {
+                                            y: (parent.height - self.height) / 2;
+                                            model: [o.channels];
+                                            current-index: 0;
+                                            open(x, y) => {
+                                                root.choice-menu("channels", i, x, y);
+                                            }
+                                        }
+                                        if Theme.mac: Rectangle {
+                                            horizontal-stretch: 1;
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        ClearX {
+                                            label: "Remove Output " + o.letter;
+                                            clicked => {
+                                                root.action("remove-output", i);
+                                            }
+                                        }
+                                    }
+                                }
+                                if o.note != "": HorizontalLayout {
+                                    padding-left: 44px;
+                                    Text {
+                                        text: o.note;
+                                        color: Theme.warn;
+                                        font-size: Theme.mac ? 11px : 12px;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                            if root.outputs.length == 0: Text {
+                                height: 32px;
+                                text: "No outputs: Bubble plays on the system default.";
+                                color: Theme.weak-text;
+                                vertical-alignment: center;
+                            }
+                            // Add output: the whole width, dashed.
+                            Rectangle {
+                                height: 40px;
+                                border-radius: 4px;
+                                opacity: root.can-add-output ? 1 : 0.45;
+                                background: add-ta.has-hover && root.can-add-output ? Theme.accent.transparentize(92%) : transparent;
+                                accessible-role: button;
+                                accessible-label: Theme.mac ? "Add Output" : "Add output";
+                                Dashed {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    colour: Theme.control-border;
+                                }
+                                HorizontalLayout {
+                                    alignment: center;
+                                    spacing: 8px;
+                                    Path {
+                                        width: 12px;
+                                        height: 12px;
+                                        y: (parent.height - self.height) / 2;
+                                        viewbox-width: 12;
+                                        viewbox-height: 12;
+                                        commands: "M6 1v10M1 6h10";
+                                        stroke: Theme.accent;
+                                        stroke-width: 1.6px;
+                                    }
+                                    Text {
+                                        text: Theme.mac ? "Add Output" : "Add output";
+                                        color: Theme.accent;
+                                        font-weight: 600;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                add-ta := TouchArea {
+                                    enabled: root.can-add-output;
+                                    clicked => {
+                                        root.action("add-output", 0);
+                                    }
                                 }
                             }
                         }
-                        if root.outputs.length == 0: Text {
-                            x: Theme.mac ? 10px : 0px;
-                            height: 32px;
-                            text: "No outputs: Bubble plays on the system default.";
-                            color: Theme.weak-text;
-                            vertical-alignment: center;
-                        }
-                        if Theme.mac: Rule { }
-                        HorizontalLayout {
-                            alignment: start;
-                            padding-left: Theme.mac ? 10px : 0px;
-                            padding-top: Theme.mac ? 6px : 4px;
-                            padding-bottom: Theme.mac ? 8px : 0px;
-                            SysButton {
-                                text: Theme.mac ? "Add Output" : "Add output";
-                                enabled: root.can-add-output;
-                                clicked => {
-                                    root.action("add-output", 0);
-                                }
-                            }
-                        }
-
                     }
                     Group {
                         FieldRow {
