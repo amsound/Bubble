@@ -61,6 +61,14 @@ impl AssetState {
     }
 }
 
+/// The asset edited in Cart Setup, its whole-file copy once loaded, and where the load
+/// reports.
+type Editing = (
+    Uuid,
+    Option<Arc<Playable>>,
+    std::sync::mpsc::Receiver<Option<Arc<Playable>>>,
+);
+
 struct Job {
     asset: Uuid,
     path: PathBuf,
@@ -112,13 +120,7 @@ pub struct AssetCache {
     draft_starts: HashMap<Uuid, u64>,
     overview_jobs: Sender<(Uuid, PathBuf, u64)>,
     overview_done: Receiver<OverviewDone>,
-    /// The asset being edited in Cart Setup, its whole-file copy once loaded, and
-    /// where the load reports.
-    editing: Option<(
-        Uuid,
-        Option<Arc<Playable>>,
-        std::sync::mpsc::Receiver<Option<Arc<Playable>>>,
-    )>,
+    editing: Option<Editing>,
 }
 
 const WORKERS: usize = 2;
