@@ -127,9 +127,9 @@ pub struct App {
     qe_seen: Option<Cart>,
     qe_soft: bool,
     qe_gen: i32,
-    /// The hotkey text and Learn state quick edit shows (they live in the session's
+    /// The hotkey and MIDI text and Learn state quick edit shows (they live in the session's
     /// bindings, not the cart, so they are followed on their own).
-    qe_keys: (String, bool),
+    qe_keys: (String, String, bool),
     renaming: Option<usize>,
     dialog: Option<Dialog>,
     /// The native alert on screen, and which prompt it asks.
@@ -3457,16 +3457,19 @@ impl App {
             }
             return;
         };
-        // The hotkey and Learn: shown as they change, without rebuilding the panel.
+        // The hotkey, MIDI note and Learn: shown as they change, without rebuilding the panel.
+        let (k, m) = bubble_core::view::key_and_midi_names(&cart, &snap.project);
         let keys = (
-            bubble_core::view::trigger_names(&cart, &snap.project).join("  "),
+            k.join("  "),
+            m.join("  "),
             snap.learning.is_some_and(|l| l.cart == cart.id),
         );
         if keys != self.qe_keys {
             self.qe_keys = keys.clone();
             let mut q = ui.get_qe();
             q.hotkey = keys.0.into();
-            q.learning = keys.1;
+            q.midi = keys.1.into();
+            q.learning = keys.2;
             ui.set_qe(q);
         }
         if self.qe_soft && self.qe_cart.as_ref() == Some(&cart) {
@@ -3550,8 +3553,8 @@ impl App {
                     Intent::LearnDefault(id)
                 });
             }
-            // The hotkey only; a MIDI note stays (Cart Setup clears that).
             "clear-key" => intents.push(Intent::ClearBindings(id, Some(true))),
+            "clear-midi" => intents.push(Intent::ClearBindings(id, Some(false))),
             "replace" => {
                 if let Some((page, row, col)) = at {
                     self.files.request(Purpose::Assign {

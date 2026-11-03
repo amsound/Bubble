@@ -5,7 +5,7 @@
 use bubble_control::{CartState as Cs, display_label};
 use bubble_core::Snapshot;
 use bubble_core::app::Core;
-use bubble_core::view::{Level, group_label, tile_text, trigger_names};
+use bubble_core::view::{Level, group_label, key_and_midi_names, tile_text};
 use bubble_project::{Cart, Display, HAlign, StopScope, VAlign};
 use slint::{Color, ModelRc, SharedString, VecModel};
 use uuid::Uuid;
@@ -436,6 +436,7 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
         .map(|(p, r, c)| snap.project.cell_number(p, r, c))
         .unwrap_or(0);
     let rgb = parse_rgb(cart.color.as_deref()).unwrap_or(DEFAULT_CART_COLOR);
+    let (keys, midi) = key_and_midi_names(cart, &snap.project);
     let outputs = core.output_labels(&cart.output);
     let (fades, _, fade) = fade_choices(cart, snap.project.settings.default_fade_out_ms);
     let mut groups = vec!["None".to_string()];
@@ -474,7 +475,8 @@ pub fn quick_edit(core: &Core, snap: &Snapshot, cart: &Cart) -> QuickEdit {
         fade: fade as i32,
         groups: strings(groups),
         group: group as i32,
-        hotkey: trigger_names(cart, &snap.project).join("  ").into(),
+        hotkey: keys.join("  ").into(),
+        midi: midi.join("  ").into(),
         learning: snap.learning.is_some_and(|l| l.cart == cart.id),
         output_warn: bubble_project::output_index(&cart.output)
             .is_some_and(|i| i >= core.prefs.effective_outputs().len()),

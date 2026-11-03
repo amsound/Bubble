@@ -67,6 +67,17 @@ pub fn trigger_names(cart: &Cart, project: &Project) -> Vec<String> {
         .collect()
 }
 
+/// The cart's hotkeys and its MIDI notes, apart (each is cleared on its own).
+pub fn key_and_midi_names(cart: &Cart, project: &Project) -> (Vec<String>, Vec<String>) {
+    let (keys, midi): (Vec<_>, Vec<_>) = project
+        .bindings
+        .iter()
+        .filter(|b| b.targets.contains(&cart.id) && b.action != bubble_project::Action::Outro)
+        .partition(|b| matches!(b.source, bubble_project::BindingSource::Key { .. }));
+    let names = |v: Vec<&bubble_project::Binding>| v.iter().map(|b| describe(&b.source)).collect();
+    (names(keys), names(midi))
+}
+
 /// "G1" or "G1 Drums" for the cart's exclusive group.
 pub fn group_label(cart: &Cart, project: &Project) -> Option<String> {
     let g = cart.group?;

@@ -33,8 +33,9 @@ export struct QuickEdit {
     fade: int,
     groups: [string],
     group: int,
-    // The learned hotkey; empty when there is none.
+    // The learned hotkeys and MIDI notes; empty when there are none.
     hotkey: string,
+    midi: string,
     // The cart's output is a letter this computer has not set up.
     output-warn: bool,
     // Learn is waiting for this cart's key or MIDI note.
@@ -590,16 +591,24 @@ export component QuickEditPanel inherits Panel {
                     overflow: elide;
                     horizontal-stretch: 1;
                 }
-                // The key in a chip with its ✕.
+                // The key and the MIDI note, each in a chip with its ✕.
                 if qe.hotkey != "" && !qe.learning: KeyChip {
                     y: (parent.height - self.height) / 2;
                     text: qe.hotkey;
-                    clear-label: "Clear Hotkey";
+                    clear-label: "Clear hotkey";
                     clear => {
                         root.action("clear-key");
                     }
                 }
-                if qe.hotkey == "" && !qe.learning: Text {
+                if qe.midi != "" && !qe.learning: KeyChip {
+                    y: (parent.height - self.height) / 2;
+                    text: qe.midi;
+                    clear-label: "Clear MIDI";
+                    clear => {
+                        root.action("clear-midi");
+                    }
+                }
+                if qe.hotkey == "" && qe.midi == "" && !qe.learning: Text {
                     text: "–";
                     color: Theme.weak-text;
                     vertical-alignment: center;
