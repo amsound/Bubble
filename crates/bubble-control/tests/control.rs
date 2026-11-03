@@ -1417,3 +1417,55 @@ fn an_outro_added_while_the_cart_plays_starts_on_the_next_press() {
     run(&mut c, &mut m, 5_000);
     assert_eq!(section(&c, cart), VoiceSection::Outro);
 }
+
+#[test]
+fn a_learned_hotkey_and_midi_note_can_be_cleared() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut c, _m, cart) = sections_cart(dir.path(), false);
+    c.start_learn(cart, Action::Play);
+    c.handle_input(&note_on(60));
+    let kinds = |c: &Controller| {
+        c.bindings_for(cart)
+            .iter()
+            .map(|b| matches!(b.source, BindingSource::Key { .. }))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds(&c).len(), 2, "KeyR and the note");
+    c.clear_bindings(cart, Some(true), false);
+    assert_eq!(kinds(&c), vec![false], "the key is gone");
+    c.clear_bindings(cart, Some(false), false);
+    assert!(kinds(&c).is_empty(), "and the note");
+}
+
+#[test]
+fn a_trigger_shared_by_several_carts_is_cleared_for_one_only() {
+    // As an import makes it: one F1 binding for two carts.
+    let dir = tempfile::tempdir().unwrap();
+    let (mut c, _m, a) = sections_cart(dir.path(), false);
+    let p = dir.path().join("tone.wav");
+    let b = c.assign_file(0, 0, 1, &p).unwrap();
+    c.clear_bindings(a, None, false);
+    let mut project = c.project().clone();
+    project.bindings.push(bubble_project::Binding {
+        id: Uuid::new_v4(),
+        source: BindingSource::Key {
+            key: "F1".into(),
+            modifiers: vec![],
+        },
+        action: Action::Play,
+        targets: vec![a, b],
+        policy: None,
+        scope: None,
+        velocity_to_gain: false,
+        extra: Default::default(),
+    });
+    c.replace_project(project, None);
+    c.clear_bindings(a, Some(true), false);
+    assert!(c.bindings_for(a).is_empty(), "gone from this cart");
+    assert_eq!(c.bindings_for(b).len(), 1, "the other keeps it");
+    // Learning a new key for the other replaces its share too.
+    c.start_learn(b, Action::Play);
+    c.handle_input(&key("KeyG", true, false));
+    let keys: Vec<String> = c.bindings_for(b).iter().map(|x| describe(&x.source)).collect();
+    assert_eq!(keys, vec!["G".to_string()]);
+}

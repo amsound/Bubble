@@ -2014,7 +2014,9 @@ impl Controller {
         }
         self.project
             .bindings
-            .retain(|b| !b.targets.is_empty() || !needs_targets(b.action));
+            .retain(|b| {
+                !b.targets.is_empty() || !(needs_targets(b.action) || b.action == Action::Outro)
+            });
         self.project.prune_unused_assets();
         self.mark_dirty();
     }
@@ -2364,8 +2366,8 @@ impl Controller {
         let same_kind =
             |s: &BindingSource| std::mem::discriminant(s) == std::mem::discriminant(&source);
         let outro = action == Action::Outro;
-        self.project.bindings.retain(|b| {
-            !(b.targets == [cart] && same_kind(&b.source) && (b.action == Action::Outro) == outro)
+        self.unbind(cart, |b| {
+            same_kind(&b.source) && (b.action == Action::Outro) == outro
         });
         self.project.bindings.push(Binding {
             id: Uuid::new_v4(),
@@ -2384,16 +2386,31 @@ impl Controller {
     /// its trigger's or (`outro`) its Outro's.
     pub fn clear_bindings(&mut self, cart: Uuid, key: Option<bool>, outro: bool) {
         self.checkpoint("binding-clear");
-        let before = self.project.bindings.len();
-        self.project.bindings.retain(|b| {
+        let changed = self.unbind(cart, |b| {
             let is_key = matches!(b.source, BindingSource::Key { .. });
-            !(b.targets == [cart]
-                && key.is_none_or(|k| k == is_key)
-                && (b.action == Action::Outro) == outro)
+            key.is_none_or(|k| k == is_key) && (b.action == Action::Outro) == outro
         });
-        if before != self.project.bindings.len() {
+        if changed {
             self.mark_dirty();
         }
+    }
+
+    /// Takes `cart` off every binding `which` picks: a binding shared with other carts
+    /// (an imported hotkey for several carts) keeps them, one for this cart alone goes.
+    /// Returns whether anything changed.
+    fn unbind(&mut self, cart: Uuid, which: impl Fn(&Binding) -> bool) -> bool {
+        let mut changed = false;
+        for b in self.project.bindings.iter_mut() {
+            if b.targets.contains(&cart) && which(b) {
+                b.targets.retain(|t| *t != cart);
+                changed = true;
+            }
+        }
+        // Bindings with targets of their own kind (page changes, Stop All) never had any.
+        self.project
+            .bindings
+            .retain(|b| !b.targets.is_empty() || !needs_targets(b.action));
+        changed
     }
 
     /// Other carts bound to the same source (duplicate warning in the UI).
