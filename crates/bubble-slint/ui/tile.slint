@@ -188,11 +188,12 @@ export component TileView inherits Rectangle {
     property <int> label-weight: tile.control ? 700 : max(style.weight, 600);
     property <length> label-spacing: tile.control ? 0.6px : 0px;
     // The bottom row ends here: its figures 7 px above the progress bar (ring 6 + bar
-    // 8), or as far from the bottom as the top row is from the top. The row's box runs
+    // 8), or 14 px from the bottom: the figures are heavier than the top row's chips,
+    // so the same 10 px as the top looked tighter. The row's box runs
     // below the figures' baseline (room for letters' tails, from the font), so it ends
     // that much lower. Kept while idle too, so nothing moves when a cart starts.
     property <length> descent: (max(18px, time-probe.preferred-height) - time-probe.font-metrics.ascent - time-probe.font-metrics.descent) / 2;
-    property <length> bottom-y: (progress-style == 0 ? self.height - self.ring - self.bar-h - 7px : self.height - top) + descent;
+    property <length> bottom-y: (progress-style == 0 ? self.height - self.ring - self.bar-h - 7px : self.height - 14px) + descent;
     // The middle of the time's figures, in the bottom row: the badge, icons and chips
     // on the left are centred on it, so both sides of the row line up.
     property <length> fig-mid: bottom.height - descent - time-probe.font-metrics.cap-height / 2;
