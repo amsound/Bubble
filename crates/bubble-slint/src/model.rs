@@ -286,12 +286,7 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
             text.time
         }
         .into(),
-        repeating: rt.state == Cs::Playing
-            && match rt.section {
-                bubble_control::VoiceSection::Main => true,
-                bubble_control::VoiceSection::Whole => rt.looping,
-                _ => false,
-            },
+        repeating: rt.state == Cs::Playing && rt.section == bubble_control::VoiceSection::Main,
         // Quantised, so a tile is redrawn only when its bar visibly moves.
         progress: (rt.progress * 1000.0).round() / 1000.0,
         // The end coming: of the cart, not of its Intro.
