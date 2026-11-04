@@ -147,13 +147,8 @@ pub fn tile_text(cart: &Cart, project: &Project, rt: &CartRuntime) -> TileText {
     if rt.changed {
         flags.push("⚠".into());
     }
+    // Main of a cart in sections counts down to its loop point, as a looping cart does.
     let time = match rt.state {
-        // Main repeats until it is stopped or its Outro starts, fading out or not.
-        CartState::Playing | CartState::Stopping
-            if rt.section == bubble_control::VoiceSection::Main =>
-        {
-            "∞".into()
-        }
         CartState::Playing | CartState::Stopping => {
             format!("-{}", fmt_clock(rt.remaining_s, true))
         }
