@@ -45,6 +45,9 @@ export struct Tile {
     // `time`, one string per character (see Clock).
     time-chars: [string],
     progress: float,
+    // Playing, and the countdown will start again: a looping cart, or Main of a cart
+    // in sections (not once its Outro is queued, nor while fading out).
+    repeating: bool,
     ending: bool,
     state: CartState,
     selected: bool,
@@ -423,6 +426,20 @@ export component TileView inherits Rectangle {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
+            }
+            // The loop mark, while the countdown will start again at its end. It comes
+            // and goes with Main (after the Intro; gone when the Outro is queued).
+            if tile.repeating && tile.state != CartState.missing && tile.state != CartState.error: Path {
+                y: root.fig-mid - self.height / 2;
+                height: time-probe.font-metrics.cap-height;
+                width: self.height;
+                horizontal-stretch: 0;
+                viewbox-width: 16;
+                viewbox-height: 16;
+                commands: "M2.5 7.5a5 5 0 0 1 8.6-3.5M13.5 8.5a5 5 0 0 1-8.6 3.5M11.5 1.5v2.8H8.7M4.5 14.5v-2.8h2.8";
+                stroke: tile.fg;
+                stroke-width: max(1.5px, time-size * 0.08);
+                fill: transparent;
             }
             // A ring by the time, filling clockwise from the top as the cart plays: a disc
             // (a conic gradient, drawn with the smooth edge of a rounded rectangle) with a
