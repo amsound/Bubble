@@ -543,6 +543,42 @@ pub fn pointer_in_window(ui: &MainWindow) -> Option<(f32, f32)> {
 /// Places a tool window (`w` × `h` logical points, before it is shown) in the middle of
 /// the main window, and inside it when it fits: never under the Windows taskbar or
 /// off the bottom of the screen when the main window is maximised.
+/// The tallest a tool window may be (logical): the parent's screen less a title bar,
+/// the taskbar or Dock and a margin.
+fn tallest_allowed(parent: &slint::Window) -> f32 {
+    let s = parent.scale_factor();
+    parent
+        .with_winit_window(|w| w.current_monitor().map(|m| m.size().height as f32 / s))
+        .flatten()
+        .map_or(700.0, |h| h - 120.0)
+}
+
+/// A settings window grows to the section shown when that is taller than the window
+/// (a section's contents exist only while it is shown, so the tallest is found as
+/// each is visited). It never shrinks. Returns the new height, to remember.
+pub fn grow_to_fit(win: &slint::Window, parent: &slint::Window, wanted: f32) -> Option<f32> {
+    if !win.is_visible() {
+        return None;
+    }
+    let s = win.scale_factor();
+    let size = win.size();
+    let (w, h) = (size.width as f32 / s, size.height as f32 / s);
+    let to = wanted.min(tallest_allowed(parent));
+    if to <= h + 0.5 {
+        return None;
+    }
+    win.set_size(slint::LogicalSize::new(w, to));
+    Some(to)
+}
+
+/// A remembered settings window height, kept on the screen.
+pub fn opening_height(parent: &slint::Window, remembered: Option<f32>, default: f32) -> f32 {
+    remembered
+        .unwrap_or(default)
+        .min(tallest_allowed(parent))
+        .max(380.0)
+}
+
 pub fn place_over(child: &slint::Window, parent: &slint::Window, w: f32, h: f32) {
     let s = parent.scale_factor();
     let pos = parent.position();

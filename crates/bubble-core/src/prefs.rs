@@ -98,6 +98,10 @@ pub struct Prefs {
     pub bar_size: u8,
     /// The page bar at the top of the window instead of the bottom.
     pub bar_top: bool,
+    /// The Settings and Session Settings windows' heights: as tall as the tallest
+    /// section seen, so they open showing everything.
+    pub settings_height: Option<f32>,
+    pub session_settings_height: Option<f32>,
     /// How a playing cart shows its progress: 0 a bar along the bottom, 1 a dial by
     /// the time, 2 the countdown only.
     pub tile_progress: u8,

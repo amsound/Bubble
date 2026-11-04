@@ -1499,3 +1499,29 @@ fn midi_notes_are_named_as_spoton_names_them() {
     // Only a channel other than 1 is named.
     assert_eq!(describe(&note(60, Some(2))), "C5 ch2");
 }
+
+#[test]
+fn the_right_button_stops_only_in_left_plays_right_stops() {
+    if missing_test_files() {
+        return;
+    }
+    let (mut c, mut m) = setup();
+    let cart = c
+        .assign_file(0, 0, 0, &test_file("1kHz_16_48_AB_M18.wav"))
+        .unwrap();
+    wait_ready(&mut c);
+    // Toggle (the default): a click plays and stops; the right button does nothing.
+    c.pointer_down(cart, MouseButton::Primary);
+    run(&mut c, &mut m, 480);
+    c.pointer_down(cart, MouseButton::Secondary);
+    run(&mut c, &mut m, 480);
+    assert_eq!(state(&c, cart), CartState::Playing);
+    // Left plays, right stops.
+    c.set_machine(Machine {
+        mouse_mode: bubble_project::MouseMode::LeftPlayRightStop,
+        ..c.machine()
+    });
+    c.pointer_down(cart, MouseButton::Secondary);
+    run(&mut c, &mut m, 480);
+    assert_eq!(state(&c, cart), CartState::Stopping);
+}

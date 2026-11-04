@@ -68,24 +68,27 @@ component LabelProbe inherits Text {
 component StateRing inherits Rectangle {
     in property <color> colour;
     in property <color> keyline;
+    // Whole device pixels (see TileView's `dp`), so every edge is even.
+    in property <length> k: 1px;
+    in property <length> band: 4px;
     border-radius: 8px;
-    border-width: 1px;
+    border-width: root.k;
     border-color: keyline;
     Rectangle {
-        x: 1px;
-        y: 1px;
-        width: parent.width - 2px;
-        height: parent.height - 2px;
-        border-radius: 7px;
-        border-width: 4px;
+        x: root.k;
+        y: root.k;
+        width: parent.width - 2 * root.k;
+        height: parent.height - 2 * root.k;
+        border-radius: 8px - root.k;
+        border-width: root.band;
         border-color: root.colour;
         Rectangle {
-            x: 4px;
-            y: 4px;
-            width: parent.width - 8px;
-            height: parent.height - 8px;
-            border-radius: 3px;
-            border-width: 1px;
+            x: root.band;
+            y: root.band;
+            width: parent.width - 2 * root.band;
+            height: parent.height - 2 * root.band;
+            border-radius: max(0px, 8px - root.k - root.band);
+            border-width: root.k;
             border-color: root.keyline;
         }
     }
@@ -114,6 +117,8 @@ export component TileView inherits Rectangle {
     // While playing: 0 a progress bar along the bottom, 1 a dial by the time, 2 the
     // countdown only (Settings ▸ General).
     in property <int> progress-style;
+    // The window's scale factor, to put lines on whole device pixels.
+    in property <float> scale: 1;
 
     // A press: right button, touch, and the modifiers held.
     callback down(bool /* right */, bool /* touch */, bool /* shift */, bool /* alt */, bool /* ctrl */);
@@ -140,7 +145,15 @@ export component TileView inherits Rectangle {
     // 4 px clear of the 6 px playing ring, so it never covers the number or the time.
     property <length> pad: 10px;
     property <length> top: 10px;
-    property <length> ring: 6px;
+    // A length as whole device pixels, at least one: at 125 % a 1 px line is one device
+    // pixel, not 1.25 (which blurs it unevenly from edge to edge).
+    pure function dp(v: length) -> length {
+        max(1px / root.scale, round(v * root.scale / 1px) * 1px / root.scale)
+    }
+    property <length> k: dp(1px);
+    property <length> band: dp(4px);
+    property <length> ring: 2 * self.k + self.band;
+    property <length> bar-h: dp(8px);
     // The dark lines either side of the ring's colour, and the bar's.
     property <color> keyline: #000000cc;
     property <length> small: clamp(12px * style.small, 8px, 40px);
@@ -174,10 +187,12 @@ export component TileView inherits Rectangle {
     property <string> label-font: style.font != "" ? style.font : Theme.mac ? "System Font" : "";
     property <int> label-weight: tile.control ? 700 : max(style.weight, 600);
     property <length> label-spacing: tile.control ? 0.6px : 0px;
-    // The bottom row ends here: above the progress bar (ring 6 + bar 8 + 3), or as far
-    // from the bottom as the top row is from the top. Kept while idle too, so nothing
-    // moves when the cart starts.
-    property <length> bottom-y: progress-style == 0 ? self.height - 17px : self.height - top;
+    // The bottom row ends here: its figures 4 px above the progress bar (ring 6 + bar
+    // 8), or as far from the bottom as the top row is from the top. The row's box runs
+    // below the figures' baseline (room for letters' tails, from the font), so it ends
+    // that much lower. Kept while idle too, so nothing moves when a cart starts.
+    property <length> descent: (max(18px, time-probe.preferred-height) - time-probe.font-metrics.ascent - time-probe.font-metrics.descent) / 2;
+    property <length> bottom-y: (progress-style == 0 ? self.height - self.ring - self.bar-h - 4px : self.height - top) + descent;
     property <bool> over-chip: icon-box.hidden > 0 && icon-box.chip-x + icon-box.chip-w <= icon-box.width && ta.has-hover
         && ta.mouse-x >= bottom.x + icon-box.x + icon-box.chip-x - 2px
         && ta.mouse-x <= bottom.x + icon-box.x + icon-box.chip-x + icon-box.chip-w + 2px
@@ -403,51 +418,47 @@ export component TileView inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            // A ring by the time, filling clockwise from the top as the cart plays.
-            if root.playing && root.progress-style == 1: dial := Rectangle {
-                property <float> p: clamp(tile.progress, 0, 1);
-                property <angle> a: self.p * 360deg;
-                property <length> thick: max(2px, self.width * 0.2);
-                // The arc's radius in the 16-unit view: through the middle of the ring.
-                property <float> r: 8 - 8 * self.thick / self.width;
-                y: (parent.height - self.height) / 2;
-                width: time-size * 0.85;
+            // A ring by the time, filling clockwise from the top as the cart plays: a disc
+            // (a conic gradient, drawn with the smooth edge of a rounded rectangle) with a
+            // hole in the cart's colour. As tall as the figures and centred on them.
+            if root.playing && root.progress-style == 1: Rectangle {
+                property <angle> a: clamp(tile.progress, 0, 1) * 360deg;
+                property <length> hole: root.dp(self.width * 0.6);
+                // Centred on the figures: their baseline less half their height.
+                y: parent.height - root.descent - time-probe.font-metrics.cap-height / 2 - self.height / 2;
+                width: root.dp(time-probe.font-metrics.cap-height * 1.05);
                 height: self.width;
                 horizontal-stretch: 0;
-                // The track and the arc drawn the same way, so they line up.
-                Path {
-                    width: dial.width;
-                    height: dial.height;
-                    viewbox-width: 16;
-                    viewbox-height: 16;
-                    commands: "M 8 " + (8 - dial.r) + " A " + dial.r + " " + dial.r + " 0 1 1 8 " + (8 + dial.r)
-                        + " A " + dial.r + " " + dial.r + " 0 1 1 8 " + (8 - dial.r);
-                    stroke: dial.p >= 0.999 ? root.state-color : root.keyline;
-                    stroke-width: dial.thick;
-                    fill: transparent;
-                }
-                if dial.p > 0.001 && dial.p < 0.999: Path {
-                    width: dial.width;
-                    height: dial.height;
-                    viewbox-width: 16;
-                    viewbox-height: 16;
-                    commands: "M 8 " + (8 - dial.r) + " A " + dial.r + " " + dial.r + " 0 "
-                        + (dial.p > 0.5 ? "1" : "0") + " 1 "
-                        + (8 + dial.r * sin(dial.a)) + " " + (8 - dial.r * cos(dial.a));
-                    stroke: root.state-color;
-                    stroke-width: dial.thick;
-                    fill: transparent;
+                border-radius: self.width / 2;
+                background: @conic-gradient(root.state-color 0deg, root.state-color self.a, root.keyline self.a, root.keyline 360deg);
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: parent.hole;
+                    height: parent.hole;
+                    border-radius: self.width / 2;
+                    background: tile.bg;
                 }
             }
             // Digits in fixed cells, so the countdown never shifts as it changes.
             if tile.state != CartState.missing && tile.state != CartState.error: Clock {
                 chars: tile.time-chars;
                 size: time-size;
-                weight: root.playing ? 700 : 600;
+                weight: 600;
                 colour: tile.fg;
                 alignment: end;
                 horizontal-stretch: 0;
             }
+        }
+
+        // The time's font, measured (never drawn): where its figures sit in the row.
+        time-probe := Text {
+            width: 0;
+            text: "0";
+            font-size: time-size;
+            font-weight: 600;
+            color: transparent;
+            accessible-role: none;
         }
 
         // ---- label in the remaining area ("|" or Shift+Return is a line break) ----
@@ -529,18 +540,23 @@ export component TileView inherits Rectangle {
     if root.playing: StateRing {
         colour: root.state-color;
         keyline: root.keyline;
+        k: root.k;
+        band: root.band;
     }
+    // Its bottom corners follow the ring's inner corners.
     if root.playing && root.progress-style == 0: Rectangle {
         x: root.ring;
-        y: root.height - root.ring - 8px;
+        y: root.height - root.ring - root.bar-h;
         width: root.width - 2 * root.ring;
-        height: 8px;
+        height: root.bar-h;
         background: root.keyline;
+        border-bottom-left-radius: max(0px, 8px - root.ring);
+        border-bottom-right-radius: max(0px, 8px - root.ring);
         clip: true;
         // A dark track under a 1 px keyline; the ring's own keyline is below it.
         Rectangle {
-            y: 1px;
-            height: parent.height - 1px;
+            y: root.k;
+            height: parent.height - root.k;
             background: #00000066;
             Rectangle {
                 x: 0;
@@ -552,20 +568,22 @@ export component TileView inherits Rectangle {
     // Selection (Edit mode) and the cart quick edit or Cart Setup is open for: outside
     // the edge, a 1 px line then a 2 px one, leaving 2 px of the gap clear.
     if (tile.selected && edit-mode) || ringed: Rectangle {
-        x: -4px;
-        y: -4px;
-        width: root.width + 8px;
-        height: root.height + 8px;
-        border-radius: 12px;
-        border-width: 2px;
+        property <length> out: root.dp(4px);
+        property <length> outer: root.dp(2px);
+        x: -self.out;
+        y: -self.out;
+        width: root.width + 2 * self.out;
+        height: root.height + 2 * self.out;
+        border-radius: 8px + self.out;
+        border-width: self.outer;
         border-color: Theme.ring-outer;
         Rectangle {
-            x: 2px;
-            y: 2px;
-            width: parent.width - 4px;
-            height: parent.height - 4px;
-            border-radius: 10px;
-            border-width: 1px;
+            x: parent.outer;
+            y: parent.outer;
+            width: parent.width - 2 * parent.outer;
+            height: parent.height - 2 * parent.outer;
+            border-radius: 8px + parent.out - parent.outer;
+            border-width: root.k;
             border-color: Theme.ring-inner;
         }
     }
@@ -573,6 +591,8 @@ export component TileView inherits Rectangle {
     if tile.learning: StateRing {
         colour: Theme.learning;
         keyline: root.keyline;
+        k: root.k;
+        band: root.band;
         opacity: 0.25 + 0.75 * abs(sin(animation-tick() / 1100ms * 180deg));
     }
     if drop-target: Rectangle {

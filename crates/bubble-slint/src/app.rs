@@ -1907,11 +1907,27 @@ impl App {
         if let Some(s) = &mut self.settings {
             settings::share_theme!(ui, s.win);
             s.show(&self.core);
+            let wanted = s.win.get_wanted();
+            if wanted > s.tallest + 0.5 {
+                s.tallest = wanted;
+                if let Some(h) = window::grow_to_fit(s.win.window(), ui.window(), wanted) {
+                    self.core.prefs.settings_height = Some(h);
+                    self.core.save_prefs();
+                }
+            }
         }
         if let Some(s) = &mut self.session_settings {
             settings::share_theme!(ui, s.win);
             s.set_outputs(self.core.prefs.effective_outputs());
             s.show(snap);
+            let wanted = s.win.get_wanted();
+            if wanted > s.tallest + 0.5 {
+                s.tallest = wanted;
+                if let Some(h) = window::grow_to_fit(s.win.window(), ui.window(), wanted) {
+                    self.core.prefs.session_settings_height = Some(h);
+                    self.core.save_prefs();
+                }
+            }
         }
         if let Some(l) = &mut self.playout_log {
             settings::share_theme!(ui, l.win);
@@ -3152,9 +3168,11 @@ impl App {
             .width;
         let (x, w) = (ui.invoke_cell_x(idx), ui.invoke_cell_w());
         let panel = 392.0;
-        let right = x + w + 12.0;
+        // The arrow's tip (12 px out from the panel) meets the cart's selection ring,
+        // which stands 4 px outside the cart.
+        let right = x + w + 16.0;
         let fits_right = right + panel <= width - 8.0;
-        ui.set_qe_x(if fits_right { right } else { x - panel - 12.0 });
+        ui.set_qe_x(if fits_right { right } else { x - panel - 16.0 });
         ui.set_qe_arrow_left(fits_right);
         let y = ui.invoke_cell_y(idx);
         ui.set_qe_y(y);
@@ -3348,7 +3366,9 @@ impl App {
         self.core.scan_devices();
         let mut s = settings::Settings::new(win, &self.core);
         s.show(&self.core);
-        window::place_over(s.win.window(), ui.window(), 640.0, 500.0);
+        let h = window::opening_height(ui.window(), self.core.prefs.settings_height, 500.0);
+        s.win.window().set_size(slint::LogicalSize::new(640.0, h));
+        window::place_over(s.win.window(), ui.window(), 640.0, h);
         let _ = s.win.show();
         window::finish_tool(&s.win, &ui);
         self.settings = Some(s);
@@ -3431,7 +3451,9 @@ impl App {
         let mut s = settings::SessionSettings::new(win);
         s.set_outputs(self.core.prefs.effective_outputs());
         s.show(&self.core.snapshot());
-        window::place_over(s.win.window(), ui.window(), 660.0, 556.0);
+        let h = window::opening_height(ui.window(), self.core.prefs.session_settings_height, 556.0);
+        s.win.window().set_size(slint::LogicalSize::new(660.0, h));
+        window::place_over(s.win.window(), ui.window(), 660.0, h);
         let _ = s.win.show();
         window::finish_tool(&s.win, &ui);
         self.session_settings = Some(s);

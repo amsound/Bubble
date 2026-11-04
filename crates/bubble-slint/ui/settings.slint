@@ -235,8 +235,10 @@ component Note inherits Text {
 component SettingsFrame inherits VerticalLayout {
     in property <[string]> sections;
     in-out property <int> section;
+    // The height this section wants, unscrolled (the window is sized to the tallest).
+    out property <length> wanted: head.preferred-height + 1px + content.preferred-height;
     callback section-chosen(int);
-    HorizontalLayout {
+    head := HorizontalLayout {
         padding: 12px;
         padding-bottom: 10px;
         alignment: Theme.mac ? center : start;
@@ -257,7 +259,7 @@ component SettingsFrame inherits VerticalLayout {
     }
     ScrollView {
         vertical-stretch: 1;
-        VerticalLayout {
+        content := VerticalLayout {
             padding: 16px;
             spacing: 8px;
             alignment: start;
@@ -271,8 +273,9 @@ export component SettingsWindow inherits Window {
     title: "Settings";
     icon: window-icon;
     preferred-width: 640px;
-    // As tall as its tallest section (Audio, with a few outputs); more scrolls.
+    // Sized to its tallest section when opened (`window::fit_tallest`); more scrolls.
     preferred-height: 500px;
+    out property <length> wanted: frame.wanted;
     min-width: 560px;
     min-height: 380px;
     background: Theme.window-bg;
@@ -356,7 +359,7 @@ export component SettingsWindow inherits Window {
             reject
         }
         VerticalLayout {
-            SettingsFrame {
+            frame := SettingsFrame {
                 sections: ["General", "Audio", "MIDI"];
                 section <=> root.section;
                 section-chosen(i) => {
@@ -993,6 +996,7 @@ export component SessionSettingsWindow inherits Window {
     title: window-title;
     icon: window-icon;
     preferred-width: 660px;
+    out property <length> wanted: frame.wanted;
     // As tall as its tallest section (General); more scrolls.
     preferred-height: 556px;
     min-width: 600px;
@@ -1086,7 +1090,7 @@ export component SessionSettingsWindow inherits Window {
             }
             reject
         }
-        SettingsFrame {
+        frame := SettingsFrame {
             sections: ["General", "Tiles", "Groups", "Pages", Theme.mac ? "Cart Outputs" : "Cart outputs"];
             section <=> root.section;
             section-chosen(i) => {
@@ -1121,7 +1125,7 @@ export component SessionSettingsWindow inherits Window {
                     }
                 }
                 Note {
-                    text: "Convert to WAV converts each file once, when it is added, so the session opens faster on slower computers. Playback is the same either way.";
+                    text: "Convert to WAV is recommended for slower computers: sessions open faster.";
                 }
                 Heading {
                     text: Theme.mac ? "Cart Defaults" : "Cart defaults";

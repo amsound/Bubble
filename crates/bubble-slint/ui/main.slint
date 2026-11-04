@@ -402,6 +402,7 @@ export component MainWindow inherits Window {
         edit-mode: root.edit-mode;
         ringed: i == root.ring-cell;
         progress-style: root.tile-progress;
+        scale: root.scale;
         drop-target: i == root.drop-index || (root.drag-from >= 0 && i == root.drag-to && i != root.drag-from);
         drop-color: root.drag-from >= 0 ? Theme.select : Theme.drop;
         down(right, touch, shift, alt, ctrl) => {

@@ -294,6 +294,9 @@ enum Pick {
 
 pub struct Settings {
     pub win: SettingsWindow,
+    /// The tallest section seen, so the window grows only when a taller one is shown
+    /// (and stays as the user sizes it otherwise).
+    pub tallest: f32,
     /// The outputs, sample rate and buffer size as edited (applied by Apply).
     outputs: Vec<OutputPref>,
     rate: u32,
@@ -310,6 +313,7 @@ pub struct Settings {
 impl Settings {
     pub fn new(win: SettingsWindow, core: &Core) -> Self {
         let mut s = Settings {
+            tallest: 0.0,
             win,
             outputs: Vec::new(),
             rate: 0,
@@ -839,6 +843,8 @@ fn percent(v: f32) -> String {
 
 pub struct SessionSettings {
     pub win: SessionSettingsWindow,
+    /// As `Settings::tallest`.
+    pub tallest: f32,
     picks: Vec<SessionPick>,
     shown_name: Option<String>,
     shown_label: Option<f32>,
@@ -874,6 +880,7 @@ fn carts_text(n: usize) -> String {
 impl SessionSettings {
     pub fn new(win: SessionSettingsWindow) -> Self {
         SessionSettings {
+            tallest: 0.0,
             win,
             picks: Vec::new(),
             shown_name: None,

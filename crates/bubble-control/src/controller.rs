@@ -926,7 +926,9 @@ impl Controller {
             (MouseMode::LeftPlayRightStop, MouseButton::Primary) => {
                 self.trigger(cart, TriggerSource::Mouse, None);
             }
-            (_, MouseButton::Secondary) => self.stop_cart(cart, true),
+            (MouseMode::LeftPlayRightStop, MouseButton::Secondary) => self.stop_cart(cart, true),
+            // A click starts and stops: the right button does nothing.
+            (MouseMode::Toggle, MouseButton::Secondary) => {}
         }
     }
 
