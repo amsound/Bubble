@@ -1385,7 +1385,19 @@ impl Setup {
             } else {
                 c.looping
             },
-            name: format!("Button {button}").into(),
+            // The audio file's own name (the label is in the Label field).
+            name: c
+                .asset
+                .and_then(|a| snap.project.asset(a))
+                .map(|a| {
+                    a.path
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap_or(&a.path)
+                        .to_string()
+                })
+                .unwrap_or_else(|| format!("Button {button}"))
+                .into(),
             details: details.into(),
             has_audio,
             message: message.into(),
