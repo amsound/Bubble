@@ -1480,3 +1480,22 @@ fn a_trigger_shared_by_several_carts_is_cleared_for_one_only() {
         .collect();
     assert_eq!(keys, vec!["G".to_string()]);
 }
+
+#[test]
+fn midi_notes_are_named_as_spoton_names_them() {
+    use bubble_project::{BindingSource, MidiChannel, MidiMessage};
+    let note = |number, channel| BindingSource::Midi {
+        device: "*".into(),
+        channel: MidiChannel(channel),
+        message: MidiMessage::NoteOn,
+        number,
+        threshold: None,
+    };
+    assert_eq!(describe(&note(0, Some(1))), "C0");
+    assert_eq!(describe(&note(13, Some(1))), "C#1");
+    assert_eq!(describe(&note(27, None)), "D#2");
+    assert_eq!(describe(&note(60, Some(1))), "C5");
+    assert_eq!(describe(&note(127, Some(1))), "G10");
+    // Only a channel other than 1 is named.
+    assert_eq!(describe(&note(60, Some(2))), "C5 ch2");
+}

@@ -57,7 +57,7 @@ pub fn trim_flags(cart: &Cart, project: &Project) -> (bool, bool) {
     (t.in_frames > 0, out_trimmed)
 }
 
-/// Short trigger names for the tile, e.g. "F1", "Meta+1", "N60 ch1".
+/// Short trigger names for the tile, e.g. "F1", "Meta+1", "C5".
 pub fn trigger_names(cart: &Cart, project: &Project) -> Vec<String> {
     project
         .bindings

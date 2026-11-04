@@ -140,7 +140,6 @@ pub mod icon {
     pub const NEXT: &str = "M2.5 8h8M7.5 5l3 3-3 3M13 4v8";
     pub const MUTE: &str = "M2 6h2.5L8 3v10L4.5 10H2zM10.5 6l4 4M14.5 6l-4 4";
     pub const HOLD: &str = "M6 14V6.5a1.5 1.5 0 0 1 3 0V9h1.5a2 2 0 0 1 2 2v3";
-    pub const MIDI: &str = "M8 2a6 6 0 1 0 0.01 0zM5 8h1.2M7.4 5.5h1.2M9.8 8h1.2M6 10.6h1M9 10.6h1";
     pub const CHANGED: &str = "M8 2.5l6 11H2zM8 6.5v3M8 11.2v.8";
     pub const PAUSE: &str = "M5.5 3.5v9M10.5 3.5v9";
     /// Play delay: a clock.
@@ -197,60 +196,60 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
     let text = tile_text(cart, &snap.project, &rt);
     let rerouted = cart.control.is_none() && core.is_rerouted(&cart.output);
     let control = cart.control.is_some();
-    // Key triggers on the keycap; a MIDI trigger is an icon in the row.
-    let (midi, keys): (Vec<_>, Vec<_>) = snap
-        .project
-        .bindings
-        .iter()
-        .filter(|b| b.targets.contains(&cart.id) && b.action != bubble_project::Action::Outro)
-        .partition(|b| matches!(b.source, bubble_project::BindingSource::Midi { .. }));
-    let keys: Vec<String> = keys
-        .iter()
-        .map(|b| bubble_control::describe(&b.source))
-        .collect();
-    let mut icons: Vec<SharedString> = Vec::new();
-    // With Sections on, the cart's own In, Out and Loop are not used: the sections
-    // mark stands for them.
-    let sections = cart.sections.is_some_and(|s| s.on);
-    if !control {
-        match bubble_core::view::trim_flags(cart, &snap.project) {
-            _ if sections => icons.push(icon::SECTIONS.into()),
-            (true, true) => icons.push(icon::IN_OUT.into()),
-            (true, false) => icons.push(icon::IN.into()),
-            (false, true) => icons.push(icon::OUT.into()),
-            _ => {}
-        }
-        if cart.looping && !sections {
-            icons.push(icon::LOOP.into());
-        }
-        if cart.play_delay_ms > 0 {
-            icons.push(icon::DELAY.into());
-        }
-        if cart.on_play.stop != StopScope::None {
-            icons.push(icon::STOP_ALL.into());
-        }
-        if cart.play_next.is_some() {
-            icons.push(icon::NEXT.into());
-        }
-        if cart.muted {
-            icons.push(icon::MUTE.into());
-        }
-        if cart.hold_to_play {
-            icons.push(icon::HOLD.into());
-        }
-        if rt.changed {
-            icons.push(icon::CHANGED.into());
-        }
-    }
-    if !midi.is_empty() {
-        icons.push(icon::MIDI.into());
-    }
+    // Keys on the keycap, a MIDI note in the outlined chip before it.
+    let (keys, midi) = bubble_core::view::key_and_midi_names(cart, &snap.project);
+    // Most important first: when the row is short, the last ones go into "+N".
+    let mut icons: Vec<(&str, &str)> = Vec::new();
     let playing = matches!(rt.state, Cs::Playing | Cs::Stopping);
     // Paused in Cart Setup (held at speed 0): a pause mark, not a speed.
     let paused = playing && rt.speed < 0.005;
     if paused {
-        icons.push(icon::PAUSE.into());
+        icons.push((icon::PAUSE, "Paused"));
     }
+    // With Sections on, the cart's own In, Out and Loop are not used: the sections
+    // mark stands for them.
+    let sections = cart.sections.is_some_and(|s| s.on);
+    if !control {
+        if cart.muted {
+            icons.push((icon::MUTE, "Muted"));
+        }
+        if cart.hold_to_play {
+            icons.push((icon::HOLD, "Hold to play"));
+        }
+        if rt.changed {
+            icons.push((icon::CHANGED, "File changed"));
+        }
+        match bubble_core::view::trim_flags(cart, &snap.project) {
+            _ if sections => icons.push((icon::SECTIONS, "Sections")),
+            (true, true) => icons.push((icon::IN_OUT, "Trimmed")),
+            (true, false) => icons.push((icon::IN, "In trimmed")),
+            (false, true) => icons.push((icon::OUT, "Out trimmed")),
+            _ => {}
+        }
+        if cart.looping && !sections {
+            icons.push((icon::LOOP, "Loop"));
+        }
+        if cart.play_delay_ms > 0 {
+            icons.push((icon::DELAY, "Play delay"));
+        }
+        if cart.on_play.stop != StopScope::None {
+            icons.push((icon::STOP_ALL, "Stops others"));
+        }
+        if cart.play_next.is_some() {
+            icons.push((icon::NEXT, "Play next"));
+        }
+    }
+    let icon_tails: Vec<SharedString> = (0..=icons.len())
+        .map(|k| {
+            icons[k..]
+                .iter()
+                .map(|(_, n)| *n)
+                .collect::<Vec<_>>()
+                .join(", ")
+                .into()
+        })
+        .collect();
+    let icons: Vec<SharedString> = icons.iter().map(|(p, _)| SharedString::from(*p)).collect();
     let speed = if playing { rt.speed } else { cart.speed };
     Tile {
         has_cart: true,
@@ -260,6 +259,7 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         fg: text_color(bg),
         group: group_label(cart, &snap.project).unwrap_or_default().into(),
         triggers: keys.join("  ").into(),
+        midi: midi.join("  ").into(),
         output: if control {
             String::new()
         } else {
@@ -268,6 +268,7 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         .into(),
         rerouted,
         icons: icon_model(icons),
+        icon_tails: icon_model(icon_tails),
         speed: if !control && !paused && (speed - 1.0).abs() > 0.005 {
             format!("×{speed:.2}")
         } else {

@@ -126,6 +126,8 @@ pub enum Cmd {
     BarSize(u8),
     /// The page bar at the top of the window (true) or the bottom.
     BarTop(bool),
+    /// How a playing cart shows its progress ([`TILE_PROGRESS`]).
+    TileProgress(u8),
     /// Interface appearance: follow the system, light or dark.
     Appearance(Appearance),
     Quit,
@@ -496,6 +498,9 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     }
 }
 
+/// How a playing cart shows its progress, in `Prefs.tile_progress` order.
+pub const TILE_PROGRESS: [&str; 3] = ["Progress Bar", "Clock", "Countdown Only"];
+
 /// Grid sizes offered in Session ▸ Grid Size (rows, columns).
 pub const GRID_SIZES: [(u16, u16); 8] = [
     (3, 4),
@@ -601,6 +606,10 @@ pub fn apply_common(
         }
         Cmd::BarTop(top) => {
             core.prefs.bar_top = *top;
+            core.save_prefs();
+        }
+        Cmd::TileProgress(p) => {
+            core.prefs.tile_progress = (*p).min(2);
             core.save_prefs();
         }
         _ => return false,

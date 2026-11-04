@@ -98,6 +98,9 @@ pub struct Prefs {
     pub bar_size: u8,
     /// The page bar at the top of the window instead of the bottom.
     pub bar_top: bool,
+    /// How a playing cart shows its progress: 0 a bar along the bottom, 1 a dial by
+    /// the time, 2 the countdown only.
+    pub tile_progress: u8,
     /// Enabled outputs in letter order; empty = the system default device as Output A.
     pub outputs: Vec<OutputPref>,
     /// Engine sample rate for every output device; 0 = 48 kHz.

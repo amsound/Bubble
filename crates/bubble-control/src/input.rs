@@ -170,7 +170,8 @@ pub fn source_from_event(ev: &InputEvent) -> Option<BindingSource> {
     }
 }
 
-/// Short human-readable label for a binding source ("F1", "Ctrl+KeyA", "N60 ch1").
+/// Short human-readable label for a binding source: "F1", "Ctrl+A", "C5" (a note, named
+/// as SpotOn names it), "CC7"; " ch2" follows on a channel other than 1.
 pub fn describe(source: &BindingSource) -> String {
     match source {
         BindingSource::Key { key, modifiers } => {
@@ -190,13 +191,17 @@ pub fn describe(source: &BindingSource) -> String {
             number,
             ..
         } => {
-            let ch = channel.0.map_or("*".to_string(), |c| c.to_string());
-            let m = match message {
-                MidiMessage::NoteOn | MidiMessage::NoteOff => "N",
-                MidiMessage::Cc => "CC",
-                MidiMessage::Program => "PC",
+            let name = match message {
+                MidiMessage::NoteOn | MidiMessage::NoteOff => {
+                    bubble_project::midi_note_name(*number)
+                }
+                MidiMessage::Cc => format!("CC{number}"),
+                MidiMessage::Program => format!("PC{number}"),
             };
-            format!("{m}{number} ch{ch}")
+            match channel.0 {
+                Some(c) if c != 1 => format!("{name} ch{c}"),
+                _ => name,
+            }
         }
     }
 }

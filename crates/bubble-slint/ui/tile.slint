@@ -1,10 +1,15 @@
 // One cart tile (design: "Bubble main window design" canvas, Tile component):
 //
 //   ┌──────────────────────────────────────┐
-//   │ 12  G1 Drums                   F1    │  number, exclusive group, hotkey keycap
+//   │ 12  G1 Drums              C5  F1     │  number, group; MIDI note (outlined), hotkey
 //   │            Label text                │  typeface, size and alignment from Display
-//   │ [A] ↻ ⇥ ×0.75                -1:23   │  output badge, icon row, speed; time
-//   └▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀────────────────────────┘  state border and progress: one shape
+//   │ [A] ×0.75 ↻ ⇥ +2             -1:23   │  output, speed, icons (the rest in +N); time
+//   │▀▀▀▀▀▀▀▀▀▀▀▀▀▀────────────────────────│  progress bar (or a dial by the time, or none)
+//   └──────────────────────────────────────┘
+//
+// Playing, the tile has a ring inside its edge: 1 px dark, 4 px state colour, 1 px
+// dark, so it shows on a cart of the same colour. Selection and quick edit's ring sit
+// outside, 1–4 px into the 6 px gap, so they never touch a neighbour.
 //
 // Input is reported, not acted on: the app decides what a press does in each mode.
 
@@ -21,14 +26,19 @@ export struct Tile {
     bg: color,
     fg: color,
     group: string,
-    // The hotkey (or MIDI trigger) keycap text.
+    // The hotkey keycap text.
     triggers: string,
+    // The MIDI trigger ("C5"), in an outlined chip before the keycap.
+    midi: string,
     // The output letter ("A"); empty for a control button.
     output: string,
     // The output is playing elsewhere or not set up here (amber badge).
     rerouted: bool,
-    // Path commands (16 × 16 grid) for the icon row: loop, trims, stop-all, next, …
+    // Path commands (16 × 16 grid) for the icon row, most important first: those that
+    // do not fit collapse into a "+N" chip.
     icons: [string],
+    // For the "+N" chip's tip: entry k names the icons from k on ("Loop, Stop all").
+    icon-tails: [string],
     // "×0.75" when the speed is not 100%.
     speed: string,
     time: string,
@@ -53,6 +63,34 @@ component LabelProbe inherits Text {
     accessible-role: none;
 }
 
+// The playing (or learning) ring, inside the tile's edge: 1 px dark, 4 px colour,
+// 1 px dark, so it shows on a cart of the same colour.
+component StateRing inherits Rectangle {
+    in property <color> colour;
+    in property <color> keyline;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: keyline;
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 2px;
+        border-radius: 7px;
+        border-width: 4px;
+        border-color: root.colour;
+        Rectangle {
+            x: 4px;
+            y: 4px;
+            width: parent.width - 8px;
+            height: parent.height - 8px;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: root.keyline;
+        }
+    }
+}
+
 // How cart labels look (Session Settings ▸ Display).
 export struct LabelStyle {
     font: string,
@@ -73,6 +111,9 @@ export component TileView inherits Rectangle {
     // Files are dragged over it, or a cart is being moved onto it.
     in property <bool> drop-target;
     in property <color> drop-color: Theme.drop;
+    // While playing: 0 a progress bar along the bottom, 1 a dial by the time, 2 the
+    // countdown only (Settings ▸ General).
+    in property <int> progress-style;
 
     // A press: right button, touch, and the modifiers held.
     callback down(bool /* right */, bool /* touch */, bool /* shift */, bool /* alt */, bool /* ctrl */);
@@ -96,9 +137,12 @@ export component TileView inherits Rectangle {
     // The state colour: yellow playing, purple fading, red inside the ending warning.
     property <color> state-color: tile.state == CartState.stopping ? Theme.fading : tile.ending ? Theme.ending : Theme.playing;
 
-    // Inside the 4 px state border, so it never covers the number or the time.
+    // 4 px clear of the 6 px playing ring, so it never covers the number or the time.
     property <length> pad: 10px;
-    property <length> top: 8px;
+    property <length> top: 10px;
+    property <length> ring: 6px;
+    // The dark lines either side of the ring's colour, and the bar's.
+    property <color> keyline: #000000cc;
     property <length> small: clamp(12px * style.small, 8px, 40px);
     property <length> time-size: clamp(clamp(self.height / 7, 14px, 22px) * style.small, 8px, 60px);
     property <length> label-size: clamp(clamp(self.height / 5, 13px, 26px) * style.size, 6px, 120px);
@@ -130,8 +174,21 @@ export component TileView inherits Rectangle {
     property <string> label-font: style.font != "" ? style.font : Theme.mac ? "System Font" : "";
     property <int> label-weight: tile.control ? 700 : max(style.weight, 600);
     property <length> label-spacing: tile.control ? 0.6px : 0px;
-    // The bottom row ends here; the progress band sits below it.
-    property <length> bottom-y: self.height - 17px;
+    // The bottom row ends here: above the progress bar (ring 6 + bar 8 + 3), or as far
+    // from the bottom as the top row is from the top. Kept while idle too, so nothing
+    // moves when the cart starts.
+    property <length> bottom-y: progress-style == 0 ? self.height - 17px : self.height - top;
+    property <bool> over-chip: icon-box.hidden > 0 && icon-box.chip-x + icon-box.chip-w <= icon-box.width && ta.has-hover
+        && ta.mouse-x >= bottom.x + icon-box.x + icon-box.chip-x - 2px
+        && ta.mouse-x <= bottom.x + icon-box.x + icon-box.chip-x + icon-box.chip-w + 2px
+        && ta.mouse-y >= bottom.y - 2px && ta.mouse-y <= bottom.y + bottom.height + 2px;
+    property <bool> tip-shown;
+    changed over-chip => {
+        root.tip-shown = false;
+        if !self.over-chip {
+            root.hide-tip();
+        }
+    }
     property <length> top-h: max(small + 4px, chips.preferred-height);
 
     border-radius: 8px;
@@ -206,6 +263,22 @@ export component TileView inherits Rectangle {
             Rectangle {
                 horizontal-stretch: 1;
             }
+            // The MIDI note: outlined, so it reads apart from the keycap after it.
+            if tile.midi != "": Rectangle {
+                border-radius: 4px;
+                border-width: 1.5px;
+                border-color: tile.fg.transparentize(15%);
+                horizontal-stretch: 0;
+                min-width: midi-text.preferred-width + 12px;
+                midi-text := Text {
+                    text: tile.midi;
+                    font-size: small;
+                    font-weight: 600;
+                    color: tile.fg;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
             // A prominent "keycap", so the operator can read the hotkey at a glance.
             if tile.triggers != "": Rectangle {
                 border-radius: 4px;
@@ -223,7 +296,7 @@ export component TileView inherits Rectangle {
             }
         }
 
-        // ---- bottom row: output badge, icon row, speed (left); time (right) ----
+        // ---- bottom row: output badge, speed, icon row (left); time (right) ----
         bottom := HorizontalLayout {
             x: pad;
             width: root.width - 2 * pad;
@@ -247,18 +320,6 @@ export component TileView inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            for icon in tile.icons: Path {
-                y: (parent.height - self.height) / 2;
-                width: small + 2px;
-                height: small + 2px;
-                horizontal-stretch: 0;
-                viewbox-width: 16;
-                viewbox-height: 16;
-                commands: icon;
-                stroke: tile.fg.transparentize(10%);
-                stroke-width: 1.5px;
-                fill: transparent;
-            }
             if tile.speed != "": Rectangle {
                 y: (parent.height - self.height) / 2;
                 height: small + 4px;
@@ -275,8 +336,47 @@ export component TileView inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
-            Rectangle {
+            // The icons that fit, then "+N" for the rest.
+            icon-box := Rectangle {
                 horizontal-stretch: 1;
+                property <length> icon: small + 2px;
+                out property <length> slot: self.icon + 5px;
+                out property <length> chip-w: small * 1.5 + 8px;
+                property <int> count: tile.icons.length;
+                property <int> fit: max(0, floor((self.width + 5px) / self.slot));
+                out property <int> shown: self.count <= self.fit ? self.count : max(0, floor((self.width - self.chip-w) / self.slot));
+                out property <int> hidden: self.count - self.shown;
+                out property <length> chip-x: self.shown * self.slot;
+                for icon[i] in tile.icons: Path {
+                    visible: i < icon-box.shown;
+                    x: i * icon-box.slot;
+                    y: (parent.height - self.height) / 2;
+                    width: icon-box.icon;
+                    height: icon-box.icon;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    commands: icon;
+                    stroke: tile.fg.transparentize(10%);
+                    stroke-width: 1.5px;
+                    fill: transparent;
+                }
+                // Only where it fits: the time comes first.
+                if self.hidden > 0 && self.chip-x + self.chip-w <= self.width: Rectangle {
+                    x: icon-box.chip-x;
+                    y: (parent.height - self.height) / 2;
+                    width: icon-box.chip-w;
+                    height: small + 4px;
+                    border-radius: 4px;
+                    background: tile.fg.transparentize(80%);
+                    Text {
+                        text: "+" + icon-box.hidden;
+                        font-size: small * 0.92;
+                        font-weight: 600;
+                        color: tile.fg;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
             }
             // Not ready yet: a small spinner (the busy popover says why).
             if tile.state == CartState.loading: Spinner {
@@ -303,11 +403,47 @@ export component TileView inherits Rectangle {
                     vertical-alignment: center;
                 }
             }
+            // A ring by the time, filling clockwise from the top as the cart plays.
+            if root.playing && root.progress-style == 1: dial := Rectangle {
+                property <float> p: clamp(tile.progress, 0, 1);
+                property <angle> a: self.p * 360deg;
+                property <length> thick: max(2px, self.width * 0.2);
+                // The arc's radius in the 16-unit view: through the middle of the ring.
+                property <float> r: 8 - 8 * self.thick / self.width;
+                y: (parent.height - self.height) / 2;
+                width: time-size * 0.85;
+                height: self.width;
+                horizontal-stretch: 0;
+                // The track and the arc drawn the same way, so they line up.
+                Path {
+                    width: dial.width;
+                    height: dial.height;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    commands: "M 8 " + (8 - dial.r) + " A " + dial.r + " " + dial.r + " 0 1 1 8 " + (8 + dial.r)
+                        + " A " + dial.r + " " + dial.r + " 0 1 1 8 " + (8 - dial.r);
+                    stroke: dial.p >= 0.999 ? root.state-color : root.keyline;
+                    stroke-width: dial.thick;
+                    fill: transparent;
+                }
+                if dial.p > 0.001 && dial.p < 0.999: Path {
+                    width: dial.width;
+                    height: dial.height;
+                    viewbox-width: 16;
+                    viewbox-height: 16;
+                    commands: "M 8 " + (8 - dial.r) + " A " + dial.r + " " + dial.r + " 0 "
+                        + (dial.p > 0.5 ? "1" : "0") + " 1 "
+                        + (8 + dial.r * sin(dial.a)) + " " + (8 - dial.r * cos(dial.a));
+                    stroke: root.state-color;
+                    stroke-width: dial.thick;
+                    fill: transparent;
+                }
+            }
             // Digits in fixed cells, so the countdown never shifts as it changes.
             if tile.state != CartState.missing && tile.state != CartState.error: Clock {
                 chars: tile.time-chars;
                 size: time-size;
-                weight: 600;
+                weight: root.playing ? 700 : 600;
                 colour: tile.fg;
                 alignment: end;
                 horizontal-stretch: 0;
@@ -389,42 +525,54 @@ export component TileView inherits Rectangle {
         }
     }
 
-    // ---- state: the border and the progress band are one shape ----
-    if root.playing: Rectangle {
-        border-radius: 8px;
-        border-width: 4px;
-        border-color: root.state-color;
+    // ---- state: the ring inside the edge, and the progress bar inside the ring ----
+    if root.playing: StateRing {
+        colour: root.state-color;
+        keyline: root.keyline;
     }
-    // The band runs along the inside of the border's bottom edge, with its inner corners.
-    if root.playing: Rectangle {
-        x: 4px;
-        y: root.height - 12px;
-        width: root.width - 8px;
+    if root.playing && root.progress-style == 0: Rectangle {
+        x: root.ring;
+        y: root.height - root.ring - 8px;
+        width: root.width - 2 * root.ring;
         height: 8px;
-        border-bottom-left-radius: 4px;
-        border-bottom-right-radius: 4px;
-        background: root.state-color.transparentize(68%);
+        background: root.keyline;
         clip: true;
+        // A dark track under a 1 px keyline; the ring's own keyline is below it.
         Rectangle {
-            x: 0;
-            width: parent.width * clamp(tile.progress, 0, 1);
-            background: root.state-color;
+            y: 1px;
+            height: parent.height - 1px;
+            background: #00000066;
+            Rectangle {
+                x: 0;
+                width: parent.width * clamp(tile.progress, 0, 1);
+                background: root.state-color;
+            }
         }
     }
-    if tile.selected && edit-mode && !ringed: Rectangle {
+    // Selection (Edit mode) and the cart quick edit or Cart Setup is open for: outside
+    // the edge, a 1 px line then a 2 px one, leaving 2 px of the gap clear.
+    if (tile.selected && edit-mode) || ringed: Rectangle {
         x: -4px;
         y: -4px;
         width: root.width + 8px;
         height: root.height + 8px;
-        border-radius: 11px;
+        border-radius: 12px;
         border-width: 2px;
-        border-color: Theme.select;
+        border-color: Theme.ring-outer;
+        Rectangle {
+            x: 2px;
+            y: 2px;
+            width: parent.width - 4px;
+            height: parent.height - 4px;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.ring-inner;
+        }
     }
-    // Learning a trigger: a pulsing border until a key or MIDI message arrives.
-    if tile.learning: Rectangle {
-        border-radius: 8px;
-        border-width: 4px;
-        border-color: Theme.learning;
+    // Learning a trigger: the ring pulsing until a key or MIDI message arrives.
+    if tile.learning: StateRing {
+        colour: Theme.learning;
+        keyline: root.keyline;
         opacity: 0.25 + 0.75 * abs(sin(animation-tick() / 1100ms * 180deg));
     }
     if drop-target: Rectangle {
@@ -444,18 +592,20 @@ export component TileView inherits Rectangle {
             root.hold();
         }
     }
+    // Over the "+N" chip: the icons it stands for; elsewhere the tile's own tip.
     tip-timer := Timer {
         interval: 600ms;
-        running: ta.has-hover && !ta.pressed && tile.tip != "";
+        running: ta.has-hover && !ta.pressed && !root.tip-shown && (root.over-chip || tile.tip != "");
         triggered => {
-            self.running = false;
-            root.show-tip(tile.tip, ta.mouse-x, ta.mouse-y);
+            root.tip-shown = true;
+            root.show-tip(root.over-chip ? tile.icon-tails[icon-box.shown] : tile.tip, ta.mouse-x, ta.mouse-y);
         }
     }
 
     ta := TouchArea {
         changed has-hover => {
             if !self.has-hover {
+                root.tip-shown = false;
                 root.hide-tip();
             }
         }

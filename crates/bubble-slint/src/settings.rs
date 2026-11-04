@@ -283,6 +283,7 @@ enum Pick {
     Appearance(Appearance),
     Bar(u8),
     BarTop(bool),
+    TileProgress(u8),
     Mouse(MouseMode),
     Rate(u32),
     Buffer(Option<u32>),
@@ -385,6 +386,9 @@ impl Settings {
                 .into(),
         );
         w.set_bar_position(bar_position_text(p.bar_top).into());
+        w.set_tile_progress(
+            menu::t(menu::TILE_PROGRESS[usize::from(p.tile_progress.min(2))]).into(),
+        );
         w.set_mouse(mouse_text(m.mouse_mode).into());
         w.set_session_folder(core.session_root().display().to_string().into());
 
@@ -491,6 +495,16 @@ impl Settings {
                     add(Pick::Bar(i as u8), n.into(), true, p.bar_size == i as u8);
                 }
             }
+            "tile-progress" => {
+                for (i, n) in menu::TILE_PROGRESS.into_iter().enumerate() {
+                    add(
+                        Pick::TileProgress(i as u8),
+                        menu::t(n),
+                        true,
+                        p.tile_progress == i as u8,
+                    );
+                }
+            }
             "bar-position" => {
                 for top in [false, true] {
                     add(
@@ -563,6 +577,7 @@ impl Settings {
             Pick::Appearance(a) => return Some(Cmd::Appearance(a)),
             Pick::Bar(b) => return Some(Cmd::BarSize(b)),
             Pick::BarTop(top) => return Some(Cmd::BarTop(top)),
+            Pick::TileProgress(t) => return Some(Cmd::TileProgress(t)),
             Pick::Mouse(MouseMode::Toggle) => return Some(Cmd::MouseToggle),
             Pick::Mouse(MouseMode::LeftPlayRightStop) => return Some(Cmd::MouseLeftRight),
             Pick::Rate(r) => self.rate = r,

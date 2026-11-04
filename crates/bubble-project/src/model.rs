@@ -732,6 +732,15 @@ pub struct ExclusiveGroup {
     pub extra: Extra,
 }
 
+/// A MIDI note number as SpotOn names it: the octave counts from 0 at note 0, so
+/// note 0 is "C0", 13 is "C#1" and 60 is "C5".
+pub fn midi_note_name(number: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    format!("{}{}", NAMES[usize::from(number % 12)], number / 12)
+}
+
 /// MIDI channel 1–16 or any.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct MidiChannel(pub Option<u8>);

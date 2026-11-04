@@ -1873,6 +1873,7 @@ impl App {
             ui.set_plus_dashes(dashed_square(tab_height(self.prefs.bar_size)).into());
         }
         ui.set_bar_top(self.prefs.bar_top);
+        ui.set_tile_progress(i32::from(self.prefs.tile_progress.min(2)));
         let scale = ui.window().scale_factor();
         if ui.get_scale() != scale {
             ui.set_scale(scale);
@@ -2011,6 +2012,20 @@ impl App {
                                         i.push(Intent::Trigger(id));
                                     });
                                     act(&app, |a, _| a.open_playout_log());
+                                }
+                            });
+                        }
+                        // Every cart playing, the first selected in Edit mode.
+                        "play-all" => {
+                            a.edit_mode = true;
+                            a.selected = Some(id);
+                            let all: Vec<Uuid> = a.ids.iter().flatten().copied().collect();
+                            let me = me.clone();
+                            slint::Timer::single_shot(Duration::from_millis(10), move || {
+                                if let Some(app) = me.upgrade() {
+                                    act(&app, move |_, i| {
+                                        i.extend(all.into_iter().map(Intent::Trigger))
+                                    });
                                 }
                             });
                         }

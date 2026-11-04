@@ -141,6 +141,8 @@ export component MainWindow inherits Window {
     in property <bool> qe-arrow-left: true;
     // The cell quick edit or Cart Setup belongs to, ringed while it is open.
     in property <int> ring-cell: -1;
+    // How a playing cart shows its progress (`Prefs.tile_progress`).
+    in property <int> tile-progress;
     in property <bool> blocked;
     callback blocked-click();
     in property <[PopupRow]> popup-rows;
@@ -399,6 +401,7 @@ export component MainWindow inherits Window {
         style: root.label-style;
         edit-mode: root.edit-mode;
         ringed: i == root.ring-cell;
+        progress-style: root.tile-progress;
         drop-target: i == root.drop-index || (root.drag-from >= 0 && i == root.drag-to && i != root.drag-from);
         drop-color: root.drag-from >= 0 ? Theme.select : Theme.drop;
         down(right, touch, shift, alt, ctrl) => {
@@ -731,29 +734,6 @@ export component MainWindow inherits Window {
                     }
                 }
             }
-        }
-    }
-
-    // The double ring round the cart being edited, inside its own edge: it never touches
-    // a neighbour.
-    if root.ring-cell >= 0: Rectangle {
-        property <length> outer: root.pixel(3px);
-        property <length> inner: root.pixel(2px);
-        x: root.cell-x(root.ring-cell);
-        y: root.cell-y(root.ring-cell);
-        width: root.pixel(pad + mod(root.ring-cell, max(cols, 1)) * (tile-w + gap) + tile-w) - self.x;
-        height: root.pixel(wall-top + floor(root.ring-cell / max(cols, 1)) * (tile-h + gap) + tile-h) - self.y;
-        border-radius: 8px;
-        border-width: self.outer;
-        border-color: Theme.ring-outer;
-        Rectangle {
-            x: parent.outer;
-            y: parent.outer;
-            width: parent.width - 2 * parent.outer;
-            height: parent.height - 2 * parent.outer;
-            border-radius: 8px - parent.outer;
-            border-width: parent.inner;
-            border-color: Theme.ring-inner;
         }
     }
 

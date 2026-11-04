@@ -1136,7 +1136,13 @@ fn bubble_describe(source: &BindingSource) -> String {
             ..
         } => {
             let ch = channel.0.map_or("any".to_string(), |c| c.to_string());
-            format!("{message:?} {number} ch {ch}")
+            let what = match message {
+                MidiMessage::NoteOn | MidiMessage::NoteOff => {
+                    format!("note {}", bubble_project::midi_note_name(*number))
+                }
+                _ => format!("{message:?} {number}"),
+            };
+            format!("{what} ch {ch}")
         }
     }
 }
