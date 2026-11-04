@@ -1,7 +1,7 @@
 //! The shared menu model (`bubble_core::menu`) as Slint `MenuBar` data.
 //!
 //! macOS shows the menu natively and handles its shortcuts. Elsewhere Bubble handles
-//! the shortcuts itself ([`Shortcuts`]), as the egui app does, so they never fire while
+//! the shortcuts itself ([`Shortcuts`]), so they never fire while
 //! a text field has the keyboard (Ctrl+C/V/X/Z stay with the field); Windows' native
 //! menu shows them after a tab.
 
@@ -18,11 +18,6 @@ pub const SEPARATOR: &str = "\u{E001}⸺";
 
 /// Slots per top-level menu in `ui/main.slint` (a run of items, then a submenu).
 const SLOTS: usize = 6;
-
-/// Commands that open windows the Slint interface does not have yet (still egui).
-pub fn not_here(_cmd: &Cmd) -> bool {
-    false
-}
 
 /// The menus for Slint, and the command behind each entry id.
 pub struct Built {
@@ -118,12 +113,7 @@ fn entry(it: &Item, cmds: &mut Vec<Cmd>, top_level: bool) -> MenuEntryData {
         } => {
             let id = cmds.len() as i32;
             cmds.push(cmd.clone());
-            let missing = not_here(cmd);
-            let mut title = if missing {
-                format!("{label} (not in this interface yet)")
-            } else {
-                label.clone()
-            };
+            let mut title = label.clone();
             let mut shortcut = Keys::default();
             if let Some(a) = accel {
                 if cfg!(target_os = "macos") && top_level {
@@ -135,7 +125,7 @@ fn entry(it: &Item, cmds: &mut Vec<Cmd>, top_level: bool) -> MenuEntryData {
             MenuEntryData {
                 id,
                 title: title.into(),
-                enabled: *enabled && !missing,
+                enabled: *enabled,
                 checkable: checked.is_some(),
                 checked: checked.unwrap_or(false),
                 shortcut,
@@ -194,7 +184,7 @@ impl Shortcuts {
                         accel: Some(a),
                         enabled: true,
                         ..
-                    } if !not_here(cmd) => out.push((a, cmd.clone())),
+                    } => out.push((a, cmd.clone())),
                     _ => {}
                 }
             }

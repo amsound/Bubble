@@ -46,8 +46,6 @@ export struct SetupInfo {
     output-warn: bool,
     fade-in: string,
     fade-out: string,
-    speed-x0: string,
-    speed-x1: string,
     retrigger: string,
     // On play: stop the page or everything else (neither: stop nothing); at the end,
     // play the next cart.
@@ -483,7 +481,7 @@ component Swatch inherits Rectangle {
     }
 }
 
-// Two pop-ups, each after a short label ("In" / "Out", "x0" / "x1"), in fixed
+// Two pop-ups, each after a short label ("In" / "Out"), in fixed
 // columns so rows of pairs line up.
 component PopPair inherits HorizontalLayout {
     in property <string> a-label;

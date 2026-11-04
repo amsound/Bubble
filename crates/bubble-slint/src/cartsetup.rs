@@ -99,8 +99,6 @@ enum Pick {
     Output(usize),
     FadeIn(Option<u32>),
     FadeOut(Option<u32>),
-    SlowDown(u32),
-    SpeedUp(u32),
     Retrigger(Option<Retrigger>),
     Group(Option<Uuid>),
 }
@@ -179,21 +177,17 @@ fn delay_text(ms: u32) -> String {
 /// A play delay as typed ("12.3", "12.3 s", "12,3"), to the tenth, at most 999.9 s.
 /// `None` for something that is not a number.
 pub fn parse_delay(text: &str) -> Option<u32> {
-    let t = text.trim().trim_end_matches(['s', 'S']).trim().replace(',', ".");
+    let t = text
+        .trim()
+        .trim_end_matches(['s', 'S'])
+        .trim()
+        .replace(',', ".");
     if t.is_empty() {
         return Some(0);
     }
     let v: f32 = t.parse().ok()?;
     let tenths = (v.max(0.0) * 10.0).round() as u32;
     Some((tenths * 100).min(bubble_project::validate::MAX_PLAY_DELAY_MS))
-}
-
-fn seconds_text(ms: u32) -> String {
-    if ms == 0 {
-        "Instant".into()
-    } else {
-        format!("{:.1} s", ms as f32 / 1000.0)
-    }
 }
 
 pub(crate) fn retrigger_text(r: Retrigger) -> &'static str {
@@ -1014,22 +1008,6 @@ impl Setup {
                     rows.push((Pick::FadeOut(v), l, i == cur));
                 }
             }
-            "x0" | "x1" => {
-                let x0 = field == "x0";
-                let cur = if x0 { c.slowdown_ms } else { c.speedup_ms };
-                let mut choices = vec![500, 1000, 1500, 2000, 3000, 4000, 5000, 8000];
-                if !x0 {
-                    choices.insert(0, 0);
-                }
-                for ms in choices {
-                    let p = if x0 {
-                        Pick::SlowDown(ms)
-                    } else {
-                        Pick::SpeedUp(ms)
-                    };
-                    rows.push((p, seconds_text(ms), ms == cur));
-                }
-            }
             "retrigger" => {
                 // Default follows Session Settings; the others are this cart's own.
                 let default = snap.project.settings.default_retrigger;
@@ -1098,8 +1076,6 @@ impl Setup {
                     ..FadeSpec::ms(ms)
                 });
             }
-            Pick::SlowDown(ms) => c.slowdown_ms = ms,
-            Pick::SpeedUp(ms) => c.speedup_ms = ms,
             Pick::Retrigger(r) => c.retrigger = r,
             Pick::Group(g) => c.group = g,
         }
@@ -1423,8 +1399,6 @@ impl Setup {
             } else {
                 fades.get(fo_i).cloned().unwrap_or_default().into()
             },
-            speed_x0: seconds_text(c.slowdown_ms).into(),
-            speed_x1: seconds_text(c.speedup_ms).into(),
             retrigger: c.retrigger.map_or("Default", retrigger_text).into(),
             play_next: c.play_next.is_some(),
             stop_page: c.on_play.stop == StopScope::Page,

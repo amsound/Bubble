@@ -1,5 +1,5 @@
 //! Compiles the Slint interface, and renders the window icon from the vector logo at
-//! build time (as `bubble-app` does), so the SVG in `assets/` is the only source. For
+//! build time, so the SVG in `assets/` is the only source. For
 //! Windows targets it also embeds the logo as the .exe's icon resource.
 
 use std::path::{Path, PathBuf};

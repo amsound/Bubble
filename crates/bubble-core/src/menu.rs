@@ -97,19 +97,13 @@ pub enum Cmd {
     /// Session ▸ Grid Size: the current page's rows and columns.
     GridSize(u16, u16),
     ReassignOutputs,
-    /// Engine sample rate for every output device.
-    SampleRate(u32),
-    BufferFrames(Option<u32>),
     MidiEnabled,
     MidiAllPorts,
     MidiPort(String),
     RescanMidi,
     MouseToggle,
     MouseLeftRight,
-    DuplicatesGanged,
-    DuplicatesOverlapped,
     ScopeGlobal,
-    ScopePage,
     Limiter,
     ShowLog,
     ShowDiagnostics,
@@ -221,9 +215,6 @@ pub struct MenuState {
     pub selected: Option<Uuid>,
     /// Where Paste would go.
     pub paste_target: Option<(usize, u16, u16)>,
-    /// The interface has a Settings window for this machine's settings (and Session
-    /// Settings for the session's); without one, the menus carry them as before.
-    pub settings_window: bool,
 }
 
 /// A label in this platform's style: as written (Title Case) on a Mac, sentence case
@@ -366,13 +357,8 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     let custom = !OUTPUT_LEVELS
         .iter()
         .any(|db| (level - *db as f32).abs() < 0.05);
-    // Custom… opens where the level is set: the Settings window (or, in an interface
-    // without one, Session Settings, which shows it).
-    let custom_cmd = if st.settings_window {
-        Cmd::Settings
-    } else {
-        Cmd::ProjectSettings
-    };
+    // Custom… opens where the level is set: the Settings window.
+    let custom_cmd = Cmd::Settings;
     levels.extend([
         Item::Separator,
         Item::action(
@@ -417,9 +403,12 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
                 .enabled(grid_fits(snap, snap.page, r, c))
         })
         .collect();
-    grid.extend([Item::Separator, Item::action(t("Other…"), Cmd::PageSettings)]);
+    grid.extend([
+        Item::Separator,
+        Item::action(t("Other…"), Cmd::PageSettings),
+    ]);
 
-    let mut audio = vec![
+    let audio = vec![
         Item::action(t("Stop All (fade)"), Cmd::StopAll),
         Item::action(t("Stop Page (fade)"), Cmd::StopPage),
         // ⌘. is the Mac's own "stop"; Windows has no such convention.
@@ -446,7 +435,7 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
     if backups.is_empty() {
         backups.push(Item::action(t("No backups yet"), Cmd::RestoreBackup(0)).enabled(false));
     }
-    let mut session = vec![
+    let session = vec![
         Item::action(t("Session Settings…"), Cmd::ProjectSettings).accel("CmdOrCtrl+Comma"),
         Item::sub(t("Restore from Backup"), backups),
         Item::Separator,
@@ -473,7 +462,9 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
             "Appearance",
             APPEARANCES
                 .into_iter()
-                .map(|(n, a)| Item::action(t(n), Cmd::Appearance(a)).check(core.prefs.appearance == a))
+                .map(|(n, a)| {
+                    Item::action(t(n), Cmd::Appearance(a)).check(core.prefs.appearance == a)
+                })
                 .collect(),
         ),
         Item::Separator,
@@ -481,18 +472,13 @@ pub fn build(core: &Core, snap: &Snapshot, st: &MenuState) -> Menu {
         Item::action(t("Audio Diagnostics"), Cmd::ShowDiagnostics),
         Item::action(t("Show Log File"), Cmd::ShowLogs),
     ];
-    if st.settings_window {
-        // Windows and Linux: Settings… in File (macOS has it in the Bubble menu).
-        if !cfg!(target_os = "macos") {
-            let at = file.len() - 2;
-            file.splice(
-                at..at,
-                [Item::Separator, Item::action(t("Settings…"), Cmd::Settings)],
-            );
-        }
-    } else {
-        // An interface without a Settings window keeps every setting in its menus.
-        legacy_settings(core, snap, &mut audio, &mut session);
+    // Windows and Linux: Settings… in File (macOS has it in the Bubble menu).
+    if !cfg!(target_os = "macos") {
+        let at = file.len() - 2;
+        file.splice(
+            at..at,
+            [Item::Separator, Item::action(t("Settings…"), Cmd::Settings)],
+        );
     }
     let top = |title: &str, items| Top {
         title: title.into(),
@@ -541,87 +527,6 @@ pub fn grid_label(rows: u16, cols: u16) -> String {
     )
 }
 
-/// The settings an interface without a Settings window shows in its menus (the egui
-/// interface): sample rate, buffer size, limiter, MIDI ports, mouse and hotkey rules.
-fn legacy_settings(core: &Core, snap: &Snapshot, audio: &mut Vec<Item>, session: &mut Vec<Item>) {
-    use bubble_project::{DuplicatePolicy as D, MouseMode as M, Scope as S};
-    let s = &snap.project.settings;
-    let machine = core.prefs.machine();
-    let rate = core.prefs.rate();
-    let rates: Vec<Item> = SAMPLE_RATES
-        .into_iter()
-        .map(|r| {
-            let label = if r == crate::prefs::DEFAULT_SAMPLE_RATE {
-                format!("{} kHz (default)", r as f32 / 1000.0)
-            } else {
-                format!("{} kHz", r as f32 / 1000.0)
-            };
-            Item::action(label, Cmd::SampleRate(r)).check(r == rate)
-        })
-        .collect();
-    let buffers: Vec<Item> = BUFFER_SIZES
-        .into_iter()
-        .map(|b| {
-            Item::action(buffer_label(b), Cmd::BufferFrames(b)).check(core.prefs.buffer_frames == b)
-        })
-        .collect();
-    let mut midi_items = vec![
-        Item::action("Enable MIDI Input", Cmd::MidiEnabled).check(!core.prefs.midi_disabled),
-        Item::action("All Ports", Cmd::MidiAllPorts).check(core.prefs.midi_inputs.is_empty()),
-        Item::Separator,
-    ];
-    for port in &core.midi_ports {
-        midi_items.push(
-            Item::action(port.clone(), Cmd::MidiPort(port.clone()))
-                .check(core.prefs.midi_inputs.contains(port))
-                .enabled(!core.prefs.midi_disabled),
-        );
-    }
-    if core.midi_ports.is_empty() {
-        midi_items.push(Item::action("(no MIDI ports found)", Cmd::RescanMidi).enabled(false));
-    }
-    midi_items.extend([
-        Item::Separator,
-        Item::action("Rescan Ports", Cmd::RescanMidi),
-    ]);
-    audio.extend([
-        Item::Separator,
-        Item::sub("Sample Rate", rates),
-        Item::sub("Buffer Size", buffers),
-        Item::action("Output Safety Limiter", Cmd::Limiter).check(machine.limiter),
-        Item::sub("MIDI Inputs", midi_items),
-    ]);
-    session.extend([
-        Item::Separator,
-        Item::sub(
-            "Mouse",
-            vec![
-                Item::action("Click Toggles Play/Stop", Cmd::MouseToggle)
-                    .check(machine.mouse_mode == M::Toggle),
-                Item::action("Left Plays, Right Stops", Cmd::MouseLeftRight)
-                    .check(machine.mouse_mode == M::LeftPlayRightStop),
-            ],
-        ),
-        Item::sub(
-            "Same Hotkey on Several Carts",
-            vec![
-                Item::action("Ganged (all play)", Cmd::DuplicatesGanged)
-                    .check(s.duplicate_binding_policy == D::Ganged),
-                Item::action("Overlapped (next free one)", Cmd::DuplicatesOverlapped)
-                    .check(s.duplicate_binding_policy == D::Overlapped),
-            ],
-        ),
-        Item::sub(
-            "Hotkeys Act On",
-            vec![
-                Item::action("All Pages", Cmd::ScopeGlobal).check(s.binding_scope == S::Global),
-                Item::action("Current Page Only", Cmd::ScopePage)
-                    .check(s.binding_scope == S::CurrentPage),
-            ],
-        ),
-    ]);
-}
-
 /// Buffer sizes offered (frames; `None` = the device's own).
 pub const BUFFER_SIZES: [Option<u32>; 7] = [
     None,
@@ -658,19 +563,9 @@ pub fn apply_common(
     snap: &Snapshot,
     intents: &mut Vec<crate::Intent>,
 ) -> bool {
-    use bubble_project::{DuplicatePolicy as D, MouseMode as M, Scope as S};
+    use bubble_project::{MouseMode as M, Scope as S};
     let mut settings = snap.project.settings.clone();
     match cmd {
-        Cmd::SampleRate(r) => {
-            core.prefs.sample_rate = *r;
-            core.save_prefs();
-            core.open_audio();
-        }
-        Cmd::BufferFrames(b) => {
-            core.prefs.buffer_frames = *b;
-            core.save_prefs();
-            core.open_audio();
-        }
         Cmd::MidiEnabled => {
             core.prefs.midi_disabled = !core.prefs.midi_disabled;
             core.reopen_midi();
@@ -693,10 +588,7 @@ pub fn apply_common(
         }
         Cmd::MouseToggle => core.edit_machine(|p| p.mouse_mode = Some(M::Toggle)),
         Cmd::MouseLeftRight => core.edit_machine(|p| p.mouse_mode = Some(M::LeftPlayRightStop)),
-        Cmd::DuplicatesGanged => settings.duplicate_binding_policy = D::Ganged,
-        Cmd::DuplicatesOverlapped => settings.duplicate_binding_policy = D::Overlapped,
         Cmd::ScopeGlobal => settings.binding_scope = S::Global,
-        Cmd::ScopePage => settings.binding_scope = S::CurrentPage,
         Cmd::Limiter => {
             let on = !core.prefs.machine().limiter;
             core.edit_machine(|p| p.limiter = Some(on));

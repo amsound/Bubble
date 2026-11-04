@@ -33,7 +33,7 @@ checklist. Where they disagree, the README is current.
 
 | Board | What it shows |
 |---|---|
-| `Main` | Audit of the egui Cart Setup: what is native and what is drawn |
+| `Main` | Audit of the old (egui) Cart Setup: what is native and what is drawn |
 | `MacSetup`, `WinSetup` | The proposed window on each platform, system controls tagged |
 | `Gestures` | Waveform gestures for trackpad, Windows touchpad/mouse and touch screens |
 

@@ -192,7 +192,7 @@ fn guess_wav_format(avg_bytes_per_sec: u32, channel_mask: u16) -> Option<WavForm
     None
 }
 
-/// Windows virtual-key code → the app's key-code name (egui key names, `KeyA`, `Digit1`).
+/// Windows virtual-key code → the app's key-code name (`KeyA`, `Digit1`).
 fn vk_to_code(vk: u16) -> Option<(String, Option<&'static str>)> {
     let named = |s: &str| Some((s.to_string(), None));
     match vk {

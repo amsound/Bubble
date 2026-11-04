@@ -68,18 +68,32 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
         bad,
     };
     let c = core.lock();
-    let diags: Vec<_> = c.engines().iter().map(|e| e.status().diagnostics()).collect();
+    let diags: Vec<_> = c
+        .engines()
+        .iter()
+        .map(|e| e.status().diagnostics())
+        .collect();
     let (used, limit) = c.audio_memory();
     drop(c);
     let xruns: u64 = diags.iter().map(|d| d.xruns).sum();
     let late: u64 = diags.iter().map(|d| d.stream_underruns).sum();
     let lost: u64 = diags.iter().map(|d| d.stream_underrun_frames).sum();
-    let count = |n: u64| if n == 1 { "1 dropout".to_string() } else { format!("{n} dropouts") };
+    let count = |n: u64| {
+        if n == 1 {
+            "1 dropout".to_string()
+        } else {
+            format!("{n} dropouts")
+        }
+    };
     let total = xruns + late;
     let summary = match (xruns, late) {
         (0, 0) => "All well · 0 dropouts this run".to_string(),
         (x, 0) => format!("{} this run: {x} device short", count(total)),
-        (0, l) => format!("{} this run: {l} late disk read{}", count(total), if l == 1 { "" } else { "s" }),
+        (0, l) => format!(
+            "{} this run: {l} late disk read{}",
+            count(total),
+            if l == 1 { "" } else { "s" }
+        ),
         (x, l) => format!(
             "{} this run: {x} device short, {l} late disk read{}",
             count(total),
@@ -101,13 +115,18 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
         let label = if letters.len() > 1 {
             format!("Outputs {}", letters.join(", "))
         } else {
-            format!("Output {}", letters.first().cloned().unwrap_or_else(|| "A".into()))
+            format!(
+                "Output {}",
+                letters.first().cloned().unwrap_or_else(|| "A".into())
+            )
         };
         let latency = diags
             .get(i)
             .map(|d| d.output_latency_us)
             .filter(|us| *us > 0)
-            .map_or(String::new(), |us| format!(" · {:.1} ms", us as f32 / 1000.0));
+            .map_or(String::new(), |us| {
+                format!(" · {:.1} ms", us as f32 / 1000.0)
+            });
         lines.push(line(
             label,
             format!(
@@ -126,9 +145,16 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
         Some(f) => format!("{f} frames ({:.1} ms)", ms(f as u64)),
         None => name("Device Default", "Device default"),
     };
-    lines.push(line(name("Buffer Asked For", "Buffer asked for"), asked, false));
+    lines.push(line(
+        name("Buffer Asked For", "Buffer asked for"),
+        asked,
+        false,
+    ));
     let (lo, hi) = diags.iter().fold((u32::MAX, 0), |a, d| {
-        (a.0.min(d.min_callback_frames.max(1)), a.1.max(d.max_callback_frames))
+        (
+            a.0.min(d.min_callback_frames.max(1)),
+            a.1.max(d.max_callback_frames),
+        )
     });
     lines.push(line(
         name("Buffer Used", "Buffer used"),
@@ -142,7 +168,11 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
         false,
     ));
     let busiest = diags.iter().map(|d| d.max_process_ns).max().unwrap_or(0);
-    let budget = diags.iter().map(|d| d.last_callback_frames).max().unwrap_or(0);
+    let budget = diags
+        .iter()
+        .map(|d| d.last_callback_frames)
+        .max()
+        .unwrap_or(0);
     lines.push(line(
         name("Busiest Callback", "Busiest callback"),
         format!("{} µs of {:.1} ms", busiest / 1000, ms(budget as u64)),
@@ -150,7 +180,11 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
     ));
     let (playing, capacity, stolen) = core.lock().engines().iter().fold((0, 0, 0), |a, e| {
         let d = e.status().diagnostics();
-        (a.0 + d.active_voices, a.1 + e.status().voice_capacity(), a.2 + d.voices_stolen)
+        (
+            a.0 + d.active_voices,
+            a.1 + e.status().voice_capacity(),
+            a.2 + d.voices_stolen,
+        )
     });
     // Plays at once (an overlapping cart can have several), out of the most there
     // can be, and how many were cut short to make room.
@@ -161,7 +195,11 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
     ));
     lines.push(line(
         name("Device Ran Short", "Device ran short"),
-        if xruns == 0 { "None".into() } else { count(xruns) },
+        if xruns == 0 {
+            "None".into()
+        } else {
+            count(xruns)
+        },
         xruns > 0,
     ));
     lines.push(line(
@@ -179,7 +217,10 @@ fn status(core: &Core, details: bool) -> (String, bool, Vec<StatusLine>) {
         format!("{} MB of {} MB", mb(used), mb(limit)),
         false,
     ));
-    let wait = core.midi.max_lock_wait_us.load(std::sync::atomic::Ordering::Relaxed);
+    let wait = core
+        .midi
+        .max_lock_wait_us
+        .load(std::sync::atomic::Ordering::Relaxed);
     let ports = core.midi.open_ports().len();
     lines.push(line(
         "MIDI".into(),
@@ -647,7 +688,9 @@ impl Settings {
         w.set_status_bad(bad);
         w.set_status_summary(summary.into());
         // Devices across the whole width; the rest in two columns.
-        let (devices, rest): (Vec<_>, Vec<_>) = lines.into_iter().partition(|l| l.label.starts_with("Output"));
+        let (devices, rest): (Vec<_>, Vec<_>) = lines
+            .into_iter()
+            .partition(|l| l.label.starts_with("Output"));
         let half = rest.len().div_ceil(2);
         let right = rest[half..].to_vec();
         let left = rest[..half].to_vec();
@@ -711,8 +754,8 @@ struct Move {
     to: String,
 }
 
-/// Typefaces offered for tile labels: what the egui app offered, by family name (a
-/// name ending in "Bold" is that family at bold weight).
+/// Typefaces offered for tile labels, by family name (a name ending in "Bold" is
+/// that family at bold weight). Sessions store these names.
 #[cfg(target_os = "macos")]
 const TYPEFACES: &[&str] = &[
     "Helvetica",
@@ -794,7 +837,9 @@ pub struct SessionSettings {
 }
 
 /// The carts (not control buttons) that play audio.
-fn audio_carts(p: &bubble_project::Project) -> impl Iterator<Item = (usize, &bubble_project::Cart)> {
+fn audio_carts(
+    p: &bubble_project::Project,
+) -> impl Iterator<Item = (usize, &bubble_project::Cart)> {
     p.pages.iter().enumerate().flat_map(|(pi, page)| {
         page.cells
             .iter()
@@ -804,7 +849,11 @@ fn audio_carts(p: &bubble_project::Project) -> impl Iterator<Item = (usize, &bub
 }
 
 fn carts_text(n: usize) -> String {
-    if n == 1 { "1 cart".into() } else { format!("{n} carts") }
+    if n == 1 {
+        "1 cart".into()
+    } else {
+        format!("{n} carts")
+    }
 }
 
 impl SessionSettings {
@@ -877,42 +926,73 @@ impl SessionSettings {
         };
         let from = |c: &&bubble_project::Cart| c.output == m.from;
         let all = audio_carts(p).filter(|(_, c)| from(c)).count();
-        let page = audio_carts(p).filter(|(pi, c)| *pi == snap.page && from(c)).count();
-        let group = m
-            .group
-            .map_or(0, |g| audio_carts(p).filter(|(_, c)| from(c) && c.group == Some(g)).count());
+        let page = audio_carts(p)
+            .filter(|(pi, c)| *pi == snap.page && from(c))
+            .count();
+        let group = m.group.map_or(0, |g| {
+            audio_carts(p)
+                .filter(|(_, c)| from(c) && c.group == Some(g))
+                .count()
+        });
         let n = match m.scope {
             1 => page,
             2 => group,
             _ => all,
         };
-        let gi = m.group.and_then(|g| p.groups.iter().position(|x| x.id == g));
+        let gi = m
+            .group
+            .and_then(|g| p.groups.iter().position(|x| x.id == g));
         w.set_move_open(true);
         w.set_move_from(m.from.clone().into());
         w.set_move_scope(m.scope);
         w.set_move_all(carts_text(all).into());
-        w.set_move_page(p.pages.get(snap.page).map(|x| x.name.clone()).unwrap_or_default().into());
+        w.set_move_page(
+            p.pages
+                .get(snap.page)
+                .map(|x| x.name.clone())
+                .unwrap_or_default()
+                .into(),
+        );
         w.set_move_page_count(carts_text(page).into());
         w.set_has_groups(!p.groups.is_empty());
-        w.set_move_group(gi.map_or("None".into(), |i| p.groups[i].display_name(i)).into());
-        w.set_move_group_count(if m.group.is_some() { carts_text(group) } else { String::new() }.into());
-        w.set_move_to(if m.to.is_empty() { String::new() } else { format!("Output {}", m.to) }.into());
-        w.set_move_summary(if m.to.is_empty() {
-            "There is no other output to move them to.".into()
-        } else if n == 0 {
-            "No carts to move.".into()
-        } else if m.scope == 0 {
-            format!("{} will move from {} to {}.", carts_text(n), m.from, m.to)
-        } else {
-            format!(
-                "{} will move from {} to {}. Other carts on Output {} stay there.",
-                carts_text(n),
-                m.from,
-                m.to,
-                m.from
-            )
-        }
-        .into());
+        w.set_move_group(
+            gi.map_or("None".into(), |i| p.groups[i].display_name(i))
+                .into(),
+        );
+        w.set_move_group_count(
+            if m.group.is_some() {
+                carts_text(group)
+            } else {
+                String::new()
+            }
+            .into(),
+        );
+        w.set_move_to(
+            if m.to.is_empty() {
+                String::new()
+            } else {
+                format!("Output {}", m.to)
+            }
+            .into(),
+        );
+        w.set_move_summary(
+            if m.to.is_empty() {
+                "There is no other output to move them to.".into()
+            } else if n == 0 {
+                "No carts to move.".into()
+            } else if m.scope == 0 {
+                format!("{} will move from {} to {}.", carts_text(n), m.from, m.to)
+            } else {
+                format!(
+                    "{} will move from {} to {}. Other carts on Output {} stay there.",
+                    carts_text(n),
+                    m.from,
+                    m.to,
+                    m.from
+                )
+            }
+            .into(),
+        );
         let carts = if n == 1 {
             name("Cart", "cart")
         } else {
@@ -1114,7 +1194,12 @@ impl SessionSettings {
             "move-to" => {
                 for l in targets {
                     let on = l == cur_to;
-                    add(SessionPick::MoveTo(l.clone()), format!("Output {l}"), true, on);
+                    add(
+                        SessionPick::MoveTo(l.clone()),
+                        format!("Output {l}"),
+                        true,
+                        on,
+                    );
                 }
             }
             "typeface" => {
@@ -1269,7 +1354,11 @@ impl SessionSettings {
             "move" => {
                 if let Some(u) = self.shown_uses.get(row) {
                     let from = u.letter.to_string();
-                    let to = self.targets(snap, &from).into_iter().next().unwrap_or_default();
+                    let to = self
+                        .targets(snap, &from)
+                        .into_iter()
+                        .next()
+                        .unwrap_or_default();
                     self.moving = Some(Move {
                         from,
                         scope: 0,

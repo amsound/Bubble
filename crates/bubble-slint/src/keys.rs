@@ -1,5 +1,5 @@
-//! Hot keys from physical key positions, named as the egui app named them (and as
-//! sessions and the SpotOn import store them): "KeyA", "Digit1", "F1", "Up",
+//! Hot keys from physical key positions, named as sessions and the import store
+//! them: "KeyA", "Digit1", "F1", "Up",
 //! "Escape", "Space", "OpenBracket", … Numpad digits count as the digit keys.
 
 use slint::winit_030::winit::keyboard::{KeyCode, ModifiersState};
@@ -96,7 +96,7 @@ pub fn code_name(k: KeyCode) -> Option<String> {
     Some(s.to_string())
 }
 
-/// Sorted modifier names, as the egui app reported them: "Alt", "Ctrl", "Meta"
+/// Sorted modifier names, as sessions store them: "Alt", "Ctrl", "Meta"
 /// (the ⌘ key, on a Mac only) and "Shift".
 pub fn modifier_names(m: ModifiersState) -> Vec<String> {
     let mut v = Vec::new();
@@ -209,7 +209,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn names_match_the_egui_app() {
+    fn names_match_saved_sessions() {
         assert_eq!(code_name(KeyCode::KeyQ).as_deref(), Some("KeyQ"));
         assert_eq!(code_name(KeyCode::Numpad5).as_deref(), Some("Digit5"));
         assert_eq!(code_name(KeyCode::ArrowLeft).as_deref(), Some("Left"));

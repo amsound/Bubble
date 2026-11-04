@@ -28,13 +28,13 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use uuid::Uuid;
 
 use crate::alerts::{Alert, Alerts};
-use crate::{playoutlog, speedbar};
 use crate::model::{self, Selection};
 use crate::{
     BusyRow, LoadInfo, MainWindow, PageTab, PopupRow, StatusItem, TextCommand, Theme, Tile, keys,
     menu, window,
 };
 use crate::{cartsetup, colour, hotkeys, savepanel, settings};
+use crate::{playoutlog, speedbar};
 
 /// How often the window refreshes while carts play (the clock and progress bars).
 const PLAYING: Duration = Duration::from_millis(33);
@@ -1573,9 +1573,10 @@ impl App {
                 self.core.holder_for_session_end(),
             );
             window::keep_menus_out_of_the_way(&ui);
-            self.key_gate
-                .window
-                .store(window::hwnd(ui.window()), std::sync::atomic::Ordering::Relaxed);
+            self.key_gate.window.store(
+                window::hwnd(ui.window()),
+                std::sync::atomic::Ordering::Relaxed,
+            );
             hotkeys::start(
                 self.key_gate.clone(),
                 self.core.ctrl.clone(),
@@ -2031,15 +2032,25 @@ impl App {
                             let me = me.clone();
                             slint::Timer::single_shot(Duration::from_millis(300), move || {
                                 let Some(app) = me.upgrade() else { return };
-                                let Some(win) = app.borrow().setup.as_ref().map(|s| s.win.clone_strong())
+                                let Some(win) =
+                                    app.borrow().setup.as_ref().map(|s| s.win.clone_strong())
                                 else {
                                     return;
                                 };
                                 for step in steps {
                                     if step == "menu" {
                                         // Under Main's chip, as near as the layout allows.
-                                        let w = win.window().size().to_logical(win.window().scale_factor());
-                                        let y = 16.0 + 32.0 + 12.0 + 24.0 + win.get_wave_height() + 12.0 + 32.0;
+                                        let w = win
+                                            .window()
+                                            .size()
+                                            .to_logical(win.window().scale_factor());
+                                        let y = 16.0
+                                            + 32.0
+                                            + 12.0
+                                            + 24.0
+                                            + win.get_wave_height()
+                                            + 12.0
+                                            + 32.0;
                                         win.invoke_open_main_menu(w.width / 2.0 - 25.0, y);
                                     } else {
                                         win.invoke_action(step.into());
@@ -2071,12 +2082,18 @@ impl App {
                 a.tick();
             }
             let me = me.clone();
-            let settle = if scene == "cartsetup-again" { 1800 } else { 900 };
+            let settle = if scene == "cartsetup-again" {
+                1800
+            } else {
+                900
+            };
             slint::Timer::single_shot(Duration::from_millis(settle), move || {
                 let Some(app) = me.upgrade() else { return };
                 if let Ok(a) = app.try_borrow() {
                     match (&a.setup, a.ui.upgrade()) {
-                        (Some(s), _) if scene.starts_with("cartsetup") => save_bmp(s.win.window(), &path),
+                        (Some(s), _) if scene.starts_with("cartsetup") => {
+                            save_bmp(s.win.window(), &path)
+                        }
                         _ if scene == "log" && a.playout_log.is_some() => {
                             save_bmp(a.playout_log.as_ref().unwrap().win.window(), &path)
                         }
@@ -2263,7 +2280,6 @@ impl App {
                 edit_mode: self.edit_mode,
                 selected: self.selection(snap),
                 paste_target: self.paste_target(snap),
-                settings_window: true,
             },
         );
         // The loading dialog blocks the menu bar too: it cannot cover it, being the system's.
@@ -3188,7 +3204,13 @@ impl App {
     /// A key pressed while Cart Setup has the keyboard, for the hot keys: all but its
     /// own keys and typing in its fields. Releases always go on, so a hold-to-play cart
     /// never sticks.
-    fn setup_hotkey(&mut self, code: KeyCode, pressed: bool, repeat: bool, intents: &mut Vec<Intent>) {
+    fn setup_hotkey(
+        &mut self,
+        code: KeyCode,
+        pressed: bool,
+        repeat: bool,
+        intents: &mut Vec<Intent>,
+    ) {
         let Some(s) = &self.setup else { return };
         let own = matches!(
             code,
@@ -3230,11 +3252,7 @@ impl App {
             .is_some_and(|r| matches!(r.state, Cs::Playing | Cs::Stopping));
         // A playing cart carries on as if triggered from the wall. Only one held paused
         // here stops: nothing else could set it going again.
-        let paused = playing
-            && snap
-                .runtime
-                .get(&s.id)
-                .is_some_and(|r| r.speed < 0.005);
+        let paused = playing && snap.runtime.get(&s.id).is_some_and(|r| r.speed < 0.005);
         if keep && s.changed() {
             intents.push(Intent::ReplaceCart(s.draft.clone()));
         }
@@ -3368,7 +3386,9 @@ impl App {
         let (pos, size) = (ui.window().position(), ui.window().size());
         let x = pos.x as f32 / s + 24.0 + n * 380.0;
         let y = (pos.y as f32 + size.height as f32) / s - 200.0 - 120.0;
-        b.win.window().set_position(slint::LogicalPosition::new(x, y.max(0.0)));
+        b.win
+            .window()
+            .set_position(slint::LogicalPosition::new(x, y.max(0.0)));
         let _ = b.win.show();
         window::finish_tool(&b.win, &ui);
         self.speed_bars.push(b);

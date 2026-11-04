@@ -1,6 +1,6 @@
 //! What the window shows, built from a [`Snapshot`]: tiles, page tabs, the status
 //! line, the label style and the quick-edit panel. Text comes from
-//! `bubble_core::view`, so it reads the same as in the egui app.
+//! `bubble_core::view`.
 
 use bubble_control::{CartState as Cs, display_label};
 use bubble_core::Snapshot;
@@ -313,7 +313,7 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
 }
 
 /// Session Settings ▸ Display as a label style. "Helvetica Bold" is the Helvetica
-/// family at bold weight (the names offered by the egui app's typeface list).
+/// family at bold weight (the names in the typeface list sessions store).
 pub fn label_style(d: &Display) -> LabelStyle {
     let (font, weight) = match d.font.as_deref() {
         None => (String::new(), 400),

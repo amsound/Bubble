@@ -10,7 +10,7 @@ The engine is driven only by `EngineCommand`s and reports only `EngineEvent`s pl
 
 One cpal output stream. All voices mix into it: gain/pan ramps, sample-accurate fades and loops, and a safety limiter. Wait-free command and event transfer uses `rtrb` SPSC rings. Retired `Arc` sample buffers are returned on a third ring and dropped off the audio thread.
 
-## D-03 UI framework: egui/eframe — Accepted
+## D-03 UI framework: egui/eframe — Superseded (D-39, D-44)
 
 egui was chosen for v1 because:
 
@@ -207,7 +207,7 @@ Everything Bubble does that is not drawing lives in `bubble-core`, so the egui i
 
 ## D-41 Slint main window (`bubble-slint`) — Accepted (app)
 
-The main window is ported to Slint as a second binary, `crates/bubble-slint` (`Bubble Slint` in the release zips); the egui app stays complete until Cart Setup and the settings windows are ported (checklist in the crate's README).
+The main window is ported to Slint as a second binary, `crates/bubble-slint` (`Bubble Slint` in the release zips); the egui app stays complete until Cart Setup and the settings windows are ported. (Done: the Slint app is now Bubble, and the egui app is removed, D-44.)
 
 - **Shared, not copied.** The menu model and its settings commands (`bubble_core::menu`) and what tiles, title, status line and busy strip say (`bubble_core::view`) moved from the egui app into `bubble-core`; both interfaces use them.
 - **winit accessor** (`slint` feature `unstable-winit-030`, Slint pinned to 1.18.1): physical keys for hot keys (named as the egui app named them, so sessions keep working), focus loss (releases held carts), OS file drops (dropped at the cell under the pointer, read from the system as in the egui app), the window's place, theme and scale changes.
@@ -235,3 +235,7 @@ A cart can play in three parts instead of one In–Out: an optional Intro played
 - **Presses.** A touch, click, hotkey or MIDI press does what it always does (a click stops; a key or note follows On Retrigger), except during Main when the Outro follows the cart's own trigger: then it starts the Outro. With "New trigger" the Outro has a binding of its own (`Action::Outro`) and the cart's trigger is left as it is. The Outro starts at the end of Main's pass or at once (a short crossfade, as a seek). A press while the Outro is waiting for Main's end counts as a press during the Outro.
 - **From files.** A WAV's `cue ` and `plst` chunks put a cart in sections when its file is added, replaced or first loaded (a cart that has never had Sections; one switched off stays off). Any repeat count above 1 (SpotOn's files use 999, up to 9999) is Main, repeated until stopped.
 - **Cart Setup.** The Sections button shows chips under the waveform; the chip chosen points the In and Out boxes at that part, in its colour. Play auditions only that part, and the transport's loop loops it. Main's chevron opens its Outro options.
+
+## D-44 The egui interface is removed — Accepted (app)
+
+Every window is in Slint (main window, quick edit, Cart Setup, Settings, Session Settings, Speed Bar, Playout Log), so the egui app (`crates/bubble-app`) and the first Slint prototype (`crates/bubble-slint-proto`) are deleted, and egui and eframe leave the build. What only they needed goes with them: the settings the menus carried for an interface without Settings windows (sample rate, buffer size, duplicate-hotkey rule, hotkey scope) and the "not in this interface yet" marks. Releases are built only by GitHub Actions (`release.yml`, MSVC on Windows), so the local `scripts/release.sh` (GNU via zig, still building both apps) and `scripts/macos-dev-bundle.sh` are removed rather than kept in step. Hot-key names stay as the egui app stored them, so sessions open unchanged.

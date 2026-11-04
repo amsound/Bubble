@@ -1,6 +1,5 @@
-//! Bubble's application logic, shared by every interface (the egui app today, the
-//! Slint app next). Nothing here draws: interfaces show state from here and send
-//! requests back.
+//! Bubble's application logic, kept apart from the interface (`bubble-slint`).
+//! Nothing here draws: the interface shows state from here and sends requests back.
 
 pub mod app;
 pub mod autosave;

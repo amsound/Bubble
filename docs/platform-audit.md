@@ -1,5 +1,8 @@
 # Platform audit (egui app, 2026-10-21)
 
+> The egui app this audit looked at has since been removed (D-44). The findings stand as a
+> record; the "In Slint" column is what applies to Bubble now.
+
 A review of how Bubble works with Windows and macOS, prompted by the Windows Open dialog
 not appearing. Most findings are about operating-system integration rather than egui, so they
 carry straight over to the Slint port: each one says what to do in Bubble today and what the

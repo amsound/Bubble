@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- Bubble app icon. The mark (bubble + play + trailing bubble) is also drawn in the
-       app with vector shapes (crates/bubble-app/src/logo.rs); keep the two in step. -->
+  <!-- Bubble app icon. Every icon the app has is rendered from this file (the window
+       and .exe icons by crates/bubble-slint/build.rs, the macOS .icns by bubble-icon),
+       so it is the only source. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#1F2B3D"/>
