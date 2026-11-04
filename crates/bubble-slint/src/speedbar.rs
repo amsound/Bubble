@@ -11,8 +11,8 @@ use bubble_core::{Intent, Snapshot};
 use slint::{Color, ModelRc, SharedString, VecModel};
 use uuid::Uuid;
 
-use crate::model;
 use crate::SpeedInfo;
+use crate::model;
 
 /// Most Speed Bars open at once.
 pub const MAX_OPEN: usize = 4;
@@ -113,7 +113,9 @@ impl SpeedBar {
     /// A time from the chooser: index into the times, or -1 for Instant (x1 only).
     pub fn time_chosen(&mut self, i: i32, snap: &Snapshot, intents: &mut Vec<Intent>) {
         let x0 = self.win.get_picking() == 0;
-        let ms = usize::try_from(i).ok().and_then(|i| TIMES_MS.get(i).copied());
+        let ms = usize::try_from(i)
+            .ok()
+            .and_then(|i| TIMES_MS.get(i).copied());
         let ms = match (ms, x0) {
             (Some(ms), _) => ms,
             (None, false) => 0,

@@ -542,7 +542,10 @@ impl Core {
                     .map(|e| e.status().callback_count())
                     .collect(),
                 c.engines().iter().map(|e| e.status().dropouts()).sum(),
-                c.engines().iter().map(|e| e.status().diagnostics()).collect(),
+                c.engines()
+                    .iter()
+                    .map(|e| e.status().diagnostics())
+                    .collect(),
             )
         };
         if dropouts > self.watch.dropouts_seen {
@@ -566,9 +569,12 @@ impl Core {
                 })
                 .collect();
             // A late disk read: the slowest the reader was lately, and at what.
-            let slow = self.lock().take_slowest_read().map_or(String::new(), |(d, what, file)| {
-                format!("; slowest disk step {} ms {what} {file}", d.as_millis())
-            });
+            let slow = self
+                .lock()
+                .take_slowest_read()
+                .map_or(String::new(), |(d, what, file)| {
+                    format!("; slowest disk step {} ms {what} {file}", d.as_millis())
+                });
             crate::log::info(&format!(
                 "audio dropout ({} so far): {}{slow}",
                 self.dropouts,

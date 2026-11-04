@@ -1200,7 +1200,8 @@ fn sections_cart(dir: &Path, own_trigger: bool) -> (Controller, Mixer, Uuid) {
     };
     let mut w = hound::WavWriter::create(&p, spec).unwrap();
     for n in 0..SR {
-        w.write_sample(((n as f32 * 0.06).sin() * 3000.0) as i16).unwrap();
+        w.write_sample(((n as f32 * 0.06).sin() * 3000.0) as i16)
+            .unwrap();
     }
     w.finalize().unwrap();
     let (mut c, m) = setup();
@@ -1342,7 +1343,10 @@ fn a_file_with_marked_sections_puts_its_cart_in_sections() {
         }
     };
     let data = u32::from_le_bytes(*b"data");
-    add(b"cue ", &[2, 1, 0, data, 0, 0, 0, 2, 4_800, data, 0, 0, 4_800]);
+    add(
+        b"cue ",
+        &[2, 1, 0, data, 0, 0, 0, 2, 4_800, data, 0, 0, 4_800],
+    );
     add(b"plst", &[2, 1, 4_800, 1, 2, 4_800, 999]);
     let riff = (bytes.len() - 8) as u32;
     bytes[4..8].copy_from_slice(&riff.to_le_bytes());
@@ -1353,7 +1357,10 @@ fn a_file_with_marked_sections_puts_its_cart_in_sections() {
     wait_ready(&mut c);
     let s = c.project().cart(cart).unwrap().sections.unwrap();
     assert!(s.on);
-    assert_eq!(s.intro.map(|x| (x.in_frames, x.out_frames)), Some((0, 4_800)));
+    assert_eq!(
+        s.intro.map(|x| (x.in_frames, x.out_frames)),
+        Some((0, 4_800))
+    );
     assert_eq!((s.main.in_frames, s.main.out_frames), (4_800, 9_600));
     assert!(s.outro.is_none());
     // Switched off, they stay off when the file loads again.
@@ -1466,6 +1473,10 @@ fn a_trigger_shared_by_several_carts_is_cleared_for_one_only() {
     // Learning a new key for the other replaces its share too.
     c.start_learn(b, Action::Play);
     c.handle_input(&key("KeyG", true, false));
-    let keys: Vec<String> = c.bindings_for(b).iter().map(|x| describe(&x.source)).collect();
+    let keys: Vec<String> = c
+        .bindings_for(b)
+        .iter()
+        .map(|x| describe(&x.source))
+        .collect();
     assert_eq!(keys, vec!["G".to_string()]);
 }

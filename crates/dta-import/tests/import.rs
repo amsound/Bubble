@@ -407,7 +407,11 @@ fn maps_non_default_cart_settings() {
     assert_eq!(cart.label, "Intro");
     assert_eq!(cart.notes, "first\r\nsecond");
     let r3 = report.carts.iter().find(|r| r.ref_button == 3).unwrap();
-    assert_eq!(project.cart(r3.new_cart_id).unwrap().notes, "", "no \"none\"");
+    assert_eq!(
+        project.cart(r3.new_cart_id).unwrap().notes,
+        "",
+        "no \"none\""
+    );
     assert_eq!(cart.color.as_deref(), Some("#FF0000"));
     assert_eq!((cart.gain_db, cart.pan), (4.0, -0.5));
     assert!(cart.looping && cart.hold_to_play);

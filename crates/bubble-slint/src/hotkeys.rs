@@ -57,9 +57,9 @@ pub fn start(
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use std::sync::atomic::Ordering::Relaxed;
     use std::collections::HashSet;
     use std::sync::OnceLock;
+    use std::sync::atomic::Ordering::Relaxed;
     use std::sync::mpsc::{Sender, channel};
 
     use bubble_control::{Controller, InputEvent};
@@ -116,7 +116,9 @@ mod imp {
                     let used = c.handle_input(&ev);
                     drop(c);
                     if probe {
-                        bubble_core::log::info(&format!("probe: hot key thread: {ev:?}, used {used}"));
+                        bubble_core::log::info(&format!(
+                            "probe: hot key thread: {ev:?}, used {used}"
+                        ));
                     }
                     repaint();
                 }
@@ -133,7 +135,12 @@ mod imp {
                 unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
                 // SAFETY: a hook procedure valid for the whole run, in this module.
                 let h = unsafe {
-                    SetWindowsHookExW(WH_KEYBOARD_LL, Some(proc), GetModuleHandleW(std::ptr::null()), 0)
+                    SetWindowsHookExW(
+                        WH_KEYBOARD_LL,
+                        Some(proc),
+                        GetModuleHandleW(std::ptr::null()),
+                        0,
+                    )
                 };
                 if h.is_null() {
                     bubble_core::log::info("no keyboard hook: hot keys go through the window");
@@ -171,7 +178,11 @@ mod imp {
             let Some(name) = crate::keys::code_name(code) else {
                 return;
             };
-            let modifiers = if shift { vec!["Shift".to_string()] } else { Vec::new() };
+            let modifiers = if shift {
+                vec!["Shift".to_string()]
+            } else {
+                Vec::new()
+            };
             if let Ok(tx) = h.send.lock() {
                 let _ = tx.send(InputEvent::Key {
                     code: name,

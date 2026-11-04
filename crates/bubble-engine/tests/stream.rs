@@ -302,7 +302,11 @@ fn sections_of_a_44_1_khz_file_match_memory_through_many_passes() {
     let path = dir.path().join("tone44.wav");
     tone_wav(&path, 44_100 * 20, 44_100);
     let eng = |src: u64| (src as f64 * 48_000.0 / 44_100.0).round() as usize;
-    let (intro, main, outro) = ((0u64, 33_333u64), (33_333u64, 77_777u64), (500_000u64, 540_000u64));
+    let (intro, main, outro) = (
+        (0u64, 33_333u64),
+        (33_333u64, 77_777u64),
+        (500_000u64, 540_000u64),
+    );
     same_as_resident(&path, &[main.0, outro.0], |r, a| {
         r.play(
             1,
@@ -721,9 +725,14 @@ fn cart_setup_edits_keep_up_with_the_clock() {
             ..Default::default()
         },
     );
-    let mut seed: u64 = std::env::var("STRESS_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(7);
+    let mut seed: u64 = std::env::var("STRESS_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7);
     let mut rnd = |n: u64| {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (seed >> 33) % n
     };
     let mut last = String::new();
@@ -732,25 +741,39 @@ fn cart_setup_edits_keep_up_with_the_clock() {
         let op = match rnd(6) {
             0 => {
                 let frame = 480_000 + rnd(240_000) as usize;
-                r.send(EngineCommand::Seek { cart: CartKey(1), frame });
+                r.send(EngineCommand::Seek {
+                    cart: CartKey(1),
+                    frame,
+                });
                 format!("seek {frame}")
             }
             1 => {
                 let start = 400_000 + rnd(200_000) as usize;
                 let end = start + 48_000 + rnd(400_000) as usize;
-                r.send(EngineCommand::SetRegion { cart: CartKey(1), start, end });
+                r.send(EngineCommand::SetRegion {
+                    cart: CartKey(1),
+                    start,
+                    end,
+                });
                 format!("region {start}..{end}")
             }
             2 => {
                 // Up to 2 ×: at 4 × a jump to a place with no head can still come a
                 // few milliseconds short while the reader catches up.
                 let speed = [0.0, 0.5, 1.0, 1.5, 2.0][rnd(5) as usize];
-                r.send(EngineCommand::SetSpeed { cart: CartKey(1), speed, ramp_frames: 240 });
+                r.send(EngineCommand::SetSpeed {
+                    cart: CartKey(1),
+                    speed,
+                    ramp_frames: 240,
+                });
                 format!("speed {speed}")
             }
             3 => {
                 let looping = rnd(4) != 0;
-                r.send(EngineCommand::SetLoop { cart: CartKey(1), looping });
+                r.send(EngineCommand::SetLoop {
+                    cart: CartKey(1),
+                    looping,
+                });
                 format!("loop {looping}")
             }
             _ => "nothing".to_string(),

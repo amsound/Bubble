@@ -296,7 +296,11 @@ impl ReaderStream {
         if worked && took > Duration::from_millis(20) {
             let mut s = stats.slowest.lock().unwrap_or_else(|e| e.into_inner());
             if s.as_ref().is_none_or(|(d, _, _)| took > *d) {
-                let what = if jump { "opening and seeking" } else { "reading" };
+                let what = if jump {
+                    "opening and seeking"
+                } else {
+                    "reading"
+                };
                 let name = self
                     .path
                     .file_name()

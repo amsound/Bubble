@@ -6,11 +6,11 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::SystemTime;
 
 use bubble_control::{LogEntry, LogKind, TriggerSource};
-use bubble_engine::EndReason;
-use uuid::Uuid;
 use bubble_core::Snapshot;
 use bubble_core::app::Core;
+use bubble_engine::EndReason;
 use slint::{Color, ModelRc, VecModel};
+use uuid::Uuid;
 
 use crate::LogRow;
 use crate::model;
@@ -136,9 +136,10 @@ fn rows_of(log: &std::collections::VecDeque<LogEntry>, first: u64) -> Vec<Row> {
             }
             LogKind::Continued => {
                 // The cart's newest open play goes on in this voice.
-                let open = e.cart.and_then(|c| by_cart.get(&c)).and_then(|v| {
-                    v.iter().rev().copied().find(|r| rows[*r].kind == 7)
-                });
+                let open = e
+                    .cart
+                    .and_then(|c| by_cart.get(&c))
+                    .and_then(|v| v.iter().rev().copied().find(|r| rows[*r].kind == 7));
                 if let (Some(at), Some(v)) = (open, e.voice) {
                     // The old voice is handed over: its end closes nothing.
                     by_voice.retain(|_, r| *r != at);
@@ -166,7 +167,9 @@ fn rows_of(log: &std::collections::VecDeque<LogEntry>, first: u64) -> Vec<Row> {
                     }),
                 }
             }
-            LogKind::Ignored => rows.push(single(5, "Ignored".into(), "On retrigger is Ignore".into())),
+            LogKind::Ignored => {
+                rows.push(single(5, "Ignored".into(), "On retrigger is Ignore".into()))
+            }
             LogKind::Rejected(r) => rows.push(single(2, "Refused".into(), capital(r))),
             LogKind::Dropout(what) => rows.push(single(3, "Dropout".into(), what.clone())),
             LogKind::Info(m) if m == "Outro" => rows.push(single(4, "Outro".into(), String::new())),
@@ -206,7 +209,10 @@ impl PlayoutLog {
         self.ids.clear();
         self.lines.clear();
         let mut shown = Vec::new();
-        for r in all.iter().filter(|r| self.filter == 0 || problem_kind(r.kind)) {
+        for r in all
+            .iter()
+            .filter(|r| self.filter == 0 || problem_kind(r.kind))
+        {
             let (row, line) = self.row(r, snap);
             shown.push(row);
             self.ids.push(r.id);
@@ -264,7 +270,12 @@ impl PlayoutLog {
                 ended: ended.clone().into(),
                 length: len.clone().into(),
                 verb: r.verb.clone().into(),
-                detail: if r.kind == 7 { String::new() } else { r.detail.clone() }.into(),
+                detail: if r.kind == 7 {
+                    String::new()
+                } else {
+                    r.detail.clone()
+                }
+                .into(),
                 kind: r.kind,
                 selected: self.selected.contains(&r.id),
             },
@@ -278,14 +289,26 @@ impl PlayoutLog {
         self.show(core, snap);
     }
 
-    pub fn row_pressed(&mut self, i: usize, shift: bool, toggle: bool, core: &Core, snap: &Snapshot) {
+    pub fn row_pressed(
+        &mut self,
+        i: usize,
+        shift: bool,
+        toggle: bool,
+        core: &Core,
+        snap: &Snapshot,
+    ) {
         let Some(id) = self.ids.get(i).copied() else {
             return;
         };
         match (shift, toggle, self.anchor) {
             (true, _, Some(a)) => {
                 let (lo, hi) = (a.min(id), a.max(id));
-                self.selected = self.ids.iter().copied().filter(|x| (lo..=hi).contains(x)).collect();
+                self.selected = self
+                    .ids
+                    .iter()
+                    .copied()
+                    .filter(|x| (lo..=hi).contains(x))
+                    .collect();
             }
             (_, true, _) => {
                 if !self.selected.remove(&id) {
@@ -348,7 +371,13 @@ impl PlayoutLog {
 
 /// "112 rows · keeps the last 2,000 entries", or with Problems "6 of 112 rows · …".
 fn rows_text(all: usize, shown: usize, filtered: bool) -> String {
-    let n = |v: usize| if v == 1 { "1 row".to_string() } else { format!("{v} rows") };
+    let n = |v: usize| {
+        if v == 1 {
+            "1 row".to_string()
+        } else {
+            format!("{v} rows")
+        }
+    };
     let keep = format!(
         "keeps the last {},{:03} entries",
         bubble_control::LOG_CAPACITY / 1000,
@@ -397,7 +426,10 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!((rows[0].kind, rows[0].detail.as_str()), (0, "Stopped"));
         assert_eq!(length(rows[0].start.unwrap(), rows[0].end.unwrap()), "0:05");
-        assert_eq!((rows[1].kind, rows[1].detail.as_str()), (0, "Played to end"));
+        assert_eq!(
+            (rows[1].kind, rows[1].detail.as_str()),
+            (0, "Played to end")
+        );
         assert_eq!(length(rows[1].start.unwrap(), rows[1].end.unwrap()), "0:04");
     }
 }

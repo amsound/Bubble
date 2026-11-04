@@ -13,8 +13,8 @@ use bubble_engine::loader::SourceInfo;
 use bubble_engine::markers::FileSections;
 use bubble_engine::{
     CartKey, EndReason, EngineCommand, EngineEvent, EngineHandle, Fade, FadeCurve, Overview,
-    PlayParams, SectionPlan, StopOthers, StopTarget, Streamer, VoicePhase, VoiceSection,
-    VoiceView, db_to_gain,
+    PlayParams, SectionPlan, StopOthers, StopTarget, Streamer, VoicePhase, VoiceSection, VoiceView,
+    db_to_gain,
 };
 use bubble_project::{
     Action, AssetMeta, Binding, BindingSource, Cart, Control, Curve, DuplicatePolicy,
@@ -968,7 +968,9 @@ impl Controller {
 
     /// Whether the file of `asset` is whole in memory for editing.
     pub fn editing_in_memory(&self, asset: Uuid) -> bool {
-        self.assets.editing_audio(asset).is_some_and(|a| !a.is_streamed())
+        self.assets
+            .editing_audio(asset)
+            .is_some_and(|a| !a.is_streamed())
     }
 
     /// Plays a cart with settings that are not saved yet (Cart Setup's preview), on
@@ -1026,7 +1028,10 @@ impl Controller {
         };
         // Cart Setup's audition: from the whole file in memory once it is there.
         let audio = match source {
-            TriggerSource::Ui => self.assets.editing_audio(asset).unwrap_or_else(|| audio.clone()),
+            TriggerSource::Ui => self
+                .assets
+                .editing_audio(asset)
+                .unwrap_or_else(|| audio.clone()),
             _ => audio.clone(),
         };
         let route = self.route_for(&c);
@@ -1214,7 +1219,9 @@ impl Controller {
             end_frame,
             looping: c.looping && sections.is_none(),
             sections,
-            delay_frames: (c.play_delay_ms.min(bubble_project::validate::MAX_PLAY_DELAY_MS) as u64
+            delay_frames: (c
+                .play_delay_ms
+                .min(bubble_project::validate::MAX_PLAY_DELAY_MS) as u64
                 * rate as u64
                 / 1000) as u32,
             fade_in: c.fade_in.map(fade).unwrap_or(Fade::NONE),
@@ -2012,11 +2019,9 @@ impl Controller {
         for b in &mut self.project.bindings {
             b.targets.retain(|t| *t != cart);
         }
-        self.project
-            .bindings
-            .retain(|b| {
-                !b.targets.is_empty() || !(needs_targets(b.action) || b.action == Action::Outro)
-            });
+        self.project.bindings.retain(|b| {
+            !b.targets.is_empty() || !(needs_targets(b.action) || b.action == Action::Outro)
+        });
         self.project.prune_unused_assets();
         self.mark_dirty();
     }

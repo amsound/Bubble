@@ -170,7 +170,13 @@ mod tests {
         // Nothing repeats; a repeated Intro; four parts; an unknown cue.
         assert!(parse(&c, &plst(&[(1, 100, 1), (2, 100, 1)])).is_none());
         assert!(parse(&c, &plst(&[(1, 100, 2), (2, 100, 3)])).is_none());
-        assert!(parse(&c, &plst(&[(1, 100, 1), (2, 100, 1), (3, 100, 5), (4, 9, 1)])).is_none());
+        assert!(
+            parse(
+                &c,
+                &plst(&[(1, 100, 1), (2, 100, 1), (3, 100, 5), (4, 9, 1)])
+            )
+            .is_none()
+        );
         assert!(parse(&c, &plst(&[(9, 100, 5)])).is_none());
     }
 
@@ -188,7 +194,11 @@ mod tests {
                 v.push(0);
             }
         };
-        chunk(&mut body, b"fmt ", &[1, 0, 1, 0, 0x80, 0xBB, 0, 0, 0, 0x77, 1, 0, 2, 0, 16, 0]);
+        chunk(
+            &mut body,
+            b"fmt ",
+            &[1, 0, 1, 0, 0x80, 0xBB, 0, 0, 0, 0x77, 1, 0, 2, 0, 16, 0],
+        );
         chunk(&mut body, b"data", &[0; 7]);
         chunk(&mut body, b"cue ", &cue(&[(1, 0), (2, 3)]));
         chunk(&mut body, b"plst", &plst(&[(1, 3, 1), (2, 4, 999)]));

@@ -1075,7 +1075,10 @@ fn sections_join_intro_to_main_and_main_to_outro_sample_for_sample() {
     let buf = ramp(100);
     play(&mut h, 1, &buf, sections(true));
     let out = left(&render(&mut m, 35));
-    let want: Vec<f32> = (0..10).chain((0..25).map(|i| 10 + i % 10)).map(|x| x as f32).collect();
+    let want: Vec<f32> = (0..10)
+        .chain((0..25).map(|i| 10 + i % 10))
+        .map(|x| x as f32)
+        .collect();
     assert_eq!(out, want, "Intro once, then Main repeats");
     assert_eq!(section(&h), Some(VoiceSection::Main));
 
@@ -1087,7 +1090,11 @@ fn sections_join_intro_to_main_and_main_to_outro_sample_for_sample() {
     })
     .unwrap();
     let out = left(&render(&mut m, 20));
-    let want: Vec<f32> = (15..20).chain(30..40).map(|x| x as f32).chain([0.0; 5]).collect();
+    let want: Vec<f32> = (15..20)
+        .chain(30..40)
+        .map(|x| x as f32)
+        .chain([0.0; 5])
+        .collect();
     assert_eq!(out, want);
     assert_eq!(h.status().active_voices(), 0);
     assert!(events(&mut h).iter().any(|e| matches!(
@@ -1105,7 +1112,10 @@ fn sections_without_an_intro_start_in_main_and_an_outro_waits_for_main() {
     no_limiter(&mut h);
     let buf = ramp(100);
     play(&mut h, 1, &buf, sections(false));
-    assert_eq!(left(&render(&mut m, 12)), (10..20).chain(10..12).map(|x| x as f32).collect::<Vec<_>>());
+    assert_eq!(
+        left(&render(&mut m, 12)),
+        (10..20).chain(10..12).map(|x| x as f32).collect::<Vec<_>>()
+    );
     // During the Intro an Outro does nothing (the controller decides what a press does).
     play(&mut h, 2, &buf, sections(true));
     render(&mut m, 1);
@@ -1117,7 +1127,8 @@ fn sections_without_an_intro_start_in_main_and_an_outro_waits_for_main() {
     .unwrap();
     render(&mut m, 1);
     let mut intro = false;
-    h.status().for_each_voice(|v| intro |= v.cart == CartKey(2) && v.section == VoiceSection::Intro);
+    h.status()
+        .for_each_voice(|v| intro |= v.cart == CartKey(2) && v.section == VoiceSection::Intro);
     assert!(intro, "still in the Intro");
 }
 
@@ -1248,5 +1259,10 @@ fn an_outro_added_while_main_plays_is_the_one_that_follows() {
     })
     .unwrap();
     let out = left(&render(&mut m, 12));
-    assert_eq!(out, vec![15.0, 16.0, 17.0, 18.0, 19.0, 50.0, 51.0, 52.0, 53.0, 54.0, 0.0, 0.0]);
+    assert_eq!(
+        out,
+        vec![
+            15.0, 16.0, 17.0, 18.0, 19.0, 50.0, 51.0, 52.0, 53.0, 54.0, 0.0, 0.0
+        ]
+    );
 }

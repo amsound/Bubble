@@ -134,9 +134,18 @@ fn cart_starts(project: &Project) -> HashMap<Uuid, Vec<u64>> {
         // The In point, and each section's: Main's In comes round on every loop and
         // the Outro may start at any moment.
         let sections = c.sections.into_iter().flat_map(|s| {
-            [s.intro.map(|x| x.in_frames), Some(s.main.in_frames), s.outro.map(|x| x.in_frames)]
+            [
+                s.intro.map(|x| x.in_frames),
+                Some(s.main.in_frames),
+                s.outro.map(|x| x.in_frames),
+            ]
         });
-        for at in c.trim.map(|t| t.in_frames).into_iter().chain(sections.flatten()) {
+        for at in c
+            .trim
+            .map(|t| t.in_frames)
+            .into_iter()
+            .chain(sections.flatten())
+        {
             let v = m.entry(a).or_default();
             if at > 0 && !v.contains(&at) {
                 v.push(at);

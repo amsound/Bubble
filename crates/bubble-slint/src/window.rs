@@ -998,7 +998,6 @@ pub fn focus(w: &slint::Window) {
     w.with_winit_window(|w| w.focus_window());
 }
 
-
 /// Windows: a menu (the menu bar's or a context menu) is open on the main window.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub static MENU_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1008,7 +1007,8 @@ pub fn hwnd(w: &slint::Window) -> isize {
     #[cfg(windows)]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().window_handle().map(|h| h.as_raw()) {
+        if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().window_handle().map(|h| h.as_raw())
+        {
             return h.hwnd.get();
         }
     }

@@ -20,9 +20,9 @@ mod hotkeys;
 mod keys;
 mod menu;
 mod model;
+mod playoutlog;
 mod savepanel;
 mod settings;
-mod playoutlog;
 mod speedbar;
 mod window;
 
