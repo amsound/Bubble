@@ -102,6 +102,9 @@ pub struct Prefs {
     /// section seen, so they open showing everything.
     pub settings_height: Option<f32>,
     pub session_settings_height: Option<f32>,
+    /// Seconds before the end that a playing cart turns red; 0 is off, `None` 3 s.
+    /// (Sessions saved before it moved here keep theirs in `settings.extra`, unused.)
+    pub ending_warning_s: Option<f32>,
     /// How a playing cart shows its progress: 0 a bar along the bottom, 1 a dial by
     /// the time, 2 the countdown only.
     pub tile_progress: u8,
@@ -176,6 +179,10 @@ impl Prefs {
     }
 
     /// Output level, limiter and mouse mode, as the controller takes them.
+    pub fn ending_warning(&self) -> f32 {
+        self.ending_warning_s.unwrap_or(3.0)
+    }
+
     pub fn machine(&self) -> Machine {
         let d = Machine::default();
         Machine {

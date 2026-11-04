@@ -230,7 +230,6 @@ pub struct ProjectSettings {
     pub default_retrigger: Retrigger,
     pub duplicate_binding_policy: DuplicatePolicy,
     pub binding_scope: Scope,
-    pub ending_warning_s: f32,
     /// Audio brought into the session is converted to WAV at the engine's sample
     /// rate, so opening the session needs no decoding or resampling.
     pub convert_to_wav: bool,
@@ -299,7 +298,6 @@ impl Default for ProjectSettings {
             default_retrigger: Retrigger::Restart,
             duplicate_binding_policy: DuplicatePolicy::Ganged,
             binding_scope: Scope::Global,
-            ending_warning_s: 3.0,
             convert_to_wav: false,
             display: Display::default(),
             extra: Extra::new(),

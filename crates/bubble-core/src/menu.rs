@@ -128,6 +128,8 @@ pub enum Cmd {
     BarTop(bool),
     /// How a playing cart shows its progress ([`TILE_PROGRESS`]).
     TileProgress(u8),
+    /// Seconds (in tenths) before the end that a playing cart turns red; 0 is off.
+    EndingWarning(u32),
     /// Interface appearance: follow the system, light or dark.
     Appearance(Appearance),
     Quit,
@@ -610,6 +612,10 @@ pub fn apply_common(
         }
         Cmd::TileProgress(p) => {
             core.prefs.tile_progress = (*p).min(2);
+            core.save_prefs();
+        }
+        Cmd::EndingWarning(tenths) => {
+            core.prefs.ending_warning_s = Some(*tenths as f32 / 10.0);
             core.save_prefs();
         }
         _ => return false,

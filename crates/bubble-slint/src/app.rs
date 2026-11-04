@@ -2031,11 +2031,17 @@ impl App {
                                 }
                             });
                         }
-                        // Every cart playing, the first selected in Edit mode.
-                        "play-all" => {
+                        // Every cart playing (`play-all`), or the first N (`play-all:N`), the
+                        // first selected in Edit mode.
+                        _ if scene.starts_with("play-all") => {
                             a.edit_mode = true;
                             a.selected = Some(id);
-                            let all: Vec<Uuid> = a.ids.iter().flatten().copied().collect();
+                            let n = scene
+                                .split(':')
+                                .nth(1)
+                                .and_then(|n| n.parse().ok())
+                                .unwrap_or(usize::MAX);
+                            let all: Vec<Uuid> = a.ids.iter().flatten().copied().take(n).collect();
                             let me = me.clone();
                             slint::Timer::single_shot(Duration::from_millis(10), move || {
                                 if let Some(app) = me.upgrade() {

@@ -291,6 +291,7 @@ export component SettingsWindow inherits Window {
     in property <string> bar-size;
     in property <string> bar-position;
     in property <string> tile-progress;
+    in property <string> warning;
     in property <string> mouse;
     in property <string> session-folder;
     // Audio
@@ -410,6 +411,17 @@ export component SettingsWindow inherits Window {
                                 value: root.tile-progress;
                                 open(x, y) => {
                                     root.choice-menu("tile-progress", 0, x, y);
+                                }
+                            }
+                        }
+                        if Theme.mac: Rule { }
+                        FieldRow {
+                            label-width: root.label-width;
+                            label: Theme.mac ? "Ending Warning" : "Ending warning";
+                            Choice {
+                                value: root.warning;
+                                open(x, y) => {
+                                    root.choice-menu("warning", 0, x, y);
                                 }
                             }
                         }
@@ -1014,7 +1026,6 @@ export component SessionSettingsWindow inherits Window {
     in property <string> audio-files;
     in property <string> fade;
     in property <string> retrigger;
-    in property <string> warning;
     in property <string> duplicates;
     in property <string> scope;
     // Tiles
@@ -1149,21 +1160,6 @@ export component SessionSettingsWindow inherits Window {
                             value: root.retrigger;
                             open(x, y) => {
                                 root.choice-menu("retrigger", 0, x, y);
-                            }
-                        }
-                    }
-                }
-                Heading {
-                    text: "Playing";
-                }
-                Group {
-                    FieldRow {
-                        label-width: root.label-width;
-                        label: Theme.mac ? "Ending Warning" : "Ending warning";
-                        Choice {
-                            value: root.warning;
-                            open(x, y) => {
-                                root.choice-menu("warning", 0, x, y);
                             }
                         }
                     }

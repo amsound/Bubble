@@ -291,7 +291,7 @@ fn tile(core: &Core, snap: &Snapshot, cart: &Cart, number: i32, selected: bool) 
         // The end coming: of the cart, not of its Intro.
         ending: !rt.looping
             && rt.section != bubble_control::VoiceSection::Intro
-            && rt.remaining_s < snap.project.settings.ending_warning_s,
+            && rt.remaining_s < core.prefs.ending_warning(),
         state: match rt.state {
             Cs::Empty => CartState::Empty,
             Cs::Loading => CartState::Loading,

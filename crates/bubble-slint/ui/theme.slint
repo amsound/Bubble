@@ -273,7 +273,9 @@ export component Clock inherits HorizontalLayout {
         text: c;
         // ∞ (Main of a cart in sections) is drawn larger, as tall as the figures,
         // and wider.
-        width: (c == ":" || c == ".") ? root.size * 0.3 : (c == "−" || c == "-") ? root.size * 0.48 : c == "∞" ? root.size * 1.85 : c == "@" ? root.size * 0.95 : root.size * 0.62;
+        // Cells sized to the system font's figures: San Francisco's are wider than Segoe
+        // UI's (0.55 em), which spread out in the Mac's cells.
+        width: (c == ":" || c == ".") ? root.size * 0.3 : (c == "−" || c == "-") ? root.size * (Theme.mac ? 0.48 : 0.4) : c == "∞" ? root.size * 1.85 : c == "@" ? root.size * 0.95 : root.size * (Theme.mac ? 0.62 : 0.57);
         font-size: c == "∞" ? root.size * 1.8 : root.size;
         // Without making the line taller than the figures' (and the figures still
         // centred in whatever height the clock is given).

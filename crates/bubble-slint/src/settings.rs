@@ -284,6 +284,7 @@ enum Pick {
     Bar(u8),
     BarTop(bool),
     TileProgress(u8),
+    Warning(f32),
     Mouse(MouseMode),
     Rate(u32),
     Buffer(Option<u32>),
@@ -393,6 +394,7 @@ impl Settings {
         w.set_tile_progress(
             menu::t(menu::TILE_PROGRESS[usize::from(p.tile_progress.min(2))]).into(),
         );
+        w.set_warning(warning_text(p.ending_warning()).into());
         w.set_mouse(mouse_text(m.mouse_mode).into());
         w.set_session_folder(core.session_root().display().to_string().into());
 
@@ -509,6 +511,22 @@ impl Settings {
                     );
                 }
             }
+            "warning" => {
+                let now = p.ending_warning();
+                let mut all = WARNINGS.to_vec();
+                if !all.iter().any(|w| (w - now).abs() < 0.05) {
+                    all.push(now);
+                    all.sort_by(f32::total_cmp);
+                }
+                for w in all {
+                    add(
+                        Pick::Warning(w),
+                        warning_text(w),
+                        true,
+                        (w - now).abs() < 0.05,
+                    );
+                }
+            }
             "bar-position" => {
                 for top in [false, true] {
                     add(
@@ -582,6 +600,7 @@ impl Settings {
             Pick::Bar(b) => return Some(Cmd::BarSize(b)),
             Pick::BarTop(top) => return Some(Cmd::BarTop(top)),
             Pick::TileProgress(t) => return Some(Cmd::TileProgress(t)),
+            Pick::Warning(w) => return Some(Cmd::EndingWarning((w * 10.0).round() as u32)),
             Pick::Mouse(MouseMode::Toggle) => return Some(Cmd::MouseToggle),
             Pick::Mouse(MouseMode::LeftPlayRightStop) => return Some(Cmd::MouseLeftRight),
             Pick::Rate(r) => self.rate = r,
@@ -756,7 +775,6 @@ enum SessionPick {
     AudioFiles(bool),
     Fade(u32),
     Retrigger(Retrigger),
-    Warning(f32),
     Duplicates(DuplicatePolicy),
     Scope(Scope),
     Typeface(Option<String>),
@@ -1053,7 +1071,6 @@ impl SessionSettings {
         w.set_audio_files(audio_files_text(s.convert_to_wav).into());
         w.set_fade(crate::model::fade_text(s.default_fade_out_ms).into());
         w.set_retrigger(crate::cartsetup::retrigger_text(s.default_retrigger).into());
-        w.set_warning(warning_text(s.ending_warning_s).into());
         w.set_duplicates(duplicates_text(s.duplicate_binding_policy).into());
         w.set_scope(scope_text(s.binding_scope).into());
 
@@ -1172,21 +1189,6 @@ impl SessionSettings {
                     );
                 }
             }
-            "warning" => {
-                let mut all = WARNINGS.to_vec();
-                if !all.iter().any(|w| (w - s.ending_warning_s).abs() < 0.05) {
-                    all.push(s.ending_warning_s);
-                    all.sort_by(f32::total_cmp);
-                }
-                for w in all {
-                    add(
-                        SessionPick::Warning(w),
-                        warning_text(w),
-                        true,
-                        (w - s.ending_warning_s).abs() < 0.05,
-                    );
-                }
-            }
             "duplicates" => {
                 for d in [DuplicatePolicy::Ganged, DuplicatePolicy::Overlapped] {
                     add(
@@ -1279,7 +1281,6 @@ impl SessionSettings {
             SessionPick::AudioFiles(w) => st.convert_to_wav = w,
             SessionPick::Fade(ms) => st.default_fade_out_ms = ms,
             SessionPick::Retrigger(r) => st.default_retrigger = r,
-            SessionPick::Warning(w) => st.ending_warning_s = w,
             SessionPick::Duplicates(d) => st.duplicate_binding_policy = d,
             SessionPick::Scope(s) => st.binding_scope = s,
             SessionPick::Typeface(f) => st.display.font = f,
