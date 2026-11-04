@@ -304,6 +304,7 @@ fn missing_file_is_rejected_then_relinked() {
 
     let (mut c, _m) = setup();
     c.save_as(&path).unwrap();
+    assert_eq!(c.project().name, "Show", "named after its file");
     let a = c.assign_file(0, 0, 0, &audio.join("ding.wav")).unwrap();
     let b = c.assign_file(0, 0, 1, &audio.join("ding44.wav")).unwrap();
     assert_eq!(

@@ -1022,7 +1022,6 @@ export component SessionSettingsWindow inherits Window {
 
     in-out property <int> section;
     // General
-    in-out property <string> name-text;
     in property <string> audio-files;
     in property <string> fade;
     in property <string> retrigger;
@@ -1050,7 +1049,7 @@ export component SessionSettingsWindow inherits Window {
     // "typeface".
     callback choice-menu(string, int, length, length);
     callback popup-chosen(int);
-    // "name", or a "group" / "page" name (with its row).
+    // A "group" or "page" name (with its row).
     callback edited(string, int, string);
     // "label-size", "small-size".
     callback slider(string, float);
@@ -1112,18 +1111,6 @@ export component SessionSettingsWindow inherits Window {
             if root.section == 0: VerticalLayout {
                 spacing: 8px;
                 Group {
-                    FieldRow {
-                        label-width: root.label-width;
-                        label: "Name";
-                        LabelField {
-                            single-line: true;
-                            text <=> root.name-text;
-                            edited(t) => {
-                                root.edited("name", 0, t);
-                            }
-                        }
-                    }
-                    if Theme.mac: Rule { }
                     FieldRow {
                         label-width: root.label-width;
                         label: Theme.mac ? "Audio Files" : "Audio files";

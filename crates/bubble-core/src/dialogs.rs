@@ -197,10 +197,15 @@ pub fn reveal(path: &std::path::Path) {
         .arg("-R")
         .arg(path)
         .spawn();
+    // Explorer wants `/select,"C:\a b\c"`: given the whole switch in quotes, as Rust
+    // quotes an argument with a space in it, it opens Documents instead.
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer")
-        .arg(format!("/select,{}", path.display()))
-        .spawn();
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn();
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     if let Some(dir) = path.parent() {
         let _ = std::process::Command::new("xdg-open").arg(dir).spawn();

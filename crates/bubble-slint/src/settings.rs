@@ -864,7 +864,6 @@ pub struct SessionSettings {
     /// As `Settings::tallest`.
     pub tallest: f32,
     picks: Vec<SessionPick>,
-    shown_name: Option<String>,
     shown_label: Option<f32>,
     shown_small: Option<f32>,
     shown_groups: Vec<GroupRow>,
@@ -901,7 +900,6 @@ impl SessionSettings {
             tallest: 0.0,
             win,
             picks: Vec::new(),
-            shown_name: None,
             shown_label: None,
             shown_small: None,
             shown_groups: Vec::new(),
@@ -1063,11 +1061,13 @@ impl SessionSettings {
         let w = &self.win;
         let p = &snap.project;
         let s = &p.settings;
-        w.set_window_title(format!("Session Settings - {}", p.name).into());
-        if self.shown_name.as_deref() != Some(p.name.as_str()) {
-            self.shown_name = Some(p.name.clone());
-            w.set_name_text(p.name.clone().into());
-        }
+        w.set_window_title(
+            format!(
+                "Session Settings - {}",
+                bubble_core::view::session_name(snap)
+            )
+            .into(),
+        );
         w.set_audio_files(audio_files_text(s.convert_to_wav).into());
         w.set_fade(crate::model::fade_text(s.default_fade_out_ms).into());
         w.set_retrigger(crate::cartsetup::retrigger_text(s.default_retrigger).into());
@@ -1299,10 +1299,6 @@ impl SessionSettings {
         intents: &mut Vec<Intent>,
     ) {
         match field {
-            "name" => {
-                self.shown_name = Some(text.to_string());
-                intents.push(Intent::RenameProject(text.to_string()));
-            }
             "group" => {
                 let mut groups = snap.project.groups.clone();
                 if let Some(g) = groups.get_mut(row) {

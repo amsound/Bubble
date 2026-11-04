@@ -406,6 +406,7 @@ impl Controller {
         let old_dir = self.project_dir();
         let mut copy = self.project.clone();
         bubble_project::resolve::rebase_paths(&mut copy, old_dir.as_deref(), &new_dir);
+        name_after_file(&mut copy, path);
         pio::save(&mut copy, path)?;
         self.project = copy;
         self.path = Some(path.to_path_buf());
@@ -2531,6 +2532,7 @@ impl Controller {
         let old_dir = self.project_dir();
         let mut copy = self.project.clone();
         bubble_project::resolve::rebase_paths(&mut copy, old_dir.as_deref(), &new_dir);
+        name_after_file(&mut copy, path);
         for (id, file) in moves {
             let r = make_asset_ref(Some(&new_dir), file)?;
             if let Some(a) = copy.asset_mut(*id) {
@@ -2642,4 +2644,12 @@ pub fn display_label(c: &Cart, p: &Project) -> String {
                 })
         })
         .unwrap_or_default()
+}
+
+/// A session's name is its file's name: saved under a new one, the name inside the
+/// file follows, so an older Bubble or another tool reading it agrees.
+fn name_after_file(project: &mut Project, path: &Path) {
+    if let Some(stem) = path.file_stem() {
+        project.name = stem.to_string_lossy().into_owned();
+    }
 }

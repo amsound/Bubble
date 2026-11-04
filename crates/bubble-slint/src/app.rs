@@ -3013,9 +3013,10 @@ impl App {
                 }
             }
             Cmd::Save => self.core.save_or_save_as(&snap, intents),
-            Cmd::SaveAs => self
-                .core
-                .begin_new_session(format!("{} copy", snap.project.name), AfterCreate::SaveAs),
+            Cmd::SaveAs => self.core.begin_new_session(
+                format!("{} copy", bubble_core::view::session_name(&snap)),
+                AfterCreate::SaveAs,
+            ),
             Cmd::Relink => self.relink = true,
             Cmd::ReloadAudio => intents.push(Intent::Refresh),
             Cmd::Quit => {

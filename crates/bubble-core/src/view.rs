@@ -57,6 +57,16 @@ pub fn trim_flags(cart: &Cart, project: &Project) -> (bool, bool) {
     (t.in_frames > 0, out_trimmed)
 }
 
+/// The session's name: its file's name, as the operator sees it in the file manager
+/// ("CBS Italy" for `CBS Italy.bubble`); "Untitled" before it is saved.
+pub fn session_name(snap: &Snapshot) -> String {
+    snap.path
+        .as_deref()
+        .and_then(|p| p.file_stem())
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Untitled".into())
+}
+
 /// Short trigger names for the tile, e.g. "F1", "Meta+1", "C5".
 pub fn trigger_names(cart: &Cart, project: &Project) -> Vec<String> {
     project
@@ -231,16 +241,16 @@ impl Core {
         match &snap.path {
             None => "Bubble - No session".to_string(),
             Some(_) => {
+                let name = session_name(snap);
                 let saved = self.saved_at.map(crate::app::saved_text);
                 match (snap.dirty, saved) {
-                    (false, Some(t)) => format!("Bubble - {} > {t}", snap.project.name),
+                    (false, Some(t)) => format!("Bubble - {name} > {t}"),
                     (true, Some(t)) => format!(
-                        "Bubble - {} > Unsaved changes ({})",
-                        snap.project.name,
+                        "Bubble - {name} > Unsaved changes ({})",
                         t.replacen("Last saved", "last saved", 1)
                     ),
-                    (true, None) => format!("Bubble - {} > Unsaved changes", snap.project.name),
-                    (false, None) => format!("Bubble - {}", snap.project.name),
+                    (true, None) => format!("Bubble - {name} > Unsaved changes"),
+                    (false, None) => format!("Bubble - {name}"),
                 }
             }
         }

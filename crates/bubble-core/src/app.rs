@@ -69,7 +69,6 @@ pub enum Intent {
     /// Remove the triggers of a cart's Outro.
     ClearOutroTrigger(Uuid),
     Settings(ProjectSettings),
-    RenameProject(String),
     AddPage,
     MovePage(usize, usize),
     ReassignOutputs(Option<String>, String, bubble_control::ReassignScope),
@@ -964,10 +963,6 @@ impl Core {
                     }
                     Ok(())
                 }
-                Intent::RenameProject(n) => {
-                    c.rename_project(&n);
-                    Ok(())
-                }
                 Intent::AddPage => {
                     let n = c.project().pages.len() + 1;
                     let (r, col) = c
@@ -1440,12 +1435,7 @@ impl Core {
         if snap.path.is_some() {
             intents.push(Intent::Save);
         } else {
-            let name = if snap.project.name == "Untitled" {
-                String::new()
-            } else {
-                snap.project.name.clone()
-            };
-            self.begin_new_session(name, AfterCreate::SaveAs);
+            self.begin_new_session(String::new(), AfterCreate::SaveAs);
         }
     }
 

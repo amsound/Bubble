@@ -247,3 +247,7 @@ A playing cart's ring sits inside the tile: 1 px dark, 4 px of the state colour 
 ## D-46 Ending warning belongs to the computer — Accepted (app)
 
 The seconds before the end at which a playing cart turns red move from Session Settings to Settings ▸ General (`Prefs.ending_warning_s`, 3 s unless set), beside how playing carts show their progress: both are how this operator reads the wall. A session's own value (SpotOn files have none: its warning is a fixed 3 s) is no longer read; sessions saved before keep it in `settings.extra`, unused.
+
+## D-47 A session's name is its file's name — Accepted (app)
+
+The window title, Session Settings' title and Save As's suggested name use the session file's name ("CBS Italy" for `CBS Italy.bubble`), as operators know it from the file manager. Session Settings no longer has a Name field: the name inside the file went stale after Save As or a rename in Explorer, and the title with it. Save As writes the new file's name inside it, for older versions and other tools.
