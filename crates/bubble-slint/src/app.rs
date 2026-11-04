@@ -547,6 +547,11 @@ macro_rules! on_setup {
                     if let Some(taken) = $a.setup.take() {
                         #[allow(unused_mut)]
                         let mut $s = taken;
+                        // A time half typed into In or Out is set before anything else.
+                        let typing = $s.win.invoke_end_typing();
+                        if let Some((which, text)) = typing.split_once('|') {
+                            $s.trim_typed(which, text, &$snap, $i);
+                        }
                         $body
                         if $a.setup.is_none() {
                             $a.setup = Some($s);
@@ -625,6 +630,9 @@ fn wire_setup(win: &crate::CartSetupWindow, me: &std::rc::Weak<RefCell<App>>) {
     });
     on_setup!(win, me, on_nudge, |s, a, snap, i, which, d| {
         s.nudge(which.as_str(), d as f64, &snap, i);
+    });
+    on_setup!(win, me, on_trim_typed, |s, a, snap, i, which, text| {
+        s.trim_typed(which.as_str(), text.as_str(), &snap, i);
     });
     on_setup!(win, me, on_action, |s, a, snap, i, what| {
         if !s.action(what.as_str(), &snap, i) {

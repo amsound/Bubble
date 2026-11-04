@@ -317,6 +317,13 @@ component NudgeButton inherits Rectangle {
 component TrimBox inherits Rectangle {
     in property <string> title;
     in property <[string]> time;
+    // The time as text, for editing ("0:12.50").
+    in property <string> edit-text;
+    // Typing in the box: click it to type or paste a time; Return or clicking away
+    // sets it, Escape (handled by the window) leaves it as it was.
+    in-out property <bool> editing;
+    // What is typed so far (the window takes it when anything else is used).
+    in-out property <string> draft;
     in property <string> set-text;
     in property <bool> mirrored;
     // With Sections on, the section's colour: a tint and the title in it. The box
@@ -325,6 +332,9 @@ component TrimBox inherits Rectangle {
     callback nudge(float);
     callback set();
     callback clear();
+    callback typed(string);
+    // Finished typing: the window takes the keyboard back.
+    callback done();
     horizontal-stretch: 1;
     border-radius: 6px;
     background: root.tint.alpha > 0 ? root.tint.transparentize(88%) : transparent;
@@ -351,13 +361,56 @@ component TrimBox inherits Rectangle {
                 height: 32px;
                 border-radius: 4px;
                 background: Theme.field;
-                border-width: 1px;
-                border-color: Theme.control-border;
-                HorizontalLayout {
+                border-width: root.editing ? 2px : 1px;
+                border-color: root.editing ? Theme.accent : Theme.control-border;
+                if !root.editing: HorizontalLayout {
                     alignment: center;
                     Clock {
                         chars: root.time;
                         size: 15px;
+                    }
+                }
+                if !root.editing: TouchArea {
+                    mouse-cursor: text;
+                    clicked => {
+                        root.editing = true;
+                    }
+                }
+                // Made with the time selected, so typing or pasting replaces it. Its
+                // text is the user's from then on: refreshes never touch it.
+                if root.editing: time-input := TextInput {
+                    x: 6px;
+                    width: parent.width - 12px;
+                    height: parent.height;
+                    single-line: true;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                    font-size: 15px;
+                    color: Theme.text;
+                    selection-background-color: Theme.accent;
+                    init => {
+                        self.text = root.edit-text;
+                        root.draft = self.text;
+                        self.select-all();
+                        self.focus();
+                        TextCommand.typing = true;
+                    }
+                    edited => {
+                        root.draft = self.text;
+                    }
+                    accepted => {
+                        root.editing = false;
+                        TextCommand.typing = false;
+                        root.typed(self.text);
+                        root.done();
+                    }
+                    changed has-focus => {
+                        // Clicked away: set it, as Return does.
+                        if !self.has-focus && root.editing {
+                            root.editing = false;
+                            TextCommand.typing = false;
+                            root.typed(self.text);
+                        }
                     }
                 }
             }
@@ -599,6 +652,32 @@ export component CartSetupWindow inherits Window {
     in property <string> out-time;
     in property <[string]> in-chars;
     in property <[string]> out-chars;
+    // In or Out being typed in.
+    property <bool> in-editing;
+    property <bool> out-editing;
+    property <string> in-draft;
+    property <string> out-draft;
+    // Anything else used while In or Out is being typed in (a click on the waveform
+    // or a button takes no keyboard, so the field would never hear of it): Rust takes
+    // the typed time first, as "in|0:12.50", then does what was asked.
+    public function end-typing() -> string {
+        if root.in-editing {
+            root.in-editing = false;
+            TextCommand.typing = false;
+            keys.focus();
+            return "in|" + root.in-draft;
+        }
+        if root.out-editing {
+            root.out-editing = false;
+            TextCommand.typing = false;
+            keys.focus();
+            return "out|" + root.out-draft;
+        }
+        return "";
+    }
+    // The readouts as text, for Copy.
+    in property <string> elapsed-text;
+    in property <string> remaining-text;
     in property <length> cursor-x: -100px;
     in property <length> playhead-x: -100px;
     // The meter: level and hold per channel, 0 (−60 dBFS) to 1 (0 dBFS); each hold
@@ -646,6 +725,8 @@ export component CartSetupWindow inherits Window {
     // "outro-instant", "learn-outro", "clear-outro".
     callback action(string);
     callback nudge(string, float);
+    // In or Out typed or pasted ("in" or "out", the text).
+    callback trim-typed(string, string);
     // The waveform: press (x, y, touch), move, release, double-click, scroll
     // (dx, dy, zoom modifier, shift) and a new size.
     callback wave-down(length, length, bool);
@@ -719,6 +800,13 @@ export component CartSetupWindow inherits Window {
             }
             if e.text == Key.RightArrow {
                 root.key("right", e.modifiers.shift);
+                return accept;
+            }
+            if e.text == Key.Escape && (root.in-editing || root.out-editing) {
+                root.in-editing = false;
+                root.out-editing = false;
+                TextCommand.typing = false;
+                keys.focus();
                 return accept;
             }
             if e.text == Key.Escape && root.menu-open {
@@ -1124,6 +1212,15 @@ export component CartSetupWindow inherits Window {
                         title: info.in-title;
                         tint: info.part-colour;
                         time: root.in-chars;
+                        edit-text: root.in-time;
+                        editing <=> root.in-editing;
+                        draft <=> root.in-draft;
+                        typed(t) => {
+                            root.trim-typed("in", t);
+                        }
+                        done => {
+                            keys.focus();
+                        }
                         set-text: "Set (I)";
                         nudge(d) => {
                             root.nudge("in", d);
@@ -1145,10 +1242,22 @@ export component CartSetupWindow inherits Window {
                         alignment: center;
                         HorizontalLayout {
                             spacing: 6px;
+                            // Right-click (press and hold on a touch screen) copies the
+                            // time, without its minus, to paste into In or Out.
                             Rectangle {
                                 height: 30px;
                                 border-radius: 4px;
                                 background: Theme.lcd;
+                                ContextMenuArea {
+                                    Menu {
+                                        MenuItem {
+                                            title: "Copy " + root.elapsed-text;
+                                            activated => {
+                                                root.copy-text(root.elapsed-text);
+                                            }
+                                        }
+                                    }
+                                }
                                 Clock {
                                     alignment: center;
                                     chars: root.elapsed;
@@ -1161,6 +1270,16 @@ export component CartSetupWindow inherits Window {
                                 height: 30px;
                                 border-radius: 4px;
                                 background: Theme.lcd;
+                                ContextMenuArea {
+                                    Menu {
+                                        MenuItem {
+                                            title: "Copy " + root.remaining-text;
+                                            activated => {
+                                                root.copy-text(root.remaining-text);
+                                            }
+                                        }
+                                    }
+                                }
                                 Clock {
                                     alignment: center;
                                     chars: root.remaining;
@@ -1215,6 +1334,15 @@ export component CartSetupWindow inherits Window {
                         tint: info.part-colour;
                         mirrored: true;
                         time: root.out-chars;
+                        edit-text: root.out-time;
+                        editing <=> root.out-editing;
+                        draft <=> root.out-draft;
+                        typed(t) => {
+                            root.trim-typed("out", t);
+                        }
+                        done => {
+                            keys.focus();
+                        }
                         set-text: "Set (O)";
                         nudge(d) => {
                             root.nudge("out", d);
@@ -1768,6 +1896,18 @@ export component CartSetupWindow inherits Window {
             color: Theme.text;
             font-size: 12px;
         }
+    }
+
+    // Copies text to the clipboard: put in a hidden field, selected, copied.
+    clip-field := TextInput {
+        visible: false;
+        width: 0;
+        height: 0;
+    }
+    function copy-text(t: string) {
+        clip-field.text = t;
+        clip-field.select-all();
+        clip-field.copy();
     }
 
     // The pop-up buttons' choices as a native menu (opened from Rust).

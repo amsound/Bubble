@@ -154,6 +154,32 @@ fn fmt_time(s: f64) -> String {
     format!("{}:{:05.2}", m as u32, s - m * 60.0)
 }
 
+/// A time typed or pasted into In or Out: "12.5", "0:12.50", "00:12.50" or
+/// "1:02:03.40" (a comma for the point too). A leading "-", "−" or "@" from the
+/// readouts is dropped. `None` when it is not a time.
+fn parse_time(text: &str) -> Option<f64> {
+    let t = text.trim().trim_start_matches(['-', '−', '@']).trim();
+    let parts: Vec<&str> = t.split(':').collect();
+    if t.is_empty() || parts.len() > 3 || parts.iter().any(|p| p.trim().is_empty()) {
+        return None;
+    }
+    let (last, rest) = parts.split_last()?;
+    let secs: f64 = last.trim().replace(',', ".").parse().ok()?;
+    if !secs.is_finite() || secs < 0.0 || (!rest.is_empty() && secs >= 60.0) {
+        return None;
+    }
+    let mut total = 0.0;
+    for (i, p) in rest.iter().enumerate() {
+        let v: u32 = p.trim().parse().ok()?;
+        // Minutes under an hour are under 60.
+        if i > 0 && v >= 60 {
+            return None;
+        }
+        total = total * 60.0 + v as f64;
+    }
+    Some(total * 60.0 + secs)
+}
+
 /// A file's length for the header: "00:20", "03:41", "1:02:05".
 fn length_text(s: f64) -> String {
     let t = s.max(0.0).round() as u64;
@@ -618,9 +644,15 @@ impl Setup {
     }
 
     pub fn wave_up(&mut self, x: f32, snap: &Snapshot, intents: &mut Vec<Intent>) {
-        // A click that did not drag places the cursor.
+        // A click that did not drag places the cursor; paused, it moves the playhead
+        // there too, so Play carries on from it.
         if !self.moved && matches!(self.drag, Some(Drag::Pan { .. })) {
-            self.cursor = Some(self.t_of(x));
+            let t = self.t_of(x);
+            self.cursor = Some(t);
+            if self.paused(snap) {
+                let (a, b) = self.trims();
+                intents.push(Intent::Seek(self.id, t.clamp(a, (b - MIN_LEN).max(a))));
+            }
         }
         if matches!(self.drag, Some(Drag::Playhead)) && self.playing(snap) {
             let resume = std::mem::take(&mut self.resume);
@@ -821,6 +853,27 @@ impl Setup {
         };
         let t = if h == Handle::In { a + d } else { b + d };
         self.move_handle(h, t, snap, intents);
+    }
+
+    /// In or Out typed or pasted: moves that handle there, kept inside the file and on
+    /// its side of the other. False when the text is not a time.
+    pub fn trim_typed(
+        &mut self,
+        which: &str,
+        text: &str,
+        snap: &Snapshot,
+        intents: &mut Vec<Intent>,
+    ) -> bool {
+        let Some(t) = parse_time(text) else {
+            return false;
+        };
+        let h = if which == "in" {
+            Handle::In
+        } else {
+            Handle::Out
+        };
+        self.move_handle(h, t.clamp(0.0, self.dur), snap, intents);
+        true
     }
 
     /// Where Set, I and O put a handle: the playhead while playing, else the cursor.
@@ -1274,6 +1327,9 @@ impl Setup {
         };
         win.set_elapsed(model::chars(&fmt_time(pos)));
         win.set_remaining(model::chars(&format!("−{}", fmt_time(rem))));
+        // For Copy (no minus: it pastes into In or Out).
+        win.set_elapsed_text(fmt_time(pos).into());
+        win.set_remaining_text(fmt_time(rem).into());
         win.set_running(playing && !self.paused(snap));
         let dt = self.last_meter.elapsed().as_secs_f32();
         self.last_meter = Instant::now();
@@ -1503,5 +1559,25 @@ impl Setup {
             t += step;
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn times_typed_or_pasted() {
+        assert_eq!(parse_time("12.5"), Some(12.5));
+        assert_eq!(parse_time("0:12.50"), Some(12.5));
+        assert_eq!(parse_time(" 01:02,25 "), Some(62.25));
+        assert_eq!(parse_time("1:02:03.40"), Some(3723.4));
+        assert_eq!(parse_time("−0:40.00"), Some(40.0));
+        assert_eq!(parse_time("@-00:44"), Some(44.0));
+        assert_eq!(parse_time("1:75"), None);
+        assert_eq!(parse_time("1:61:00"), None);
+        assert_eq!(parse_time("abc"), None);
+        assert_eq!(parse_time(""), None);
+        assert_eq!(parse_time("1::2"), None);
     }
 }
